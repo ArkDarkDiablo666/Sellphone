@@ -1,0 +1,225 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    @apply appearance-none bg-transparent border-0 outline-none;
+  }
+}
+
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .all-\[unset\] {
+    all: unset;
+  }
+}
+
+:root {
+  --alertwarning: rgba(228, 11, 55, 1);
+  --backgroundstertiary-dark-elevated: rgba(58, 58, 60, 1);
+  --body-emphasized-font-family: "SF Pro", Helvetica;
+  --body-emphasized-font-size: 17px;
+  --body-emphasized-font-style: normal;
+  --body-emphasized-font-weight: 400;
+  --body-emphasized-letter-spacing: -0.4300000071525574px;
+  --body-emphasized-line-height: 22px;
+  --color-system-background-base-second: var(--colors-base-white);
+  --color-system-stroke-base: var(--colors-neutral-600);
+  --color-system-text-icons-base-main: var(--colors-gray-900);
+  --colors-base-white: rgba(255, 255, 255, 1);
+  --colors-gray-900: rgba(37, 37, 37, 1);
+  --colors-neutral-200: rgba(247, 247, 249, 1);
+  --colors-neutral-600: rgba(234, 236, 240, 1);
+  --headline-regular-font-family: "SF Pro", Helvetica;
+  --headline-regular-font-size: 17px;
+  --headline-regular-font-style: normal;
+  --headline-regular-font-weight: 400;
+  --headline-regular-letter-spacing: -0.4300000071525574px;
+  --headline-regular-line-height: 22px;
+  --ios-colors-backgrounds-tertiary: rgba(255, 255, 255, 1);
+  --ios-colors-colors-blue: rgba(0, 122, 255, 1);
+  --ios-colors-colors-orange: rgba(255, 149, 0, 1);
+  --ios-colors-grays-gray: rgba(142, 142, 147, 1);
+  --ios-colors-grays-white: rgba(255, 255, 255, 1);
+  --number-system-main-system-12px: 12px;
+  --number-system-main-system-16px: 16px;
+  --number-system-main-system-8px: 8px;
+  --shadow-XSM: 0px 1px 2px 0px rgba(16, 24, 40, 0.04);
+  --text-button-semibold-large-font-family: "Plus Jakarta Sans", Helvetica;
+  --text-button-semibold-large-font-size: 15px;
+  --text-button-semibold-large-font-style: normal;
+  --text-button-semibold-large-font-weight: 700;
+  --text-button-semibold-large-letter-spacing: 0.10000000149011612px;
+  --text-button-semibold-large-line-height: 22px;
+  --title2-emphasized-font-family: "SF Pro", Helvetica;
+  --title2-emphasized-font-size: 22px;
+  --title2-emphasized-font-style: normal;
+  --title2-emphasized-font-weight: 700;
+  --title2-emphasized-letter-spacing: -0.25999999046325684px;
+  --title2-emphasized-line-height: 28px;
+  --title2-regular-font-family: "SF Pro", Helvetica;
+  --title2-regular-font-size: 22px;
+  --title2-regular-font-style: normal;
+  --title2-regular-font-weight: 400;
+  --title2-regular-letter-spacing: -0.25999999046325684px;
+  --title2-regular-line-height: 28px;
+  --title3-regular-font-family: "SF Pro", Helvetica;
+  --title3-regular-font-size: 20px;
+  --title3-regular-font-style: normal;
+  --title3-regular-font-weight: 400;
+  --title3-regular-letter-spacing: -0.44999998807907104px;
+  --title3-regular-line-height: 25px;
+}
+
+/*
+
+To enable a theme in your HTML, simply add one of the following data attributes to an HTML element, like so:
+
+<body data-ios-colors-mode="light">
+    <!-- the rest of your content -->
+</body>
+
+You can apply the theme on any DOM node, not just the `body`
+
+*/
+
+[data-ios-colors-mode="light"] {
+  --ios-colors-backgrounds-tertiary: rgba(255, 255, 255, 1);
+  --ios-colors-colors-blue: rgba(10, 22, 255, 0.824);
+  --ios-colors-colors-orange: rgb(255, 14, 10);
+}
+
+[data-ios-colors-mode="dark"] {
+  --ios-colors-backgrounds-tertiary: rgba(44, 44, 46, 1);
+  --ios-colors-colors-blue: rgba(10, 22, 255, 0.824);
+  --ios-colors-colors-orange: rgb(255, 14, 10);
+}
+
+[data-ios-colors-mode="dark-elevated"] {
+  --ios-colors-backgrounds-tertiary: rgba(58, 58, 60, 1);
+  --ios-colors-colors-blue: rgba(10, 22, 255, 0.824);
+  --ios-colors-colors-orange: rgb(255, 14, 10);
+}
+
+[data-color-system-mode="light"] {
+  --color-system-background-base-second: var(--colors-base-white);
+  --color-system-text-icons-base-main: var(--colors-gray-900);
+}
+
+[data-color-system-mode="dark"] {
+  --color-system-background-base-second: var(--colors-gray-900);
+  --color-system-text-icons-base-main: var(--colors-neutral-200);
+}
+
+:root {
+  --animate-spin: spin 1s linear infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 1s var(--animation-delay, 0s) ease forwards;
+}
+
+.animate-fade-up {
+  animation: fade-up 1s var(--animation-delay, 0s) ease forwards;
+}
+
+.animate-marquee {
+  animation: marquee var(--duration) infinite linear;
+}
+
+.animate-marquee-vertical {
+  animation: marquee-vertical var(--duration) linear infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 8s infinite;
+}
+
+.animate-spin {
+  animation: var(--animate-spin);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes image-glow {
+  0% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.74, 0.25, 0.76, 1);
+  }
+
+  10% {
+    opacity: 0.7;
+    animation-timing-function: cubic-bezier(0.12, 0.01, 0.08, 0.99);
+  }
+
+  to {
+    opacity: 0.4;
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  0%,
+  90%,
+  to {
+    background-position: calc(-100% - var(--shimmer-width)) 0;
+  }
+
+  30%,
+  60% {
+    background-position: calc(100% + var(--shimmer-width)) 0;
+  }
+}
+
+@keyframes marquee {
+  0% {
+    transform: translate(0);
+  }
+
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+  }
+}
+
+@keyframes marquee-vertical {
+  0% {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(calc(-100% - var(--gap)));
+  }
+}
