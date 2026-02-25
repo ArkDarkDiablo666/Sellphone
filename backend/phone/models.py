@@ -5,31 +5,54 @@ from django.db import models
 # USER GROUP
 # ============================================
 
+# ===== HÀM TẠO CUSTOMER ID TỰ ĐỘNG =====
+# KH001, KH002, ... KH999
+def generate_customer_id():
+    last = Customer.objects.order_by('-CustomerID').first()
+    if not last:
+        return 'KH001'
+    # Lấy số từ ID cuối, ví dụ 'KH001' → 1
+    last_num = int(last.CustomerID[2:])
+    if last_num >= 999:
+        raise ValueError("Đã đạt giới hạn 999 khách hàng")
+    return f"KH{str(last_num + 1).zfill(3)}"
+
+
 class Customer(models.Model):
-    CustomerID   = models.AutoField(primary_key=True)
-    FullName     = models.CharField(max_length=100)
-    Email        = models.EmailField(max_length=150, unique=True)
-    Password     = models.CharField(max_length=255)
-    PhoneNumber  = models.CharField(max_length=15, blank=True, null=True)
-    Address      = models.CharField(max_length=255, blank=True, null=True)
-    CreatedAt    = models.DateTimeField(auto_now_add=True)
+    LOGIN_TYPE_CHOICES = [
+        ('normal',   'Normal'),
+        ('google',   'Google'),
+        ('facebook', 'Facebook'),
+    ]
+
+    CustomerID  = models.CharField(max_length=5, primary_key=True)  # KH001 → KH999
+    FullName    = models.CharField(max_length=100)
+    Email       = models.EmailField(max_length=150, unique=True)
+    Password    = models.CharField(max_length=255, blank=True, null=True)
+    PhoneNumber = models.CharField(max_length=15, blank=True, null=True)
+    Address     = models.CharField(max_length=255, blank=True, null=True)
+    Avatar      = models.CharField(max_length=500, blank=True, null=True)
+    GoogleID    = models.CharField(max_length=100, blank=True, null=True)
+    FacebookID  = models.CharField(max_length=100, blank=True, null=True)
+    LoginType   = models.CharField(max_length=20, choices=LOGIN_TYPE_CHOICES, default='normal')
+    CreatedAt   = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'Customer'
 
     def __str__(self):
-        return self.FullName
+        return f"{self.CustomerID} - {self.FullName}"
 
 
 class Staff(models.Model):
     ROLE_CHOICES = [('Admin', 'Admin'), ('Staff', 'Staff'), ('Unentitled', 'Unentitled')]
 
-    StaffID    = models.AutoField(primary_key=True)
-    FullName   = models.CharField(max_length=100)
-    Email      = models.EmailField(max_length=150, unique=True)
-    Password   = models.CharField(max_length=255)
-    Role       = models.CharField(max_length=50, choices=ROLE_CHOICES)
-    CreatedAt  = models.DateTimeField(auto_now_add=True)
+    StaffID   = models.AutoField(primary_key=True)
+    FullName  = models.CharField(max_length=100)
+    Email     = models.EmailField(max_length=150, unique=True)
+    Password  = models.CharField(max_length=255)
+    Role      = models.CharField(max_length=50, choices=ROLE_CHOICES)
+    CreatedAt = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'Staff'
@@ -116,7 +139,7 @@ class Cart(models.Model):
 
     class Meta:
         db_table = 'Cart'
-        unique_together = ('CustomerID', 'VariantID')  # Composite PK
+        unique_together = ('CustomerID', 'VariantID')
 
 
 class Order(models.Model):
@@ -150,15 +173,13 @@ class OrderDetail(models.Model):
 
     class Meta:
         db_table = 'OrderDetail'
-        unique_together = ('OrderID', 'VariantID')  # Composite PK
+        unique_together = ('OrderID', 'VariantID')
 
     def save(self, *args, **kwargs):
-        # Tự động trừ tồn kho khi tạo OrderDetail
         if not self.pk:
             variant = self.VariantID
             variant.StockQuantity -= self.Quantity
             variant.save()
-            # Xóa khỏi giỏ hàng sau khi mua
             Cart.objects.filter(
                 CustomerID=self.OrderID.CustomerID,
                 VariantID=self.VariantID

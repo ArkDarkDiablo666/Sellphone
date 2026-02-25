@@ -8,10 +8,11 @@ import { useGoogleLogin } from "@react-oauth/google";
 import FacebookLogin from "@greatsumini/react-facebook-login";
 
 const FACEBOOK_APP_ID = "2817792315239726";
+const API = "http://localhost:8000";
 
-// ===== HÀM LƯU USER VÀO LOCALSTORAGE =====
-// Dùng lại ở bất kỳ đâu: const user = JSON.parse(localStorage.getItem("user"))
-// user.fullName, user.email, user.avatar, user.loginType
+// Lưu user vào localStorage
+// Dùng lại: const user = JSON.parse(localStorage.getItem("user"))
+// user.id, user.fullName, user.email, user.avatar, user.loginType
 const saveUser = (data) => {
   localStorage.setItem("user", JSON.stringify(data));
 };
@@ -34,7 +35,11 @@ export default function Login() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  // ===== ĐĂNG NHẬP / ĐĂNG KÝ THƯỜNG =====
+  // ============================================
+  // ĐĂNG KÝ / ĐĂNG NHẬP THƯỜNG
+  // Đăng ký: gửi full_name + email + password → /api/auth/register/
+  // Đăng nhập: gửi email + password → /api/auth/login/
+  // ============================================
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -44,24 +49,22 @@ export default function Login() {
     }
 
     const url = isLogin
-      ? "http://localhost:8000/api/auth/login/"
-      : "http://localhost:8000/api/auth/register/";
+      ? `${API}/api/auth/login/`
+      : `${API}/api/auth/register/`;
+
+    const body = isLogin
+      ? { email: form.email, password: form.password }
+      : { full_name: form.fullname, email: form.email, password: form.password };
 
     try {
-      const res = await fetch(url, {
-        method: "POST",
+      const res  = await fetch(url, {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          full_name: form.fullname,
-          email:     form.email,
-          password:  form.password,
-        }),
+        body:    JSON.stringify(body),
       });
-
       const data = await res.json();
 
       if (res.ok) {
-        // Lưu thông tin user
         saveUser({
           id:        data.customer.id,
           fullName:  data.customer.full_name,
@@ -73,85 +76,179 @@ export default function Login() {
       } else {
         alert(data.message || "Có lỗi xảy ra");
       }
-    } catch (err) {
+    } catch {
       alert("Không thể kết nối server");
     }
   };
 
-  // ===== GOOGLE LOGIN =====
+  // ============================================
+  // GOOGLE
+  // Đăng ký: gửi google_id + full_name + email + avatar → /api/auth/google/register/
+  // Đăng nhập: gửi full_name + email → /api/auth/google/login/
+  // ============================================
   const loginGoogle = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       try {
         // Lấy thông tin từ Google
-        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        const gRes    = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
         });
-        const profile = await res.json();
+        const profile = await gRes.json();
 
-        // Gửi lên Django backend
-        const backendRes = await fetch("http://localhost:8000/api/auth/google/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            google_id:  profile.sub,
-            full_name:  profile.name,
-            email:      profile.email,
-            avatar:     profile.picture,
-            login_type: "google",
-          }),
-        });
+        if (isLogin) {
+          // ĐĂNG NHẬP: kiểm tra full_name + email trong database
+          const res  = await fetch(`${API}/api/auth/google/login/`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({
+              full_name: profile.name,
+              email:     profile.email,
+            }),
+          });
+          const data = await res.json();
 
-        const data = await backendRes.json();
+          if (res.ok) {
+            saveUser({
+              id:        data.customer.id,
+              fullName:  profile.name,
+              email:     profile.email,
+              avatar:    profile.picture,
+              loginType: "google",
+            });
+            navigate("/");
+          } else {
+            alert(data.message);
+          }
 
-        // Lưu thông tin user
-        saveUser({
-          id:        data.customer.id,
-          fullName:  profile.name,
-          email:     profile.email,
-          avatar:    profile.picture,
-          loginType: "google",
-        });
+        } else {
+          // ĐĂNG KÝ: gửi google_id + full_name + email + avatar
+          const res  = await fetch(`${API}/api/auth/google/register/`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({
+              google_id: profile.sub,
+              full_name: profile.name,
+              email:     profile.email,
+              avatar:    profile.picture,
+            }),
+          });
+          const data = await res.json();
 
-        navigate("/");
-      } catch (err) {
-        alert("Đăng nhập Google thất bại");
+          if (res.ok) {
+            saveUser({
+              id:        data.customer.id,
+              fullName:  profile.name,
+              email:     profile.email,
+              avatar:    profile.picture,
+              loginType: "google",
+            });
+            navigate("/");
+          } else {
+            alert(data.message);
+          }
+        }
+      } catch {
+        alert("Lỗi kết nối Google");
       }
     },
     onError: () => alert("Đăng nhập Google thất bại"),
   });
 
-  // ===== FACEBOOK LOGIN =====
+  // ============================================
+  // FACEBOOK
+  // Đăng ký: gửi facebook_id + full_name + email + avatar → /api/auth/facebook/register/
+  // Đăng nhập: gửi full_name + email → /api/auth/facebook/login/
+  // ============================================
   const handleFacebookSuccess = async (response) => {
-    try {
-      // Gửi lên Django backend
-      const backendRes = await fetch("http://localhost:8000/api/auth/facebook/", {
+  console.log("Facebook raw response:", response);
+
+  try {
+    // 🔑 Lấy access token
+    const accessToken = response.accessToken;
+
+    if (!accessToken) {
+      alert("Không nhận được access token từ Facebook");
+      return;
+    }
+
+    // ✅ Gọi Graph API để lấy name + email + picture
+    const fbRes = await fetch(
+      `https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`
+    );
+
+    const profile = await fbRes.json();
+    console.log("Facebook profile:", profile);
+
+    const full_name   = profile.name || "";
+    const email       = profile.email || "";
+    const avatar      = profile.picture?.data?.url || "";
+    const facebook_id = profile.id;
+
+    if (!full_name || !email) {
+      alert("Facebook không trả về email hoặc tên");
+      return;
+    }
+
+    if (isLogin) {
+      // ===== ĐĂNG NHẬP =====
+      const res = await fetch(`${API}/api/auth/facebook/login/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          facebook_id: response.id,
-          full_name:   response.name,
-          email:       response.email || "",
-          avatar:      response.picture?.data?.url || "",
-          login_type:  "facebook",
+          full_name,
+          email,
         }),
       });
 
-      const data = await backendRes.json();
+      const data = await res.json();
 
-      // Lưu thông tin user
-      saveUser({
-        id:        data.customer.id,
-        fullName:  response.name,
-        email:     response.email || "",
-        avatar:    response.picture?.data?.url || "",
-        loginType: "facebook",
+      if (res.ok) {
+        saveUser({
+          id: data.customer.id,
+          fullName: full_name,
+          email: email,
+          avatar: avatar,
+          loginType: "facebook",
+        });
+        navigate("/");
+      } else {
+        alert(data.message);
+      }
+
+    } else {
+      // ===== ĐĂNG KÝ =====
+      const res = await fetch(`${API}/api/auth/facebook/register/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          facebook_id,
+          full_name,
+          email,
+          avatar,
+        }),
       });
 
-      navigate("/");
-    } catch (err) {
-      alert("Đăng nhập Facebook thất bại");
+      const data = await res.json();
+
+      if (res.ok) {
+        saveUser({
+          id: data.customer.id,
+          fullName: full_name,
+          email: email,
+          avatar: avatar,
+          loginType: "facebook",
+        });
+        navigate("/");
+      } else {
+        alert(data.message);
+      }
     }
-  };
+
+  } catch (error) {
+    console.error("Facebook login error:", error);
+    alert("Lỗi khi xử lý đăng nhập Facebook");
+  }
+};
 
   return (
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
@@ -201,6 +298,7 @@ export default function Login() {
           <form onSubmit={handleSubmit} autoComplete="off" className="w-full mt-[20px] flex flex-col">
             <div className="flex flex-col gap-[20px]">
 
+              {/* Họ tên - chỉ hiện khi đăng ký thường */}
               {!isLogin && (
                 <input
                   name="fullname"
@@ -241,6 +339,7 @@ export default function Login() {
                 </button>
               </div>
 
+              {/* NHẬP LẠI MẬT KHẨU - chỉ khi đăng ký */}
               {!isLogin && (
                 <div className="relative">
                   <input
@@ -301,6 +400,7 @@ export default function Login() {
               {/* FACEBOOK */}
               <FacebookLogin
                 appId={FACEBOOK_APP_ID}
+                scope="email"
                 onSuccess={handleFacebookSuccess}
                 onFail={(err) => {
                   console.error("Facebook error:", err);
