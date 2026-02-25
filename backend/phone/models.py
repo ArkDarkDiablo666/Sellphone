@@ -22,7 +22,7 @@ class Customer(models.Model):
 
 
 class Staff(models.Model):
-    ROLE_CHOICES = [('Admin', 'Admin'), ('Staff', 'Staff')]
+    ROLE_CHOICES = [('Admin', 'Admin'), ('Staff', 'Staff'), ('Unentitled', 'Unentitled')]
 
     StaffID    = models.AutoField(primary_key=True)
     FullName   = models.CharField(max_length=100)

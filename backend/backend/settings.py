@@ -76,7 +76,7 @@ WSGI_APPLICATION = "backend.wsgi.application"
 
 DATABASES = {
     'default': {
-        'ENGINE': 'sql_server.pyodbc',
+        'ENGINE': 'mssql',          # ← đổi từ sql_server.pyodbc thành mssql
         'NAME': 'Sellphone',
         'HOST': 'ARK\\ARK',
         'PORT': '',
@@ -84,11 +84,9 @@ DATABASES = {
         'PASSWORD': 'Ark40029071@',
         'OPTIONS': {
             'driver': 'ODBC Driver 17 for SQL Server',
-            'unicode_results': True,
         },
     }
 }
-
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 

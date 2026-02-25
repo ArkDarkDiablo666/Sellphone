@@ -27,7 +27,7 @@ CREATE TABLE Staff (
     FullName        NVARCHAR(100)   NOT NULL,
     Email           VARCHAR(150)    NOT NULL UNIQUE,
     Password        VARCHAR(255)    NOT NULL,
-    Role            VARCHAR(50)     NOT NULL CHECK (Role IN ('Admin', 'Staff')),
+    Role            VARCHAR(50)     NOT NULL CHECK (Role IN ('Admin', 'Staff', 'Unentitled')),
     CreatedAt       DATETIME        DEFAULT GETDATE()
 );
 
