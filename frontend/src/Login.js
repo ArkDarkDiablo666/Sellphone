@@ -356,6 +356,7 @@ export default function Login() {
               <FacebookLogin
                 appId={FACEBOOK_APP_ID}
                 scope="public_profile"
+                fields="id,name,email,picture"
                 onSuccess={handleFacebookSuccess}
                 onFail={(err) => { console.error(err); alert("Đăng nhập Facebook thất bại"); }}
                 render={({ onClick }) => (

@@ -31,7 +31,7 @@ class Customer(models.Model):
     Password    = models.CharField(max_length=255, blank=True, null=True)
     PhoneNumber = models.CharField(max_length=15, blank=True, null=True)
     Address     = models.CharField(max_length=255, blank=True, null=True)
-    Avatar      = models.CharField(max_length=500, blank=True, null=True)
+    Avatar      = models.TextField(blank=True, null=True)
     GoogleID    = models.CharField(max_length=100, blank=True, null=True)
     FacebookID  = models.CharField(max_length=100, blank=True, null=True)
     LoginType   = models.CharField(max_length=20, choices=LOGIN_TYPE_CHOICES, default='normal')

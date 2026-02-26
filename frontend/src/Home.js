@@ -36,10 +36,10 @@ export default function Home() {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
 
       {/* ===== Main Content ===== */}
-      <div className="relative z-10">
+      <div className="relative z-10 pt-24">
 
         {/* ===== NAVBAR ===== */}
-        <nav className="flex justify-between items-center px-10 py-5 backdrop-blur-md bg-white/5 border-b border-white/10">
+        <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-5 backdrop-blur-md bg-black/70 border-b border-white/10">
 
           {/* Logo */}
           <div className="text-2xl font-bold tracking-wide">
@@ -65,7 +65,15 @@ export default function Home() {
             </button>
 
             <button onClick={handleUserClick}>
-              <User className="hover:text-white transition" size={22} />
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt="avatar"
+                  className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20"
+                />
+              ) : (
+                <User className="hover:text-white transition" size={22} />
+              )}
             </button>
           </div>
         </nav>

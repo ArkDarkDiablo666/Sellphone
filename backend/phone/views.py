@@ -1,4 +1,4 @@
-import hashlib
+from django.contrib.auth.hashers import make_password, check_password
 import random
 from django.core.mail import send_mail
 from django.conf import settings
@@ -13,7 +13,7 @@ otp_storage = {}
 
 # ===== HASH MẬT KHẨU =====
 def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+    return make_password(password)
 
 
 # ===== FORMAT DỮ LIỆU TRẢ VỀ =====
@@ -122,7 +122,7 @@ def login_normal(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if existing.Password != hash_password(password):
+    if not check_password(password, existing.Password):
         return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
 
     return Response({"message": "Đăng nhập thành công", "customer": customer_data(existing)}, status=status.HTTP_200_OK)
@@ -333,3 +333,86 @@ def reset_password(request):
         del otp_storage[email]
 
     return Response({"message": "Đặt lại mật khẩu thành công"}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 10: LẤY THÔNG TIN CUSTOMER
+# GET /api/customer/<id>/
+# ============================================
+@api_view(['GET'])
+def get_customer(request, customer_id):
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({
+        "id":           customer.CustomerID,
+        "full_name":    customer.FullName,
+        "email":        customer.Email,
+        "phone_number": customer.PhoneNumber or "",
+        "address":      customer.Address or "",
+        "avatar":       customer.Avatar or "",
+        "login_type":   customer.LoginType,
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 11: CẬP NHẬT SỐ ĐIỆN THOẠI / ĐỊA CHỈ
+# POST /api/customer/update/
+# Body: { id, phone_number? , address? }
+# ============================================
+@api_view(['POST'])
+def update_customer(request):
+    customer_id = request.data.get('id', '').strip()
+    phone       = request.data.get('phone_number', None)
+    address     = request.data.get('address', None)
+
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    avatar = request.data.get('avatar', None)
+
+    if phone is not None:
+        customer.PhoneNumber = phone.strip()
+    if address is not None:
+        customer.Address = address.strip()
+    if avatar is not None:
+        customer.Avatar = avatar
+
+    customer.save()
+
+    return Response({"message": "Cập nhật thành công"}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 12: ĐỔI MẬT KHẨU (khi đã đăng nhập)
+# POST /api/customer/change-password/
+# Body: { id, current_password, new_password }
+# ============================================
+@api_view(['POST'])
+def change_password(request):
+    customer_id      = request.data.get('id', '').strip()
+    current_password = request.data.get('current_password', '').strip()
+    new_password     = request.data.get('new_password', '').strip()
+
+    if not customer_id or not current_password or not new_password:
+        return Response({"message": "Vui lòng điền đầy đủ thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if ' ' in new_password:
+        return Response({"message": "Mật khẩu không được chứa dấu cách"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(new_password) < 6:
+        return Response({"message": "Mật khẩu phải có ít nhất 6 ký tự"}, status=status.HTTP_400_BAD_REQUEST)
+
+    customer = Customer.objects.filter(CustomerID=customer_id, LoginType='normal').first()
+    if not customer:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    if not check_password(current_password, customer.Password):
+        return Response({"message": "Mật khẩu hiện tại không đúng"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    customer.Password = hash_password(new_password)
+    customer.save()
+
+    return Response({"message": "Đổi mật khẩu thành công"}, status=status.HTTP_200_OK)

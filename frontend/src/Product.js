@@ -31,7 +31,7 @@ export default function Product() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-black to-slate-950 text-white">
 
-      <nav className="flex justify-between items-center px-10 py-5 bg-white/5 backdrop-blur-lg border-b border-white/10">
+      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-5 backdrop-blur-md bg-black/70 border-b border-white/10">
         <div className="text-2xl font-bold text-white">
           PHONEZONE
         </div>
@@ -47,7 +47,15 @@ export default function Product() {
             <ShoppingCart size={22} />
           </button>
           <button onClick={handleUserClick}>
-            <User size={22} />
+            {user?.avatar ? (
+              <img
+                src={user.avatar}
+                alt="avatar"
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20"
+              />
+            ) : (
+              <User size={22} />
+            )}
           </button>
         </div>
       </nav>

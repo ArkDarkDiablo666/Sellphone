@@ -18,7 +18,12 @@ urlpatterns = [
     path('auth/facebook/login/',     views.login_facebook),
 
     # Quên mật khẩu
-    path('auth/forgot-password/',    views.forgot_password),   # Gửi OTP
-    path('auth/verify-otp/',         views.verify_otp),        # Xác nhận OTP
-    path('auth/reset-password/',     views.reset_password),    # Đặt lại mật khẩu
+    path('auth/forgot-password/',    views.forgot_password),
+    path('auth/verify-otp/',         views.verify_otp),
+    path('auth/reset-password/',     views.reset_password),
+
+    # Thông tin customer
+    path('customer/update/',                views.update_customer),
+    path('customer/change-password/',       views.change_password),
+    path('customer/<str:customer_id>/',     views.get_customer),
 ]
