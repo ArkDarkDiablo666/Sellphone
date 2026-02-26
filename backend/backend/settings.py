@@ -130,3 +130,11 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOW_ALL_ORIGINS = True
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'ark666diablo@gmail.com'  # Email của bạn
+EMAIL_HOST_PASSWORD = 'jcxkdrngdwcvaxse'  # Mật khẩu ứng dụng bạn vừa tạo
+DEFAULT_FROM_EMAIL = 'ark666diablo@gmail.com'

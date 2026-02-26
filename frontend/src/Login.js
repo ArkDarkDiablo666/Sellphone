@@ -10,9 +10,6 @@ import FacebookLogin from "@greatsumini/react-facebook-login";
 const FACEBOOK_APP_ID = "2817792315239726";
 const API = "http://localhost:8000";
 
-// Lưu user vào localStorage
-// Dùng lại: const user = JSON.parse(localStorage.getItem("user"))
-// user.id, user.fullName, user.email, user.avatar, user.loginType
 const saveUser = (data) => {
   localStorage.setItem("user", JSON.stringify(data));
 };
@@ -21,6 +18,7 @@ export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [errors, setErrors] = useState({});
 
   const [form, setForm] = useState({
     fullname: "",
@@ -31,233 +29,196 @@ export default function Login() {
 
   const navigate = useNavigate();
 
+  // ===== HANDLE CHANGE - controlled input =====
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
-  // ============================================
-  // ĐĂNG KÝ / ĐĂNG NHẬP THƯỜNG
-  // Đăng ký: gửi full_name + email + password → /api/auth/register/
-  // Đăng nhập: gửi email + password → /api/auth/login/
-  // ============================================
+  // ===== VALIDATE =====
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!isLogin && !form.fullname.trim())
+      newErrors.fullname = "Vui lòng nhập họ và tên";
+
+    if (!form.email.trim())
+      newErrors.email = "Vui lòng nhập email";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+      newErrors.email = "Email không hợp lệ";
+
+    if (!form.password.trim())
+      newErrors.password = "Vui lòng nhập mật khẩu";
+    else if (form.password.length < 6)
+      newErrors.password = "Mật khẩu phải có ít nhất 6 ký tự";
+
+    if (!isLogin) {
+      if (!form.confirm.trim())
+        newErrors.confirm = "Vui lòng nhập lại mật khẩu";
+      else if (form.password !== form.confirm)
+        newErrors.confirm = "Mật khẩu không trùng khớp";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // ===== ĐĂNG KÝ / ĐĂNG NHẬP THƯỜNG =====
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validateForm()) return;
 
-    if (!isLogin && form.password !== form.confirm) {
-      alert("Mật khẩu không trùng khớp");
-      return;
-    }
-
-    const url = isLogin
-      ? `${API}/api/auth/login/`
-      : `${API}/api/auth/register/`;
-
-    const body = isLogin
-      ? { email: form.email, password: form.password }
-      : { full_name: form.fullname, email: form.email, password: form.password };
-
-    try {
-      const res  = await fetch(url, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        saveUser({
-          id:        data.customer.id,
-          fullName:  data.customer.full_name,
-          email:     data.customer.email,
-          avatar:    data.customer.avatar || "",
-          loginType: "normal",
+    if (isLogin) {
+      // ĐĂNG NHẬP
+      try {
+        const res  = await fetch(`${API}/api/auth/login/`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ email: form.email, password: form.password }),
         });
-        navigate("/");
-      } else {
-        alert(data.message || "Có lỗi xảy ra");
+        const data = await res.json();
+        if (res.ok) {
+          saveUser({
+            id:        data.customer.id,
+            fullName:  data.customer.full_name,
+            email:     data.customer.email,
+            avatar:    data.customer.avatar || "",
+            loginType: "normal",
+          });
+          navigate("/");
+        } else {
+          if (data.field === "email")       setErrors({ email: data.message });
+          else if (data.field === "password") setErrors({ password: data.message });
+          else                               setErrors({ general: data.message });
+        }
+      } catch {
+        setErrors({ general: "Không thể kết nối server" });
       }
-    } catch {
-      alert("Không thể kết nối server");
+
+    } else {
+      // ĐĂNG KÝ - check email trước
+      try {
+        const checkRes  = await fetch(`${API}/api/auth/check-email/`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ email: form.email }),
+        });
+        const checkData = await checkRes.json();
+        if (!checkRes.ok) {
+          setErrors({ email: checkData.message });
+          return;
+        }
+
+        // Email hợp lệ → đăng ký
+        const res  = await fetch(`${API}/api/auth/register/`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({
+            full_name: form.fullname,
+            email:     form.email,
+            password:  form.password,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          saveUser({
+            id:        data.customer.id,
+            fullName:  data.customer.full_name,
+            email:     data.customer.email,
+            avatar:    data.customer.avatar || "",
+            loginType: "normal",
+          });
+          navigate("/");
+        } else {
+          setErrors({ general: data.message });
+        }
+      } catch {
+        setErrors({ general: "Không thể kết nối server" });
+      }
     }
   };
 
-  // ============================================
-  // GOOGLE
-  // Đăng ký: gửi google_id + full_name + email + avatar → /api/auth/google/register/
-  // Đăng nhập: gửi full_name + email → /api/auth/google/login/
-  // ============================================
+  // ===== GOOGLE =====
   const loginGoogle = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       try {
-        // Lấy thông tin từ Google
         const gRes    = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
         });
         const profile = await gRes.json();
 
         if (isLogin) {
-          // ĐĂNG NHẬP: kiểm tra full_name + email trong database
           const res  = await fetch(`${API}/api/auth/google/login/`, {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({
-              full_name: profile.name,
-              email:     profile.email,
-            }),
+            body:    JSON.stringify({ full_name: profile.name, email: profile.email }),
           });
           const data = await res.json();
-
           if (res.ok) {
-            saveUser({
-              id:        data.customer.id,
-              fullName:  profile.name,
-              email:     profile.email,
-              avatar:    profile.picture,
-              loginType: "google",
-            });
+            saveUser({ id: data.customer.id, fullName: profile.name, email: profile.email, avatar: profile.picture, loginType: "google" });
             navigate("/");
-          } else {
-            alert(data.message);
-          }
-
+          } else { alert(data.message); }
         } else {
-          // ĐĂNG KÝ: gửi google_id + full_name + email + avatar
           const res  = await fetch(`${API}/api/auth/google/register/`, {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({
-              google_id: profile.sub,
-              full_name: profile.name,
-              email:     profile.email,
-              avatar:    profile.picture,
-            }),
+            body:    JSON.stringify({ google_id: profile.sub, full_name: profile.name, email: profile.email, avatar: profile.picture }),
           });
           const data = await res.json();
-
           if (res.ok) {
-            saveUser({
-              id:        data.customer.id,
-              fullName:  profile.name,
-              email:     profile.email,
-              avatar:    profile.picture,
-              loginType: "google",
-            });
+            saveUser({ id: data.customer.id, fullName: profile.name, email: profile.email, avatar: profile.picture, loginType: "google" });
             navigate("/");
-          } else {
-            alert(data.message);
-          }
+          } else { alert(data.message); }
         }
-      } catch {
-        alert("Lỗi kết nối Google");
-      }
+      } catch { alert("Lỗi kết nối Google"); }
     },
     onError: () => alert("Đăng nhập Google thất bại"),
   });
 
-  // ============================================
-  // FACEBOOK
-  // Đăng ký: gửi facebook_id + full_name + email + avatar → /api/auth/facebook/register/
-  // Đăng nhập: gửi full_name + email → /api/auth/facebook/login/
-  // ============================================
+  // ===== FACEBOOK =====
   const handleFacebookSuccess = async (response) => {
-  console.log("Facebook raw response:", response);
+    try {
+      const accessToken = response.accessToken;
+      if (!accessToken) { alert("Không nhận được token Facebook"); return; }
 
-  try {
-    // 🔑 Lấy access token
-    const accessToken = response.accessToken;
+      const fbRes   = await fetch(`https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`);
+      const profile = await fbRes.json();
 
-    if (!accessToken) {
-      alert("Không nhận được access token từ Facebook");
-      return;
-    }
+      const full_name   = profile.name || "";
+      const email       = profile.email || "";
+      const avatar      = profile.picture?.data?.url || "";
+      const facebook_id = profile.id;
 
-    // ✅ Gọi Graph API để lấy name + email + picture
-    const fbRes = await fetch(
-      `https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`
-    );
-
-    const profile = await fbRes.json();
-    console.log("Facebook profile:", profile);
-
-    const full_name   = profile.name || "";
-    const email       = profile.email || "";
-    const avatar      = profile.picture?.data?.url || "";
-    const facebook_id = profile.id;
-
-    if (!full_name || !email) {
-      alert("Facebook không trả về email hoặc tên");
-      return;
-    }
-
-    if (isLogin) {
-      // ===== ĐĂNG NHẬP =====
-      const res = await fetch(`${API}/api/auth/facebook/login/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          full_name,
-          email,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        saveUser({
-          id: data.customer.id,
-          fullName: full_name,
-          email: email,
-          avatar: avatar,
-          loginType: "facebook",
+      if (isLogin) {
+        const res  = await fetch(`${API}/api/auth/facebook/login/`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ full_name, email }),
         });
-        navigate("/");
+        const data = await res.json();
+        if (res.ok) {
+          saveUser({ id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" });
+          navigate("/");
+        } else { alert(data.message); }
       } else {
-        alert(data.message);
-      }
-
-    } else {
-      // ===== ĐĂNG KÝ =====
-      const res = await fetch(`${API}/api/auth/facebook/register/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          facebook_id,
-          full_name,
-          email,
-          avatar,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        saveUser({
-          id: data.customer.id,
-          fullName: full_name,
-          email: email,
-          avatar: avatar,
-          loginType: "facebook",
+        const res  = await fetch(`${API}/api/auth/facebook/register/`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ facebook_id, full_name, email, avatar }),
         });
-        navigate("/");
-      } else {
-        alert(data.message);
+        const data = await res.json();
+        if (res.ok) {
+          saveUser({ id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" });
+          navigate("/");
+        } else { alert(data.message); }
       }
-    }
-
-  } catch (error) {
-    console.error("Facebook login error:", error);
-    alert("Lỗi khi xử lý đăng nhập Facebook");
-  }
-};
+    } catch { alert("Lỗi khi xử lý đăng nhập Facebook"); }
+  };
 
   return (
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
-      {/* Background */}
-      <img
-        src={bg}
-        alt="background"
-        className="absolute inset-0 w-full h-full object-cover blur-md brightness-75 scale-110"
-      />
+      <img src={bg} alt="background" className="absolute inset-0 w-full h-full object-cover blur-md brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
@@ -271,112 +232,109 @@ export default function Login() {
 
           {/* TAB */}
           <div className="relative w-[260px] h-[44px] bg-gray-700/60 rounded-full">
-            <div
-              className={`absolute top-1 left-1 h-[36px] w-[calc(50%-4px)] 
-              rounded-full bg-gray-300 transition-all duration-300
-              ${isLogin ? "translate-x-[calc(100%+2px)]" : "translate-x-0"}`}
-            ></div>
+            <div className={`absolute top-1 left-1 h-[36px] w-[calc(50%-4px)] rounded-full bg-gray-300 transition-all duration-300 ${isLogin ? "translate-x-[calc(100%+2px)]" : "translate-x-0"}`}></div>
             <div className="relative z-10 flex w-full h-full">
-              <button
-                type="button"
-                onClick={() => setIsLogin(false)}
-                className={`w-1/2 text-sm font-medium transition ${!isLogin ? "text-black" : "text-gray-300"}`}
-              >
+              <button type="button" onClick={() => { setIsLogin(false); setErrors({}); setForm({ fullname: "", email: "", password: "", confirm: "" }); }}
+                className={`w-1/2 text-sm font-medium transition ${!isLogin ? "text-black" : "text-gray-300"}`}>
                 Đăng ký
               </button>
-              <button
-                type="button"
-                onClick={() => setIsLogin(true)}
-                className={`w-1/2 text-sm font-medium transition ${isLogin ? "text-black" : "text-gray-300"}`}
-              >
+              <button type="button" onClick={() => { setIsLogin(true); setErrors({}); setForm({ fullname: "", email: "", password: "", confirm: "" }); }}
+                className={`w-1/2 text-sm font-medium transition ${isLogin ? "text-black" : "text-gray-300"}`}>
                 Đăng nhập
               </button>
             </div>
           </div>
 
           {/* FORM */}
-          <form onSubmit={handleSubmit} autoComplete="off" className="w-full mt-[20px] flex flex-col">
-            <div className="flex flex-col gap-[20px]">
+          <form onSubmit={handleSubmit} className="w-full mt-[20px]">
+            <div className="flex flex-col gap-[14px]">
 
-              {/* Họ tên - chỉ hiện khi đăng ký thường */}
+              {errors.general && <p className="text-red-400 text-sm text-center">{errors.general}</p>}
+
+              {/* HỌ TÊN */}
               {!isLogin && (
-                <input
-                  name="fullname"
-                  placeholder="Họ và tên"
-                  onChange={handleChange}
-                  required
-                  className="w-full p-3 pl-6 rounded-full bg-transparent border border-white/40 text-white placeholder-gray-400 focus:ring-2 focus:ring-white/60 outline-none transition"
-                />
-              )}
-
-              <input
-                name="email"
-                type="email"
-                autoComplete="off"
-                placeholder="Email"
-                onChange={handleChange}
-                required
-                className="w-full p-3 pl-6 rounded-full bg-transparent border border-white/40 text-white placeholder-gray-400 focus:ring-2 focus:ring-white/60 outline-none transition"
-              />
-
-              {/* PASSWORD */}
-              <div className="relative">
-                <input
-                  name="password"
-                  type={showPass ? "text" : "password"}
-                  autoComplete="new-password"
-                  placeholder="Mật khẩu"
-                  onChange={handleChange}
-                  required
-                  className="w-full p-3 pl-6 pr-12 rounded-full bg-transparent border border-white/40 text-white placeholder-gray-400 focus:ring-2 focus:ring-white/60 outline-none transition"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(!showPass)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                >
-                  {showPass ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
-              </div>
-
-              {/* NHẬP LẠI MẬT KHẨU - chỉ khi đăng ký */}
-              {!isLogin && (
-                <div className="relative">
+                <div>
                   <input
-                    name="confirm"
-                    type={showConfirm ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder="Nhập lại mật khẩu"
+                    name="fullname"
+                    value={form.fullname}
                     onChange={handleChange}
-                    required
-                    className="w-full p-3 pl-6 pr-12 rounded-full bg-transparent border border-white/40 text-white placeholder-gray-400 focus:ring-2 focus:ring-white/60 outline-none transition"
+                    placeholder="Họ và tên"
+                    className={`w-full p-3 pl-6 rounded-full bg-transparent border text-white placeholder-gray-400 focus:ring-2 outline-none transition
+                      ${errors.fullname ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirm(!showConfirm)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                  >
-                    {showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
-                  </button>
+                  {errors.fullname && <p className="text-red-400 text-xs pl-4 mt-1">{errors.fullname}</p>}
                 </div>
               )}
 
+              {/* EMAIL */}
+              <div>
+                <input
+                  name="email"
+                  type="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  placeholder="Email"
+                  className={`w-full p-3 pl-6 rounded-full bg-transparent border text-white placeholder-gray-400 focus:ring-2 outline-none transition
+                    ${errors.email ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
+                />
+                {errors.email && <p className="text-red-400 text-xs pl-4 mt-1">{errors.email}</p>}
+              </div>
+
+              {/* MẬT KHẨU */}
+              <div>
+                <div className="relative">
+                  <input
+                    name="password"
+                    type={showPass ? "text" : "password"}
+                    value={form.password}
+                    onChange={handleChange}
+                    placeholder="Mật khẩu"
+                    className={`w-full p-3 pl-6 pr-12 rounded-full bg-transparent border text-white placeholder-gray-400 focus:ring-2 outline-none transition
+                      ${errors.password ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
+                  />
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    {showPass ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+                {errors.password && <p className="text-red-400 text-xs pl-4 mt-1">{errors.password}</p>}
+              </div>
+
+              {/* NHẬP LẠI MẬT KHẨU */}
+              {!isLogin && (
+                <div>
+                  <div className="relative">
+                    <input
+                      name="confirm"
+                      type={showConfirm ? "text" : "password"}
+                      value={form.confirm}
+                      onChange={handleChange}
+                      placeholder="Nhập lại mật khẩu"
+                      className={`w-full p-3 pl-6 pr-12 rounded-full bg-transparent border text-white placeholder-gray-400 focus:ring-2 outline-none transition
+                        ${errors.confirm ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
+                    />
+                    <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                      {showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                  </div>
+                  {errors.confirm && <p className="text-red-400 text-xs pl-4 mt-1">{errors.confirm}</p>}
+                </div>
+              )}
+
+              {/* QUÊN MẬT KHẨU */}
               {isLogin && (
-                <div className="flex justify-end -mt-[10px]">
-                  <button
-                    type="button"
-                    onClick={() => navigate("/login/forgot_password")}
-                    className="text-sm text-blue-400 hover:underline"
-                  >
+                <div className="flex justify-end -mt-[4px]">
+                  <button type="button" onClick={() => navigate("/login/forgot_password")}
+                    className="text-sm text-blue-400 hover:underline">
                     Quên mật khẩu?
                   </button>
                 </div>
               )}
 
-              <button
-                type="submit"
-                className="p-3 rounded-full bg-gray-300 hover:bg-white text-black font-semibold transition"
-              >
+              {/* SUBMIT */}
+              <button type="submit"
+                className="p-3 rounded-full bg-gray-300 hover:bg-white text-black font-semibold transition">
                 {isLogin ? "Đăng nhập" : "Đăng ký"}
               </button>
 
@@ -388,11 +346,8 @@ export default function Login() {
               </div>
 
               {/* GOOGLE */}
-              <button
-                type="button"
-                onClick={() => loginGoogle()}
-                className="flex items-center justify-center gap-3 p-3 rounded-full bg-white text-black font-medium hover:opacity-90 transition"
-              >
+              <button type="button" onClick={() => loginGoogle()}
+                className="flex items-center justify-center gap-3 p-3 rounded-full bg-white text-black font-medium hover:opacity-90 transition">
                 <FcGoogle size={20} />
                 {isLogin ? "Đăng nhập bằng Google" : "Đăng ký bằng Google"}
               </button>
@@ -400,19 +355,12 @@ export default function Login() {
               {/* FACEBOOK */}
               <FacebookLogin
                 appId={FACEBOOK_APP_ID}
-                scope="email"
+                scope="public_profile"
                 onSuccess={handleFacebookSuccess}
-                onFail={(err) => {
-                  console.error("Facebook error:", err);
-                  alert("Đăng nhập Facebook thất bại");
-                }}
-                fields="name,email,picture"
+                onFail={(err) => { console.error(err); alert("Đăng nhập Facebook thất bại"); }}
                 render={({ onClick }) => (
-                  <button
-                    type="button"
-                    onClick={onClick}
-                    className="flex items-center justify-center gap-3 p-3 rounded-full bg-blue-600 text-white font-medium hover:bg-blue-700 transition"
-                  >
+                  <button type="button" onClick={onClick}
+                    className="flex items-center justify-center gap-3 p-3 rounded-full bg-blue-600 text-white font-medium hover:bg-blue-700 transition">
                     <FaFacebookF size={18} />
                     {isLogin ? "Đăng nhập bằng Facebook" : "Đăng ký bằng Facebook"}
                   </button>
