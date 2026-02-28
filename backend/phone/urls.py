@@ -23,6 +23,7 @@ urlpatterns = [
     path('auth/reset-password/',     views.reset_password),
 
     # Thông tin customer
+    path('customer/upload-avatar/',          views.upload_avatar),
     path('customer/update/',                views.update_customer),
     path('customer/change-password/',       views.change_password),
     path('customer/<str:customer_id>/',     views.get_customer),

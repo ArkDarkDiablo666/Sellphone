@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, ShoppingCart, User, ShoppingBag, Settings, Pencil, X, Check, Eye, EyeOff, LogOut, Camera } from "lucide-react";
-import bgImage from "./Image/image-177.png";
+import bgImage from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 
 const API = "http://localhost:8000";
 
@@ -25,6 +25,7 @@ export default function Information() {
   const [errors, setErrors]     = useState({});
   const [saving, setSaving]     = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -57,28 +58,44 @@ export default function Information() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Chuyển sang base64
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result;
-      setAvatarLoading(true);
-      try {
-        const res  = await fetch(`${API}/api/customer/update/`, {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ id: userLocal.id, avatar: base64 }),
-        });
-        if (res.ok) {
-          setCustomer((prev) => ({ ...prev, avatar: base64 }));
-          // Cập nhật localStorage
-          const updated = { ...userLocal, avatar: base64 };
-          localStorage.setItem("user", JSON.stringify(updated));
-        }
-      } finally {
-        setAvatarLoading(false);
+    // Validate file
+    if (!file.type.startsWith("image/")) {
+      alert("Vui lòng chọn file ảnh"); return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Ảnh không được vượt quá 5MB"); return;
+    }
+
+    setAvatarLoading(true);
+    try {
+      // Gửi dạng FormData để backend upload lên Cloudinary
+      const formData = new FormData();
+      formData.append("id", userLocal.id);
+      formData.append("avatar_file", file);
+
+      const res = await fetch(`${API}/api/customer/upload-avatar/`, {
+        method: "POST",
+        body:   formData,
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        // Cập nhật localStorage
+        const stored = JSON.parse(localStorage.getItem("user") || "{}");
+        const updated = { ...stored, avatar: data.avatar_url };
+        localStorage.setItem("user", JSON.stringify(updated));
+        // Cập nhật state hiện tại
+        setCustomer((prev) => ({ ...prev, avatar: data.avatar_url }));
+        // Thông báo các tab/component khác cập nhật
+        window.dispatchEvent(new Event("userUpdated"));
+      } else {
+        alert(data.message || "Lỗi upload ảnh");
       }
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      alert("Không thể kết nối server");
+    } finally {
+      setAvatarLoading(false);
+    }
   };
 
   // ===== LƯU SỐ ĐIỆN THOẠI =====
@@ -142,6 +159,7 @@ export default function Information() {
 
   const handleLogout = () => {
     localStorage.removeItem("user");
+    setConfirmLogout(false);
     navigate("/login");
   };
 
@@ -159,15 +177,36 @@ export default function Information() {
   return (
     <div className="relative min-h-screen text-white overflow-hidden bg-[#0f0f0f]">
 
+      {/* ===== HỘP THOẠI XÁC NHẬN ĐĂNG XUẤT ===== */}
+      {confirmLogout && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <h3 className="text-lg font-semibold mb-2">Đăng xuất</h3>
+            <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmLogout(false)}
+                className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-sm transition">
+                Hủy
+              </button>
+              <button onClick={handleLogout}
+                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">
+                Đăng xuất
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== BACKGROUND ===== */}
       <div className="absolute inset-0 bg-cover bg-center scale-105 opacity-20"
         style={{ backgroundImage: `url(${bgImage})` }}></div>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
 
-      <div className="relative z-10 flex flex-col min-h-screen pt-24">
+      <div className="relative z-10 flex flex-col min-h-screen">
 
         {/* ===== NAVBAR (giống Home.js) ===== */}
-        <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-5 backdrop-blur-md bg-black/70 border-b border-white/10">
+        <nav className="flex justify-between items-center px-10 py-5 backdrop-blur-md bg-white/5 border-b border-white/10">
           <div className="text-2xl font-bold tracking-wide">PHONEZONE</div>
 
           <div className="flex gap-8 text-gray-300">
@@ -238,7 +277,7 @@ export default function Information() {
               ))}
             </nav>
 
-            <button onClick={handleLogout}
+            <button onClick={() => setConfirmLogout(true)}
               className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-red-400 hover:bg-red-500/10 transition mt-4">
               <LogOut size={16} />Đăng xuất
             </button>

@@ -1,101 +1,152 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, ShoppingCart, User } from "lucide-react";
+import { Search, ShoppingCart, User, LogOut, Settings, ChevronDown } from "lucide-react";
 import bgImage from "./Image/image-177.png";
 
 export default function Home() {
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user"));
+  const [user, setUser] = React.useState(() => JSON.parse(localStorage.getItem("user")));
 
-  const handleCartClick = () => {
-    if (user) {
-      navigate("/cart");
-    } else {
-      navigate("/login");
-    }
-  };
+  // Cập nhật user khi localStorage thay đổi (ví dụ sau khi đổi avatar)
+  React.useEffect(() => {
+    const syncUser = () => setUser(JSON.parse(localStorage.getItem("user")));
+    window.addEventListener("storage", syncUser);
+    window.addEventListener("focus", syncUser);
+    // Lắng nghe khi avatar/thông tin user được cập nhật
+    window.addEventListener("userUpdated", syncUser);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener("focus", syncUser);
+      window.removeEventListener("userUpdated", syncUser);
+    };
+  }, []);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const dropdownRef = useRef(null);
 
-  const handleUserClick = () => {
-    if (user) {
-      navigate("/information");
-    } else {
-      navigate("/login");
-    }
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
+        setDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleCartClick = () => navigate(user ? "/cart" : "/login");
+
+  const handleLogout = () => {
+    localStorage.removeItem("user");
+    setConfirmLogout(false);
+    navigate("/login");
   };
 
   return (
     <div className="relative min-h-screen text-white overflow-hidden">
-
-      {/* ===== Background Image (KHÔNG blur trực tiếp) ===== */}
-      <div
-        className="absolute inset-0 bg-cover bg-center scale-105"
-        style={{ backgroundImage: `url(${bgImage})` }}
-      ></div>
-
-      {/* ===== Dark Overlay + Blur ===== */}
+      <div className="absolute inset-0 bg-cover bg-center scale-105"
+        style={{ backgroundImage: `url(${bgImage})` }}></div>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
 
-      {/* ===== Main Content ===== */}
+      {/* ===== HỘP THOẠI XÁC NHẬN ĐĂNG XUẤT ===== */}
+      {confirmLogout && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <h3 className="text-lg font-semibold mb-2">Đăng xuất</h3>
+            <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmLogout(false)}
+                className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-sm transition">
+                Hủy
+              </button>
+              <button onClick={handleLogout}
+                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">
+                Đăng xuất
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="relative z-10 pt-24">
 
-        {/* ===== NAVBAR ===== */}
+        {/* NAVBAR */}
         <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-5 backdrop-blur-md bg-black/70 border-b border-white/10">
+          <div className="text-2xl font-bold tracking-wide">PHONEZONE</div>
 
-          {/* Logo */}
-          <div className="text-2xl font-bold tracking-wide">
-            PHONEZONE
-          </div>
-
-          {/* Menu */}
           <div className="flex gap-8 text-gray-300">
-            <Link to="/" className="hover:text-white transition duration-300">
-              Trang chủ
-            </Link>
-            <Link to="/product" className="hover:text-white transition duration-300">
-              Sản phẩm
-            </Link>
+            <Link to="/" className="hover:text-white transition duration-300">Trang chủ</Link>
+            <Link to="/product" className="hover:text-white transition duration-300">Sản phẩm</Link>
           </div>
 
-          {/* Icons */}
           <div className="flex gap-6 items-center text-gray-300">
             <Search className="cursor-pointer hover:text-white transition" size={22} />
-
             <button onClick={handleCartClick}>
               <ShoppingCart className="hover:text-white transition" size={22} />
             </button>
 
-            <button onClick={handleUserClick}>
-              {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt="avatar"
-                  className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20"
-                />
-              ) : (
+            {user ? (
+              <div className="relative" ref={dropdownRef}>
+                <button onClick={() => setDropdownOpen(!dropdownOpen)}
+                  className="flex items-center gap-2 hover:text-white transition">
+                  {/* Avatar hoặc icon User */}
+                  {user.avatar ? (
+                    <img src={user.avatar} alt="avatar"
+                      className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                      <User size={16} />
+                    </div>
+                  )}
+                  <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {dropdownOpen && (
+                  <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
+                    <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
+                      {user.avatar ? (
+                        <img src={user.avatar} alt="avatar" className="w-9 h-9 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+                          <User size={16} />
+                        </div>
+                      )}
+                      <div className="overflow-hidden">
+                        <p className="text-sm font-medium truncate">{user.fullName}</p>
+                        <p className="text-xs text-white/40 truncate">{user.email}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition">
+                      <Settings size={15} /> Tài khoản
+                    </button>
+                    <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 transition">
+                      <LogOut size={15} /> Đăng xuất
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button onClick={() => navigate("/login")}>
                 <User className="hover:text-white transition" size={22} />
-              )}
-            </button>
+              </button>
+            )}
           </div>
         </nav>
 
-        {/* ===== HERO SECTION ===== */}
+        {/* HERO */}
         <section className="flex flex-col items-center justify-center text-center py-40 px-6">
-
           <h1 className="text-5xl font-bold mb-6 drop-shadow-lg bg-gradient-to-r from-gray-200 to-gray-400 bg-clip-text text-transparent">
             Công nghệ trong tầm tay bạn
           </h1>
-
           <p className="text-gray-400 max-w-xl mb-10">
             Khám phá các dòng điện thoại và thiết bị mới nhất với hiệu năng mạnh mẽ
           </p>
-
-          <Link
-            to="/product"
-            className="px-8 py-3 rounded-full bg-white/10 border border-white/20 backdrop-blur-md hover:bg-white/20 transition duration-300"
-          >
+          <Link to="/product"
+            className="px-8 py-3 rounded-full bg-white/10 border border-white/20 backdrop-blur-md hover:bg-white/20 transition duration-300">
             Khám phá ngay
           </Link>
-
         </section>
 
       </div>

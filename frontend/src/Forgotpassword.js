@@ -1,5 +1,5 @@
 import { useState } from "react";
-import bg from "./Image/image-177.png";
+import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
 
 const API = "http://localhost:8000";
@@ -44,7 +44,7 @@ export default function Forgotpassword() {
 
   return (
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
-      <img src={bg} alt="" className="absolute inset-0 w-full h-full object-cover blur-md brightness-75 scale-110" />
+      <img src={bg} alt="" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
@@ -71,8 +71,11 @@ export default function Forgotpassword() {
           <button
             onClick={handleSendOTP}
             disabled={loading}
-            className="p-3 rounded-full bg-gray-300 hover:bg-white text-black font-semibold transition disabled:opacity-60"
-          >
+            className="w-full p-3 flex items-center justify-center rounded-full text-white text-sm font-medium
+                  bg-[rgba(255,149,0,0.7)] border border-[#ff9500]
+                  backdrop-blur-[2px]
+                  shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+                  hover:bg-[rgba(255,149,0,0.9)] transition">
             {loading ? "Đang gửi..." : "Gửi OTP"}
           </button>
         </div>

@@ -1,4 +1,11 @@
 from django.contrib.auth.hashers import make_password, check_password
+import cloudinary
+import cloudinary.uploader
+cloudinary.config(
+    cloud_name = "dag3scrwl",
+    api_key    = "997941784142674",
+    api_secret = "5QXdjv-HeiJEPPhEUcukPFIRyFU",
+)
 import random
 from django.core.mail import send_mail
 from django.conf import settings
@@ -18,11 +25,14 @@ def hash_password(password):
 
 # ===== FORMAT DỮ LIỆU TRẢ VỀ =====
 def customer_data(customer):
+    # Nếu avatar là base64 (quá dài) thì vẫn trả về,
+    # nếu là URL thì trả về bình thường
+    avatar = customer.Avatar or ""
     return {
         "id":         customer.CustomerID,
         "full_name":  customer.FullName,
         "email":      customer.Email,
-        "avatar":     customer.Avatar or "",
+        "avatar":     avatar,
         "login_type": customer.LoginType,
     }
 
@@ -125,7 +135,21 @@ def login_normal(request):
     if not check_password(password, existing.Password):
         return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    return Response({"message": "Đăng nhập thành công", "customer": customer_data(existing)}, status=status.HTTP_200_OK)
+    # Chỉ trả avatar nếu là URL (Cloudinary), không trả nếu là base64 để tránh response quá lớn
+    avatar = existing.Avatar or ""
+    if avatar.startswith("data:"):  # base64 cũ → bỏ qua
+        avatar = ""
+
+    return Response({
+        "message": "Đăng nhập thành công",
+        "customer": {
+            "id":         existing.CustomerID,
+            "full_name":  existing.FullName,
+            "email":      existing.Email,
+            "avatar":     avatar,
+            "login_type": existing.LoginType,
+        }
+    }, status=status.HTTP_200_OK)
 
 
 # ============================================
@@ -173,7 +197,16 @@ def login_google(request):
     if existing.LoginType != 'google':
         return Response({"message": email_exists_message(existing.LoginType)}, status=status.HTTP_400_BAD_REQUEST)
 
-    return Response({"message": "Đăng nhập Google thành công", "customer": customer_data(existing)}, status=status.HTTP_200_OK)
+    return Response({
+        "message": "Đăng nhập Google thành công",
+        "customer": {
+            "id":         existing.CustomerID,
+            "full_name":  existing.FullName,
+            "email":      existing.Email,
+            "avatar":     existing.Avatar or "",
+            "login_type": existing.LoginType,
+        }
+    }, status=status.HTTP_200_OK)
 
 
 # ============================================
@@ -226,7 +259,16 @@ def login_facebook(request):
     if existing.LoginType != 'facebook':
         return Response({"message": email_exists_message(existing.LoginType)}, status=status.HTTP_400_BAD_REQUEST)
 
-    return Response({"message": "Đăng nhập Facebook thành công", "customer": customer_data(existing)}, status=status.HTTP_200_OK)
+    return Response({
+        "message": "Đăng nhập Facebook thành công",
+        "customer": {
+            "id":         existing.CustomerID,
+            "full_name":  existing.FullName,
+            "email":      existing.Email,
+            "avatar":     existing.Avatar or "",
+            "login_type": existing.LoginType,
+        }
+    }, status=status.HTTP_200_OK)
 
 
 # ============================================
@@ -378,7 +420,19 @@ def update_customer(request):
     if address is not None:
         customer.Address = address.strip()
     if avatar is not None:
-        customer.Avatar = avatar
+        # Upload base64 lên Cloudinary, lưu URL thay vì base64
+        try:
+            upload_result = cloudinary.uploader.upload(
+                avatar,
+                folder        = "sellphone/avatars",
+                public_id     = f"avatar_{customer_id}",
+                overwrite     = True,
+                resource_type = "image",
+                transformation = [{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}],
+            )
+            customer.Avatar = upload_result["secure_url"]
+        except Exception as e:
+            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     customer.save()
 
@@ -416,3 +470,42 @@ def change_password(request):
     customer.save()
 
     return Response({"message": "Đổi mật khẩu thành công"}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 13: UPLOAD AVATAR QUA CLOUDINARY
+# POST /api/customer/upload-avatar/
+# Body: multipart/form-data { id, avatar_file }
+# ============================================
+@api_view(['POST'])
+def upload_avatar(request):
+    customer_id = request.data.get('id', '').strip()
+    avatar_file = request.FILES.get('avatar_file')
+
+    if not customer_id or not avatar_file:
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        upload_result = cloudinary.uploader.upload(
+            avatar_file,
+            folder         = "sellphone/avatars",
+            public_id      = f"avatar_{customer_id}",
+            overwrite      = True,
+            resource_type  = "image",
+            transformation = [{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}],
+        )
+        avatar_url = upload_result["secure_url"]
+        customer.Avatar = avatar_url
+        customer.save()
+
+        return Response({
+            "message":    "Upload avatar thành công",
+            "avatar_url": avatar_url,
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
