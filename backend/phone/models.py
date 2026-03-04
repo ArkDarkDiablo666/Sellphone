@@ -69,6 +69,7 @@ class Staff(models.Model):
 class Category(models.Model):
     CategoryID   = models.AutoField(primary_key=True)
     CategoryName = models.CharField(max_length=100)
+    Image        = models.CharField(max_length=500, blank=True, null=True) 
 
     class Meta:
         db_table = 'Category'
@@ -95,6 +96,7 @@ class Product(models.Model):
 class ProductVariant(models.Model):
     VariantID        = models.AutoField(primary_key=True)
     ProductID        = models.ForeignKey(Product, on_delete=models.CASCADE, db_column='ProductID')
+    Image = models.CharField(max_length=500, blank=True, null=True)
     Cpu              = models.CharField(max_length=100, blank=True, null=True)
     OperatingSystem  = models.CharField(max_length=50, blank=True, null=True)
     ScreenSize       = models.CharField(max_length=50, blank=True, null=True)

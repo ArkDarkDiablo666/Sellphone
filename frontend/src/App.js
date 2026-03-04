@@ -4,6 +4,7 @@ import OTPForm from "./OTPForm";
 import Resetpassword from "./Resetpassword";
 import Home from "./Home";
 import Product from "./Product";
+import Informationproduct from "./Informationproduct";
 import Cart from "./Cart";
 import Payment from "./Payment";
 import Informatio from "./Information";
@@ -25,6 +26,7 @@ function App() {
         <Route path="/login/forgot_password/otp" element={<OTPForm />} />
         <Route path="/login/forgot_password/otp/reset_password" element={<Resetpassword />} />
         <Route path="/product" element={<Product />} />
+        <Route path="/product/:id" element={<Informationproduct />} />
         <Route path="/cart" element={<Cart />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/information" element={<Informatio />} />

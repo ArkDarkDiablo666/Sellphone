@@ -35,10 +35,13 @@ urlpatterns = [
 
     # Product
     path('product/categories/',          views.list_categories),
+    path('product/category/create/',    views.create_category),
+    path('product/category/update/',    views.update_category),
     path('product/list/',               views.list_products),
     path('product/create/',             views.create_product),
     path('product/import/',             views.import_stock),
     path('product/<int:product_id>/variants/', views.get_product_variants),
+    path('product/<int:product_id>/detail/',   views.get_product_detail),
 
     # Thông tin customer
     path('customer/upload-avatar/',          views.upload_avatar),

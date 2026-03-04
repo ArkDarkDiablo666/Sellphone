@@ -717,30 +717,15 @@ def upload_staff_avatar(request):
 def list_categories(request):
     cats = Category.objects.all().order_by('CategoryID')
     return Response({
-        "categories": [{"id": c.CategoryID, "name": c.CategoryName} for c in cats]
+        "categories": [{
+            "id":    c.CategoryID,
+            "name":  c.CategoryName,
+            "image": c.Image or "" if hasattr(c, 'Image') else "",
+        } for c in cats]
     }, status=status.HTTP_200_OK)
 
 
-# ============================================
-# API 22: DANH SÁCH SẢN PHẨM
-# GET /api/product/list/
-# ============================================
-@api_view(['GET'])
-def list_products(request):
-    products = Product.objects.select_related('CategoryID').all().order_by('-CreatedAt')
-    data = []
-    for p in products:
-        variant_count = ProductVariant.objects.filter(ProductID=p).count()
-        data.append({
-            "id":            p.ProductID,
-            "name":          p.ProductName,
-            "brand":         p.Brand or "",
-            "description":   p.Description or "",
-            "category":      p.CategoryID.CategoryName,
-            "category_id":   p.CategoryID.CategoryID,
-            "variant_count": variant_count,
-        })
-    return Response({"products": data}, status=status.HTTP_200_OK)
+# list_products được định nghĩa lại ở cuối file
 
 
 # ============================================
@@ -791,9 +776,9 @@ def create_product(request):
         CategoryID  = category,
     )
 
-    # Tạo Variants
-    for v in variants:
-        ProductVariant.objects.create(
+    # Tạo Variants + upload ảnh biến thể
+    for idx, v in enumerate(variants):
+        variant_obj = ProductVariant.objects.create(
             ProductID        = product,
             Color            = v.get('color') or None,
             Storage          = v.get('storage') or None,
@@ -812,6 +797,22 @@ def create_product(request):
             Weights          = v.get('weights') or None,
             Updates          = v.get('updates') or None,
         )
+        # Upload ảnh biến thể lên Cloudinary
+        variant_img = request.FILES.get(f'variant_image_{idx}')
+        if variant_img:
+            try:
+                result = cloudinary.uploader.upload(
+                    variant_img,
+                    folder        = f"sellphone/variants/{product.ProductID}",
+                    public_id     = f"variant_{variant_obj.VariantID}",
+                    overwrite     = True,
+                    resource_type = "image",
+                    transformation = [{"width": 800, "height": 800, "crop": "limit"}],
+                )
+                variant_obj.Image = result["secure_url"]
+                variant_obj.save()
+            except Exception:
+                pass
 
     # Upload ảnh lên Cloudinary
     for idx, img_file in enumerate(images):
@@ -891,3 +892,190 @@ def import_stock(request):
         "message": f"Đã nhập hàng cho {len(updated)} biến thể",
         "updated": updated,
     }, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API: TẠO DANH MỤC
+# POST /api/product/category/create/
+# Body: multipart/form-data { name, image? }
+# ============================================
+@api_view(['POST'])
+def create_category(request):
+    name       = request.data.get('name', '').strip()
+    image_file = request.FILES.get('image')
+
+    if not name:
+        return Response({"message": "Vui lòng nhập tên danh mục"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if Category.objects.filter(CategoryName=name).exists():
+        return Response({"message": "Danh mục đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+
+    image_url = ""
+    if image_file:
+        try:
+            result = cloudinary.uploader.upload(
+                image_file,
+                folder        = "sellphone/categories",
+                public_id     = f"category_{name.lower().replace(' ', '_')}",
+                overwrite     = True,
+                resource_type = "image",
+                transformation = [{"width": 400, "height": 400, "crop": "fill"}],
+            )
+            image_url = result["secure_url"]
+        except Exception as e:
+            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    cat = Category.objects.create(CategoryName=name, Image=image_url)
+    return Response({
+        "message": "Tạo danh mục thành công",
+        "id":      cat.CategoryID,
+        "name":    cat.CategoryName,
+        "image":   image_url,
+    }, status=status.HTTP_201_CREATED)
+
+
+# ============================================
+# API: CẬP NHẬT DANH MỤC
+# POST /api/product/category/update/
+# Body: multipart/form-data { id, name, image? }
+# ============================================
+@api_view(['POST'])
+def update_category(request):
+    cat_id     = request.data.get('id')
+    name       = request.data.get('name', '').strip()
+    image_file = request.FILES.get('image')
+
+    if not cat_id or not name:
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    cat = Category.objects.filter(CategoryID=cat_id).first()
+    if not cat:
+        return Response({"message": "Không tìm thấy danh mục"}, status=status.HTTP_404_NOT_FOUND)
+
+    cat.CategoryName = name
+
+    if image_file:
+        try:
+            result = cloudinary.uploader.upload(
+                image_file,
+                folder        = "sellphone/categories",
+                public_id     = f"category_{cat_id}",
+                overwrite     = True,
+                resource_type = "image",
+                transformation = [{"width": 400, "height": 400, "crop": "fill"}],
+            )
+            cat.Image = result["secure_url"]
+        except Exception as e:
+            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    cat.save()
+    return Response({"message": "Cập nhật danh mục thành công"}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 26: CHI TIẾT SẢN PHẨM
+# GET /api/product/<id>/detail/
+# ============================================
+@api_view(['GET'])
+def get_product_detail(request, product_id):
+    product = Product.objects.select_related('CategoryID').filter(ProductID=product_id).first()
+    if not product:
+        return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+
+    variants = ProductVariant.objects.filter(ProductID=product)
+    images   = ProductImage.objects.filter(ProductID=product)
+
+    # Sản phẩm liên quan (cùng danh mục, khác ID, tối đa 5)
+    related_products = Product.objects.filter(
+        CategoryID=product.CategoryID
+    ).exclude(ProductID=product_id).order_by('-CreatedAt')[:5]
+
+    def variant_data(v):
+        return {
+            "id":             v.VariantID,
+            "image":          v.Image or "" if hasattr(v, "Image") else "",
+            "color":          v.Color or "",
+            "storage":        v.Storage or "",
+            "ram":            v.Ram or "",
+            "price":          str(v.Price),
+            "stock":          v.StockQuantity,
+            "cpu":            v.Cpu or "",
+            "os":             v.OperatingSystem or "",
+            "screen_size":    v.ScreenSize or "",
+            "screen_tech":    v.ScreenTechnology or "",
+            "refresh_rate":   v.RefreshRate or "",
+            "battery":        v.Battery or "",
+            "charging_speed": v.ChargingSpeed or "",
+            "front_camera":   v.FrontCamera or "",
+            "rear_camera":    v.RearCamera or "",
+            "weights":        v.Weights or "",
+            "updates":        v.Updates or "",
+        }
+
+    def related_data(p):
+        primary_img = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first()
+        if not primary_img:
+            primary_img = ProductImage.objects.filter(ProductID=p).first()
+        min_v = ProductVariant.objects.filter(ProductID=p).order_by('Price').first()
+        return {
+            "id":        p.ProductID,
+            "name":      p.ProductName,
+            "brand":     p.Brand or "",
+            "image":     primary_img.ImageUrl if primary_img else "",
+            "min_price": str(min_v.Price) if min_v else "0",
+        }
+
+    # Ảnh chính trước
+    images_sorted = list(images.filter(IsPrimary=True)) + list(images.filter(IsPrimary=False))
+
+    # Lấy giá thấp nhất
+    min_variant = variants.order_by('Price').first()
+
+    return Response({
+        "product": {
+            "id":          product.ProductID,
+            "name":        product.ProductName,
+            "brand":       product.Brand or "",
+            "description": product.Description or "",
+            "category":    product.CategoryID.CategoryName,
+            "category_id": product.CategoryID.CategoryID,
+        },
+        "variants": [variant_data(v) for v in variants],
+        "images":   [{"url": img.ImageUrl, "is_primary": img.IsPrimary} for img in images_sorted],
+        "related":  [related_data(p) for p in related_products],
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 27: DANH SÁCH SẢN PHẨM (mở rộng - có min_price, image, rams, storages)
+# GET /api/product/list/
+# ============================================
+@api_view(['GET'])
+def list_products(request):
+    products = Product.objects.select_related('CategoryID').all().order_by('-CreatedAt')
+    data = []
+    for p in products:
+        variants      = ProductVariant.objects.filter(ProductID=p)
+        variant_count = variants.count()
+        min_v         = variants.order_by('Price').first()
+        primary_img   = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first()
+        if not primary_img:
+            primary_img = ProductImage.objects.filter(ProductID=p).first()
+
+        rams     = list(set(v.Ram     for v in variants if v.Ram))
+        storages = list(set(v.Storage for v in variants if v.Storage))
+
+        data.append({
+            "id":            p.ProductID,
+            "name":          p.ProductName,
+            "brand":         p.Brand or "",
+            "description":   p.Description or "",
+            "category":      p.CategoryID.CategoryName,
+            "category_id":   p.CategoryID.CategoryID,
+            "variant_count": variant_count,
+            "min_price":     str(min_v.Price) if min_v else "0",
+            "image":         primary_img.ImageUrl if primary_img else "",
+            "rams":          rams,
+            "storages":      storages,
+        })
+    return Response({"products": data}, status=status.HTTP_200_OK)

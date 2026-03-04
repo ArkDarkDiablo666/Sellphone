@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   User, LogOut, Camera, Settings, Package,
   PackagePlus, Users, ChevronRight, Eye, EyeOff,
-  Pencil, Check, X, Plus, Shield, AlertTriangle
+  Pencil, Check, X, Plus, Shield, AlertTriangle, LayoutGrid
 } from "lucide-react";
 
 const API = "http://localhost:8000";
@@ -32,6 +32,21 @@ export default function Admin() {
   const [newStaff, setNewStaff]           = useState({ fullname: "", email: "", password: "", role: "Staff" });
   const [newStaffErrors, setNewStaffErrors] = useState({});
 
+  // Category
+  const [catList, setCatList]               = useState([]);
+  const [catLoading, setCatLoading]         = useState(false);
+  const [showAddCat, setShowAddCat]         = useState(false);
+  const [catSaving, setCatSaving]           = useState(false);
+  const [editCatId, setEditCatId]           = useState(null);
+  const [editCatName, setEditCatName]       = useState("");
+  const [editCatImage, setEditCatImage]     = useState(null);
+  const [editCatPreview, setEditCatPreview] = useState("");
+  const [newCatName, setNewCatName]         = useState("");
+  const [newCatImage, setNewCatImage]       = useState(null);
+  const [newCatPreview, setNewCatPreview]   = useState("");
+  const catImageRef    = useRef(null);
+  const editCatImgRef  = useRef(null);
+
   // Product
   const [categories, setCategories]         = useState([]);
   const [productList, setProductList]       = useState([]);
@@ -46,7 +61,7 @@ export default function Admin() {
     color: "", storage: "", ram: "", price: "", stock: "",
     cpu: "", os: "", screenSize: "", screenTech: "", refreshRate: "",
     battery: "", chargingSpeed: "", frontCamera: "", rearCamera: "",
-    weights: "", updates: "",
+    weights: "", updates: "", imageFile: null, imagePreview: "",
   };
   const [variants, setVariants] = useState([{ ...EMPTY_VARIANT }]);
   const [productImages, setProductImages] = useState([]);
@@ -85,7 +100,8 @@ export default function Admin() {
   };
 
   useEffect(() => { if (activeTab === "staff")   loadStaff();    }, [activeTab]); // eslint-disable-line
-  useEffect(() => { if (activeTab === "product") loadProducts();  }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "product")  loadProducts(); }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "category") loadCategories(); }, [activeTab]); // eslint-disable-line
   useEffect(() => { if (activeTab === "import")  loadProducts();  }, [activeTab]); // eslint-disable-line
 
   const loadProducts = async () => {
@@ -102,15 +118,64 @@ export default function Admin() {
     } finally { setProductLoading(false); }
   };
 
-  const addVariant    = () => setVariants((v) => [...v, { color: "", storage: "", ram: "", price: "", stock: "", cpu: "", os: "", screenSize: "", screenTech: "", refreshRate: "", battery: "", chargingSpeed: "", frontCamera: "", rearCamera: "", weights: "", updates: "" }]);
+  const addVariant    = () => setVariants((v) => [...v, { color: "", storage: "", ram: "", price: "", stock: "", cpu: "", os: "", screenSize: "", screenTech: "", refreshRate: "", battery: "", chargingSpeed: "", frontCamera: "", rearCamera: "", weights: "", updates: "", imageFile: null, imagePreview: "" }]);
   const removeVariant = (i) => setVariants((v) => v.filter((_, idx) => idx !== i));
   const updateVariant = (i, key, val) => setVariants((v) => v.map((item, idx) => idx === i ? { ...item, [key]: val } : item));
 
+  // Validate RAM: số > 4, đơn vị GB
+  const validateRam = (val) => {
+    if (!val) return "Vui lòng nhập RAM";
+    const match = val.trim().match(/^(\d+(?:\.\d+)?)\s*GB$/i);
+    if (!match) return "RAM phải có dạng số + GB (VD: 8GB)";
+    const num = parseFloat(match[1]);
+    if (num <= 4) return "RAM phải lớn hơn 4GB";
+    return null;
+  };
+
+  // Validate storage: số >= 64 nếu GB, >= 1 nếu TB
+  const validateStorage = (val) => {
+    if (!val) return null;
+    const match = val.trim().match(/^(\d+(?:\.\d+)?)\s*(GB|TB)$/i);
+    if (!match) return "Bộ nhớ phải có dạng số + GB/TB (VD: 128GB, 1TB)";
+    const num  = parseFloat(match[1]);
+    const unit = match[2].toUpperCase();
+    if (unit === "GB" && num < 64) return "Bộ nhớ GB phải từ 64GB trở lên";
+    if (unit === "TB" && num < 1)  return "Bộ nhớ TB phải từ 1TB trở lên";
+    return null;
+  };
+
   const handleSaveProduct = async () => {
     const errs = {};
-    if (!newProduct.name.trim())       errs.name       = "Vui lòng nhập tên sản phẩm";
-    if (!newProduct.categoryId)        errs.categoryId = "Vui lòng chọn danh mục";
-    if (variants.some((v) => !v.price || !v.stock)) errs.variants = "Mỗi biến thể cần có giá và số lượng";
+    if (!newProduct.name.trim()) errs.name       = "Vui lòng nhập tên sản phẩm";
+    if (!newProduct.categoryId)  errs.categoryId = "Vui lòng chọn danh mục";
+
+    // Validate từng biến thể
+    const variantErrs = variants.map((v, i) => {
+      const ve = {};
+      if (!v.price)                       ve.price   = "Vui lòng nhập giá";
+      else if (isNaN(v.price) || parseFloat(v.price) <= 0) ve.price = "Giá phải lớn hơn 0";
+
+      if (!v.stock)                       ve.stock   = "Vui lòng nhập số lượng";
+      else if (isNaN(v.stock) || parseInt(v.stock) <= 0)   ve.stock = "Số lượng phải lớn hơn 0";
+      else if (parseInt(v.stock) > 10000) ve.stock   = "Số lượng tối đa 10.000";
+
+      if (!v.ram) {
+        ve.ram = "Vui lòng nhập RAM";
+      } else {
+        const ramErr = validateRam(v.ram);
+        if (ramErr) ve.ram = ramErr;
+      }
+
+      if (v.storage) {
+        const storageErr = validateStorage(v.storage);
+        if (storageErr) ve.storage = storageErr;
+      }
+      return ve;
+    });
+
+    const hasVariantErr = variantErrs.some((ve) => Object.keys(ve).length > 0);
+    if (hasVariantErr) errs.variantDetails = variantErrs;
+
     setProductErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -121,14 +186,20 @@ export default function Admin() {
       formData.append("brand",         newProduct.brand);
       formData.append("description",   newProduct.description);
       formData.append("category_id",   newProduct.categoryId);
-      formData.append("variants",      JSON.stringify(variants));
+      // Lọc bỏ imageFile/imagePreview trước khi gửi variants JSON
+      const variantsClean = variants.map(({ imageFile, imagePreview, ...rest }) => rest);
+      formData.append("variants", JSON.stringify(variantsClean));
       productImages.forEach((f) => formData.append("images", f));
+      // Ảnh từng biến thể
+      variants.forEach((v, i) => {
+        if (v.imageFile) formData.append(`variant_image_${i}`, v.imageFile);
+      });
       const res  = await fetch(`${API}/api/product/create/`, { method: "POST", body: formData });
       const data = await res.json();
       if (res.ok) {
         setShowAddProduct(false);
         setNewProduct({ name: "", brand: "", description: "", categoryId: "" });
-        setVariants([{ color: "", storage: "", ram: "", price: "", stock: "", cpu: "", os: "", screenSize: "", screenTech: "", refreshRate: "", battery: "", chargingSpeed: "", frontCamera: "", rearCamera: "", weights: "", updates: "" }]);
+        setVariants([{ color: "", storage: "", ram: "", price: "", stock: "", cpu: "", os: "", screenSize: "", screenTech: "", refreshRate: "", battery: "", chargingSpeed: "", frontCamera: "", rearCamera: "", weights: "", updates: "", imageFile: null, imagePreview: "" }]);
         setProductImages([]);
         loadProducts();
         alert("Tạo sản phẩm thành công!");
@@ -146,7 +217,52 @@ export default function Admin() {
     } finally { setImportLoading(false); }
   };
 
-  const handleImport = async () => {
+  const loadCategories = async () => {
+    setCatLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/product/categories/`);
+      const data = await res.json();
+      if (res.ok) setCatList(data.categories || []);
+    } finally { setCatLoading(false); }
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCatName.trim()) { alert("Vui lòng nhập tên danh mục"); return; }
+    setCatSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("name", newCatName.trim());
+      if (newCatImage) formData.append("image", newCatImage);
+      const res  = await fetch(`${API}/api/product/category/create/`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok) {
+        setShowAddCat(false); setNewCatName(""); setNewCatImage(null); setNewCatPreview("");
+        loadCategories();
+        // Cập nhật categories cho dropdown tạo sản phẩm
+        setCategories((prev) => [...prev, { id: data.id, name: data.name }]);
+        alert("Tạo danh mục thành công!");
+      } else { alert(data.message); }
+    } finally { setCatSaving(false); }
+  };
+
+  const handleSaveCatEdit = async (catId) => {
+    if (!editCatName.trim()) { alert("Vui lòng nhập tên danh mục"); return; }
+    setCatSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("id", catId);
+      formData.append("name", editCatName.trim());
+      if (editCatImage) formData.append("image", editCatImage);
+      const res  = await fetch(`${API}/api/product/category/update/`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok) {
+        setEditCatId(null); setEditCatName(""); setEditCatImage(null); setEditCatPreview("");
+        loadCategories();
+      } else { alert(data.message); }
+    } finally { setCatSaving(false); }
+  };
+
+    const handleImport = async () => {
     const entries = Object.entries(importQty).filter(([, q]) => parseInt(q) > 0);
     if (entries.length === 0) { alert("Chưa nhập số lượng cho biến thể nào"); return; }
     setImportSaving(true);
@@ -257,6 +373,7 @@ export default function Admin() {
   const menuItems = [
     { key: "profile",  label: "Thông tin cá nhân",  icon: User },
     { key: "staff",    label: "Quản lý nhân viên",   icon: Users },
+    { key: "category", label: "Danh mục sản phẩm",   icon: LayoutGrid },
     { key: "product",  label: "Quản lý sản phẩm",    icon: Package },
     { key: "import",   label: "Nhập hàng",            icon: PackagePlus },
     { key: "settings", label: "Cài đặt",              icon: Settings },
@@ -511,6 +628,123 @@ export default function Admin() {
           )}
 
           {/* ===== QUẢN LÝ SẢN PHẨM ===== */}
+          {/* ===== DANH MỤC SẢN PHẨM ===== */}
+          {activeTab === "category" && (
+            <div className="flex flex-col gap-6">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-white/40">{catList.length} danh mục</p>
+                <button onClick={() => { setShowAddCat(!showAddCat); setNewCatName(""); setNewCatImage(null); setNewCatPreview(""); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition">
+                  <Plus size={16} /> {showAddCat ? "Đóng" : "Thêm danh mục"}
+                </button>
+              </div>
+
+              {/* FORM THÊM DANH MỤC */}
+              {showAddCat && (
+                <div className="bg-[#161616] border border-white/10 rounded-2xl p-5 flex flex-col gap-4">
+                  <p className="text-sm font-medium text-orange-400">Danh mục mới</p>
+                  <div className="flex items-start gap-5">
+                    {/* Ảnh danh mục */}
+                    <div>
+                      <div onClick={() => catImageRef.current?.click()}
+                        className="w-24 h-24 rounded-2xl border-2 border-dashed border-white/15 hover:border-orange-500/50 flex flex-col items-center justify-center cursor-pointer transition overflow-hidden">
+                        {newCatPreview
+                          ? <img src={newCatPreview} alt="" className="w-full h-full object-cover" />
+                          : <><Plus size={20} className="text-white/20 mb-1" /><span className="text-xs text-white/20">Ảnh</span></>
+                        }
+                      </div>
+                      <input ref={catImageRef} type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { const f = e.target.files[0]; if (f) { setNewCatImage(f); setNewCatPreview(URL.createObjectURL(f)); } }} />
+                    </div>
+                    {/* Tên */}
+                    <div className="flex-1 flex flex-col gap-3">
+                      <input placeholder="Tên danh mục *" value={newCatName}
+                        onChange={(e) => setNewCatName(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                      <div className="flex gap-2">
+                        <button onClick={handleAddCategory} disabled={catSaving}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
+                          <Check size={14} /> {catSaving ? "Đang lưu..." : "Lưu"}
+                        </button>
+                        <button onClick={() => { setShowAddCat(false); setNewCatName(""); setNewCatImage(null); setNewCatPreview(""); }}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition">
+                          <X size={14} /> Hủy
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* DANH SÁCH DANH MỤC */}
+              {catLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-6 h-6 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+                </div>
+              ) : catList.length === 0 ? (
+                <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20">
+                  <LayoutGrid size={40} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Chưa có danh mục nào</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-4">
+                  {catList.map((cat) => (
+                    <div key={cat.id} className="bg-[#161616] border border-white/5 rounded-2xl p-4 hover:border-white/10 transition">
+                      {editCatId === cat.id ? (
+                        /* EDIT MODE */
+                        <div className="flex flex-col gap-3">
+                          <div onClick={() => editCatImgRef.current?.click()}
+                            className="w-full h-28 rounded-xl border-2 border-dashed border-white/15 hover:border-orange-500/50 flex items-center justify-center cursor-pointer overflow-hidden transition">
+                            {editCatPreview
+                              ? <img src={editCatPreview} alt="" className="w-full h-full object-cover" />
+                              : cat.image
+                                ? <img src={cat.image} alt="" className="w-full h-full object-cover" />
+                                : <span className="text-xs text-white/20">Đổi ảnh</span>
+                            }
+                          </div>
+                          <input ref={editCatImgRef} type="file" accept="image/*" className="hidden"
+                            onChange={(e) => { const f = e.target.files[0]; if (f) { setEditCatImage(f); setEditCatPreview(URL.createObjectURL(f)); } }} />
+                          <input value={editCatName} onChange={(e) => setEditCatName(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50" />
+                          <div className="flex gap-2">
+                            <button onClick={() => handleSaveCatEdit(cat.id)} disabled={catSaving}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-xs font-medium transition disabled:opacity-50">
+                              <Check size={12} /> Lưu
+                            </button>
+                            <button onClick={() => { setEditCatId(null); setEditCatImage(null); setEditCatPreview(""); }}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs transition">
+                              <X size={12} /> Hủy
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* VIEW MODE */
+                        <div className="flex flex-col gap-3">
+                          <div className="w-full h-28 rounded-xl overflow-hidden bg-white/5 flex items-center justify-center">
+                            {cat.image
+                              ? <img src={cat.image} alt={cat.name} className="w-full h-full object-cover" />
+                              : <LayoutGrid size={32} className="text-white/10" />
+                            }
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium">{cat.name}</p>
+                              <p className="text-xs text-white/30 mt-0.5">#{cat.id}</p>
+                            </div>
+                            <button onClick={() => { setEditCatId(cat.id); setEditCatName(cat.name); setEditCatImage(null); setEditCatPreview(""); }}
+                              className="p-2 rounded-xl hover:bg-white/5 text-white/30 hover:text-orange-400 transition">
+                              <Pencil size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ===== QUẢN LÝ SẢN PHẨM ===== */}
           {activeTab === "product" && (
             <div className="flex flex-col gap-6">
@@ -603,20 +837,84 @@ export default function Admin() {
                             )}
                           </div>
 
+                          {/* ẢNH BIẾN THỂ */}
+                          <div className="mb-3">
+                            <p className="text-xs text-white/30 mb-2">Ảnh biến thể</p>
+                            <div className="flex items-center gap-3">
+                              {/* Preview */}
+                              <div className="w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center shrink-0">
+                                {v.imagePreview
+                                  ? <img src={v.imagePreview} alt="" className="w-full h-full object-cover" />
+                                  : <Plus size={20} className="text-white/15" />}
+                              </div>
+                              <div className="flex flex-col gap-2">
+                                <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs cursor-pointer transition">
+                                  <Plus size={12} className="text-orange-400" />
+                                  {v.imagePreview ? "Đổi ảnh" : "Chọn ảnh"}
+                                  <input type="file" accept="image/*" className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files[0];
+                                      if (!file) return;
+                                      updateVariant(i, "imageFile",    file);
+                                      updateVariant(i, "imagePreview", URL.createObjectURL(file));
+                                    }} />
+                                </label>
+                                {v.imagePreview && (
+                                  <button onClick={() => { updateVariant(i, "imageFile", null); updateVariant(i, "imagePreview", ""); }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs transition">
+                                    <X size={12} /> Xóa ảnh
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
                           {/* Thông tin cơ bản - luôn hiện */}
                           <div className="grid grid-cols-3 gap-3 mb-3">
-                            {[
-                              { key: "color",   placeholder: "Màu sắc" },
-                              { key: "storage", placeholder: "Bộ nhớ (VD: 128GB)" },
-                              { key: "ram",     placeholder: "RAM (VD: 8GB)" },
-                              { key: "price",   placeholder: "Giá (VNĐ) *" },
-                              { key: "stock",   placeholder: "Số lượng *" },
-                            ].map(({ key, placeholder }) => (
-                              <input key={key} placeholder={placeholder} value={v[key]}
-                                onChange={(e) => updateVariant(i, key, e.target.value)}
+
+                            {/* MÀU SẮC - chọn hoặc nhập */}
+                            <ComboField
+                              value={v.color}
+                              onChange={(val) => updateVariant(i, "color", val)}
+                              options={["Đen", "Trắng", "Xanh dương", "Xanh lá", "Đỏ", "Vàng", "Hồng", "Tím", "Xám", "Bạc", "Vàng đồng", "Titan tự nhiên", "Titan đen", "Titan trắng", "Titan sa mạc"]}
+                              placeholder="Màu sắc"
+                            />
+
+                            {/* BỘ NHỚ - tách số + đơn vị */}
+                            <StorageField
+                              value={v.storage}
+                              onChange={(val) => updateVariant(i, "storage", val)}
+                              error={productErrors.variantDetails?.[i]?.storage}
+                            />
+
+                            {/* RAM - tách số + đơn vị GB */}
+                            <RamField
+                              value={v.ram}
+                              onChange={(val) => updateVariant(i, "ram", val)}
+                              error={productErrors.variantDetails?.[i]?.ram}
+                            />
+
+                            {/* GIÁ */}
+                            <div>
+                              <input placeholder="Giá (VNĐ) *" value={v.price}
+                                onChange={(e) => updateVariant(i, "price", e.target.value)}
                                 className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition
-                                  ${(key === "price" || key === "stock") && !v[key] && productErrors.variants ? "border-red-500/50" : "border-white/10"}`} />
-                            ))}
+                                  ${productErrors.variantDetails?.[i]?.price ? "border-red-500/50" : "border-white/10"}`} />
+                              {productErrors.variantDetails?.[i]?.price && (
+                                <p className="text-red-400 text-xs mt-1">{productErrors.variantDetails[i].price}</p>
+                              )}
+                            </div>
+
+                            {/* SỐ LƯỢNG */}
+                            <div>
+                              <input placeholder="Số lượng * (tối đa 10.000)" value={v.stock}
+                                onChange={(e) => updateVariant(i, "stock", e.target.value)}
+                                className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition
+                                  ${productErrors.variantDetails?.[i]?.stock ? "border-red-500/50" : "border-white/10"}`} />
+                              {productErrors.variantDetails?.[i]?.stock && (
+                                <p className="text-red-400 text-xs mt-1">{productErrors.variantDetails[i].stock}</p>
+                              )}
+                            </div>
                           </div>
 
                           {/* Thông số kỹ thuật - có thể thu gọn */}
@@ -800,6 +1098,184 @@ function PwInput({ placeholder, value, show, onToggle, onChange, error }) {
         </button>
       </div>
       {error && <p className="text-red-400 text-xs mt-1 pl-1">{error}</p>}
+    </div>
+  );
+}
+
+// ===== COMBOFIELD: chọn từ gợi ý hoặc nhập tự do =====
+function ComboField({ value, onChange, options, placeholder }) {
+  const [open, setOpen]     = useState(false);
+  const [input, setInput]   = useState(value || "");
+  const ref                 = useRef(null);
+
+  // Sync nếu value thay đổi từ bên ngoài
+  useEffect(() => { setInput(value || ""); }, [value]);
+
+  // Đóng dropdown khi click ra ngoài
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = options.filter((o) => o.toLowerCase().includes(input.toLowerCase()));
+
+  const handleInput = (e) => {
+    setInput(e.target.value);
+    onChange(e.target.value);
+    setOpen(true);
+  };
+
+  const handleSelect = (opt) => {
+    setInput(opt);
+    onChange(opt);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        value={input}
+        onChange={handleInput}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition pr-8"
+      />
+      {/* Arrow toggle */}
+      <button type="button" onClick={() => setOpen(!open)}
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60 transition">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+          <path d={open ? "M2 8l4-4 4 4" : "M2 4l4 4 4-4"} stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+        </svg>
+      </button>
+
+      {/* Dropdown */}
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-[#222] border border-white/10 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto">
+          {filtered.map((opt) => (
+            <button key={opt} type="button" onClick={() => handleSelect(opt)}
+              className={`w-full text-left px-3 py-2 text-sm transition hover:bg-orange-500/10 hover:text-orange-300
+                ${input === opt ? "bg-orange-500/15 text-orange-300" : "text-white/70"}`}>
+              {opt}
+            </button>
+          ))}
+          {/* Nếu input không khớp với option nào → hiện "Dùng: ..." */}
+          {input && !options.includes(input) && (
+            <button type="button" onClick={() => { onChange(input); setOpen(false); }}
+              className="w-full text-left px-3 py-2 text-sm text-white/40 hover:bg-white/5 border-t border-white/5">
+              Dùng: <span className="text-white/70">"{input}"</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== STORAGEFIELD: tách số và đơn vị GB/TB =====
+function StorageField({ value, onChange, error }) {
+  // Parse value -> num + unit
+  const parse = (val) => {
+    if (!val) return { num: "", unit: "GB" };
+    const m = String(val).trim().match(/^(\d+(?:\.\d+)?)\s*(GB|TB)$/i);
+    if (m) return { num: m[1], unit: m[2].toUpperCase() };
+    return { num: val, unit: "GB" };
+  };
+
+  const [num,  setNum]  = useState(() => parse(value).num);
+  const [unit, setUnit] = useState(() => parse(value).unit);
+
+  useEffect(() => {
+    const p = parse(value);
+    setNum(p.num); setUnit(p.unit);
+  }, [value]); // eslint-disable-line
+
+  const handleNum = (e) => {
+    const v = e.target.value.replace(/[^0-9]/g, "");
+    setNum(v);
+    onChange(v ? `${v}${unit}` : "");
+  };
+
+  const handleUnit = (e) => {
+    setUnit(e.target.value);
+    onChange(num ? `${num}${e.target.value}` : "");
+  };
+
+  // Gợi ý theo đơn vị
+  const suggestions = unit === "GB"
+    ? ["64", "128", "256", "512"]
+    : ["1", "2"];
+
+  return (
+    <div>
+      <div className={`flex items-center border rounded-lg overflow-hidden transition ${error ? "border-red-500/50" : "border-white/10"} bg-white/5`}>
+        {/* Số */}
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder={unit === "GB" ? "≥ 64" : "≥ 1"}
+          value={num}
+          onChange={handleNum}
+          list={`storage-list-${unit}`}
+          className="flex-1 bg-transparent px-3 py-2 text-sm outline-none min-w-0"
+        />
+        <datalist id={`storage-list-${unit}`}>
+          {suggestions.map((s) => <option key={s} value={s} />)}
+        </datalist>
+        {/* Đơn vị */}
+        <select value={unit} onChange={handleUnit}
+          className="bg-[#2a2a2a] border-l border-white/10 px-2 py-2 text-sm outline-none text-white/70 cursor-pointer">
+          <option value="GB">GB</option>
+          <option value="TB">TB</option>
+        </select>
+      </div>
+      {error
+        ? <p className="text-red-400 text-xs mt-1">{error}</p>
+        : <p className="text-white/20 text-xs mt-1">{unit === "GB" ? "Tối thiểu 64GB" : "Tối thiểu 1TB"}</p>
+      }
+    </div>
+  );
+}
+
+// ===== RAMFIELD: tách số và đơn vị GB (cố định) =====
+function RamField({ value, onChange, error }) {
+  const parse = (val) => {
+    if (!val) return "";
+    const m = String(val).trim().match(/^(\d+(?:\.\d+)?)\s*GB$/i);
+    return m ? m[1] : val.replace(/GB/i, "").trim();
+  };
+
+  const [num, setNum] = useState(() => parse(value));
+
+  useEffect(() => { setNum(parse(value)); }, [value]); // eslint-disable-line
+
+  const handleNum = (e) => {
+    const v = e.target.value.replace(/[^0-9]/g, "");
+    setNum(v);
+    onChange(v ? `${v}GB` : "");
+  };
+
+  return (
+    <div>
+      <div className={`flex items-center border rounded-lg overflow-hidden transition ${error ? "border-red-500/50" : "border-white/10"} bg-white/5`}>
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="> 4"
+          value={num}
+          onChange={handleNum}
+          list="ram-list"
+          className="flex-1 bg-transparent px-3 py-2 text-sm outline-none min-w-0"
+        />
+        <datalist id="ram-list">
+          {["6", "8", "12", "16", "32"].map((s) => <option key={s} value={s} />)}
+        </datalist>
+        <span className="bg-[#2a2a2a] border-l border-white/10 px-3 py-2 text-sm text-white/50 select-none">GB</span>
+      </div>
+      {error
+        ? <p className="text-red-400 text-xs mt-1">{error}</p>
+        : <p className="text-white/20 text-xs mt-1">Tối thiểu lớn hơn 4GB</p>
+      }
     </div>
   );
 }
