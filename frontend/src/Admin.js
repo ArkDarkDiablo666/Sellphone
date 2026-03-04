@@ -67,6 +67,14 @@ export default function Admin() {
   const [productImages, setProductImages] = useState([]);
   const productImageRef = useRef(null);
 
+  // Thêm biến thể vào sản phẩm có sẵn
+  const [addVarProductId,   setAddVarProductId]   = useState(null); // ID sản phẩm đang mở panel
+  const [addVarProductName, setAddVarProductName] = useState("");
+  const [addVarList,        setAddVarList]        = useState([{ ...{color:"",storage:"",ram:"",price:"",stock:"",cpu:"",os:"",screenSize:"",screenTech:"",refreshRate:"",battery:"",chargingSpeed:"",frontCamera:"",rearCamera:"",weights:"",updates:"",imageFile:null,imagePreview:""} }]);
+  const [addVarErrors,      setAddVarErrors]      = useState({});
+  const [addVarSaving,      setAddVarSaving]      = useState(false);
+  const [existingVariants,  setExistingVariants]  = useState([]);
+
   // Import
   const [importProductId, setImportProductId]     = useState("");
   const [importVariants, setImportVariants]        = useState([]);
@@ -128,7 +136,7 @@ export default function Admin() {
     const match = val.trim().match(/^(\d+(?:\.\d+)?)\s*GB$/i);
     if (!match) return "RAM phải có dạng số + GB (VD: 8GB)";
     const num = parseFloat(match[1]);
-    if (num <= 4) return "RAM phải lớn hơn 4GB";
+    if (num < 4) return "RAM phải ít nhất là 4GB";
     return null;
   };
 
@@ -205,6 +213,53 @@ export default function Admin() {
         alert("Tạo sản phẩm thành công!");
       } else { setProductErrors({ general: data.message }); }
     } finally { setProductSaving(false); }
+  };
+
+  // Mở panel thêm biến thể
+  const openAddVariant = async (product) => {
+    setAddVarProductId(product.id);
+    setAddVarProductName(product.name);
+    setAddVarList([{ color:"",storage:"",ram:"",price:"",stock:"",cpu:"",os:"",screenSize:"",screenTech:"",refreshRate:"",battery:"",chargingSpeed:"",frontCamera:"",rearCamera:"",weights:"",updates:"",imageFile:null,imagePreview:"" }]);
+    setAddVarErrors({});
+    // Load biến thể hiện có
+    try {
+      const res  = await fetch(`${API}/api/product/${product.id}/variants/`);
+      const data = await res.json();
+      if (res.ok) setExistingVariants(data.variants || []);
+    } catch { setExistingVariants([]); }
+  };
+
+  const handleSaveAddVariant = async () => {
+    const errs = {};
+    const variantErrs = addVarList.map((v) => {
+      const ve = {};
+      if (!v.price || isNaN(v.price) || parseFloat(v.price) <= 0) ve.price = "Giá phải lớn hơn 0";
+      if (!v.stock || isNaN(v.stock) || parseInt(v.stock) <= 0)   ve.stock = "Số lượng phải lớn hơn 0";
+      else if (parseInt(v.stock) > 10000)                          ve.stock = "Tối đa 10.000";
+      if (!v.ram) { ve.ram = "Vui lòng nhập RAM"; }
+      else { const m = String(v.ram).match(/^(\d+(?:\.\d+)?)GB$/i); if (!m || parseFloat(m[1]) <= 4) ve.ram = "RAM phải >= 4GB"; }
+      if (v.storage) { const m = String(v.storage).match(/^(\d+(?:\.\d+)?)(GB|TB)$/i); if (!m) ve.storage = "Dạng số + GB/TB"; else if (m[2].toUpperCase()==="GB"&&parseFloat(m[1])<64) ve.storage="Tối thiểu 64GB"; else if (m[2].toUpperCase()==="TB"&&parseFloat(m[1])<1) ve.storage="Tối thiểu 1TB"; }
+      return ve;
+    });
+    if (variantErrs.some((ve) => Object.keys(ve).length > 0)) errs.variantDetails = variantErrs;
+    setAddVarErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setAddVarSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("product_id", addVarProductId);
+      const clean = addVarList.map(({ imageFile, imagePreview, ...rest }) => rest);
+      formData.append("variants", JSON.stringify(clean));
+      addVarList.forEach((v, i) => { if (v.imageFile) formData.append(`variant_image_${i}`, v.imageFile); });
+      const res  = await fetch(`${API}/api/product/add-variants/`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok) {
+        setAddVarProductId(null);
+        loadProducts();
+        alert(`Đã thêm ${addVarList.length} biến thể thành công!`);
+      } else { setAddVarErrors({ general: data.message }); }
+    } finally { setAddVarSaving(false); }
   };
 
   const loadImportVariants = async (productId) => {
@@ -977,14 +1032,134 @@ export default function Admin() {
                     <span className="col-span-2">Sản phẩm</span><span>Hãng</span><span>Biến thể</span><span>Danh mục</span>
                   </div>
                   {productList.map((p) => (
-                    <div key={p.id} className="grid grid-cols-5 px-6 py-4 border-b border-white/5 last:border-0 items-center hover:bg-white/2 transition">
-                      <div className="col-span-2">
-                        <p className="text-sm font-medium">{p.name}</p>
-                        <p className="text-xs text-white/30 mt-0.5">#{p.id}</p>
+                    <div key={p.id} className="border-b border-white/5 last:border-0">
+                      <div className="grid grid-cols-5 px-6 py-4 items-center hover:bg-white/2 transition">
+                        <div className="col-span-2">
+                          <p className="text-sm font-medium">{p.name}</p>
+                          <p className="text-xs text-white/30 mt-0.5">#{p.id}</p>
+                        </div>
+                        <span className="text-sm text-white/50">{p.brand || "—"}</span>
+                        <span className="text-sm text-white/50">{p.variant_count} biến thể</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10">{p.category}</span>
+                          <button onClick={() => addVarProductId === p.id ? setAddVarProductId(null) : openAddVariant(p)}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition border
+                              ${addVarProductId === p.id
+                                ? "bg-white/10 border-white/20 text-white/50"
+                                : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20"}`}>
+                            <Plus size={11} /> {addVarProductId === p.id ? "Đóng" : "Thêm BT"}
+                          </button>
+                        </div>
                       </div>
-                      <span className="text-sm text-white/50">{p.brand || "—"}</span>
-                      <span className="text-sm text-white/50">{p.variant_count} biến thể</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10 w-fit">{p.category}</span>
+
+                      {/* PANEL THÊM BIẾN THỂ */}
+                      {addVarProductId === p.id && (
+                        <div className="mx-4 mb-4 bg-[#1a1a1a] border border-orange-500/20 rounded-2xl p-5 flex flex-col gap-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-orange-400">Thêm biến thể cho: <span className="text-white">{addVarProductName}</span></p>
+                            <button onClick={() => setAddVarList((l) => [...l, {color:"",storage:"",ram:"",price:"",stock:"",cpu:"",os:"",screenSize:"",screenTech:"",refreshRate:"",battery:"",chargingSpeed:"",frontCamera:"",rearCamera:"",weights:"",updates:"",imageFile:null,imagePreview:""}])}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs transition">
+                              <Plus size={12} /> Thêm biến thể
+                            </button>
+                          </div>
+
+                          {/* Biến thể hiện có */}
+                          {existingVariants.length > 0 && (
+                            <div>
+                              <p className="text-xs text-white/30 mb-2">Biến thể hiện có ({existingVariants.length})</p>
+                              <div className="flex flex-wrap gap-2">
+                                {existingVariants.map((v) => (
+                                  <span key={v.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/50">
+                                    {[v.color, v.storage, v.ram].filter(Boolean).join(" / ") || `#${v.id}`}
+                                    <span className="text-orange-400/60">{parseInt(v.price).toLocaleString("vi-VN")}đ</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {addVarErrors.general && <p className="text-red-400 text-xs">{addVarErrors.general}</p>}
+
+                          {/* Form biến thể mới */}
+                          <div className="flex flex-col gap-3">
+                            {addVarList.map((v, vi) => (
+                              <div key={vi} className="border border-white/10 rounded-xl p-4 bg-white/2">
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className="text-xs font-medium text-orange-400">Biến thể mới #{vi + 1}</span>
+                                  {addVarList.length > 1 && (
+                                    <button onClick={() => setAddVarList((l) => l.filter((_, idx) => idx !== vi))}
+                                      className="text-red-400/60 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition">
+                                      <X size={13} />
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Ảnh */}
+                                <div className="mb-3 flex items-center gap-3">
+                                  <div className="w-16 h-16 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center shrink-0">
+                                    {v.imagePreview ? <img src={v.imagePreview} alt="" className="w-full h-full object-cover" /> : <Plus size={16} className="text-white/15" />}
+                                  </div>
+                                  <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs cursor-pointer transition">
+                                    <Plus size={11} className="text-orange-400" />
+                                    {v.imagePreview ? "Đổi ảnh" : "Chọn ảnh"}
+                                    <input type="file" accept="image/*" className="hidden"
+                                      onChange={(e) => { const f=e.target.files[0]; if(!f)return; setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,imageFile:f,imagePreview:URL.createObjectURL(f)}:item)); }} />
+                                  </label>
+                                  {v.imagePreview && (
+                                    <button onClick={() => setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,imageFile:null,imagePreview:""}:item))}
+                                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs transition hover:bg-red-500/20">
+                                      <X size={11} /> Xóa
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-3 mb-3">
+                                  <ComboField value={v.color} onChange={(val)=>setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,color:val}:item))}
+                                    options={["Đen","Trắng","Xanh dương","Xanh lá","Đỏ","Vàng","Hồng","Tím","Xám","Bạc","Vàng đồng","Titan tự nhiên","Titan đen","Titan trắng","Titan sa mạc"]} placeholder="Màu sắc" />
+                                  <StorageField value={v.storage} onChange={(val)=>setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,storage:val}:item))} error={addVarErrors.variantDetails?.[vi]?.storage} />
+                                  <RamField value={v.ram} onChange={(val)=>setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,ram:val}:item))} error={addVarErrors.variantDetails?.[vi]?.ram} />
+                                  <div>
+                                    <input placeholder="Giá (VNĐ) *" value={v.price}
+                                      onChange={(e)=>setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,price:e.target.value}:item))}
+                                      className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition ${addVarErrors.variantDetails?.[vi]?.price?"border-red-500/50":"border-white/10"}`} />
+                                    {addVarErrors.variantDetails?.[vi]?.price && <p className="text-red-400 text-xs mt-1">{addVarErrors.variantDetails[vi].price}</p>}
+                                  </div>
+                                  <div>
+                                    <input placeholder="Số lượng *" value={v.stock}
+                                      onChange={(e)=>setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,stock:e.target.value}:item))}
+                                      className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition ${addVarErrors.variantDetails?.[vi]?.stock?"border-red-500/50":"border-white/10"}`} />
+                                    {addVarErrors.variantDetails?.[vi]?.stock && <p className="text-red-400 text-xs mt-1">{addVarErrors.variantDetails[vi].stock}</p>}
+                                  </div>
+                                </div>
+
+                                <details className="group">
+                                  <summary className="text-xs text-white/30 hover:text-white/60 cursor-pointer select-none list-none flex items-center gap-1 mb-3">
+                                    <ChevronRight size={12} className="group-open:rotate-90 transition-transform" /> Thông số kỹ thuật
+                                  </summary>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    {[["cpu","CPU"],["os","Hệ điều hành"],["screenSize","Kích thước MH"],["screenTech","Công nghệ MH"],["refreshRate","Tần số quét"],["battery","Pin"],["chargingSpeed","Tốc độ sạc"],["frontCamera","Camera trước"],["rearCamera","Camera sau"],["weights","Trọng lượng"],["updates","Cập nhật OS"]].map(([key,ph])=>(
+                                      <input key={key} placeholder={ph} value={v[key]}
+                                        onChange={(e)=>setAddVarList((l)=>l.map((item,idx)=>idx===vi?{...item,[key]:e.target.value}:item))}
+                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition" />
+                                    ))}
+                                  </div>
+                                </details>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex gap-2 pt-2 border-t border-white/5">
+                            <button onClick={handleSaveAddVariant} disabled={addVarSaving}
+                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
+                              <Check size={14} /> {addVarSaving ? "Đang lưu..." : `Lưu ${addVarList.length} biến thể`}
+                            </button>
+                            <button onClick={() => setAddVarProductId(null)}
+                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition">
+                              <X size={14} /> Hủy
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1268,13 +1443,13 @@ function RamField({ value, onChange, error }) {
           className="flex-1 bg-transparent px-3 py-2 text-sm outline-none min-w-0"
         />
         <datalist id="ram-list">
-          {["6", "8", "12", "16", "32"].map((s) => <option key={s} value={s} />)}
+          {["4", "6", "8", "12", "16", "32"].map((s) => <option key={s} value={s} />)}
         </datalist>
         <span className="bg-[#2a2a2a] border-l border-white/10 px-3 py-2 text-sm text-white/50 select-none">GB</span>
       </div>
       {error
         ? <p className="text-red-400 text-xs mt-1">{error}</p>
-        : <p className="text-white/20 text-xs mt-1">Tối thiểu lớn hơn 4GB</p>
+        : <p className="text-white/20 text-xs mt-1">Tối thiểu ít nhất là 4GB</p>
       }
     </div>
   );

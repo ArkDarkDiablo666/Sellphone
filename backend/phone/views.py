@@ -1,3 +1,4 @@
+import json
 from django.contrib.auth.hashers import make_password, check_password
 import cloudinary
 import cloudinary.uploader
@@ -736,10 +737,72 @@ def list_categories(request):
 #   variants (JSON string)
 #   images (files, nhiều file)
 # ============================================
+# ============================================================
+# HELPER: validate danh sách biến thể (dùng chung)
+# ============================================================
+import re as _re
+
+def _validate_variants(variants):
+    """
+    Trả về list lỗi theo từng biến thể.
+    Mỗi phần tử là dict {field: message} hoặc {} nếu hợp lệ.
+    """
+    errors = []
+    for idx, v in enumerate(variants):
+        ve = {}
+        label = f"Biến thể #{idx + 1}"
+
+        # --- GIÁ ---
+        price_raw = v.get('price', '')
+        try:
+            price = float(price_raw)
+            if price <= 0:
+                ve['price'] = f"{label}: Giá phải lớn hơn 0"
+        except (ValueError, TypeError):
+            ve['price'] = f"{label}: Giá không hợp lệ"
+
+        # --- SỐ LƯỢNG ---
+        stock_raw = v.get('stock', '')
+        try:
+            stock = int(stock_raw)
+            if stock <= 0:
+                ve['stock'] = f"{label}: Số lượng phải lớn hơn 0"
+            elif stock > 10000:
+                ve['stock'] = f"{label}: Số lượng tối đa 10.000"
+        except (ValueError, TypeError):
+            ve['stock'] = f"{label}: Số lượng không hợp lệ"
+
+        # --- RAM ---
+        ram = (v.get('ram') or '').strip()
+        if not ram:
+            ve['ram'] = f"{label}: Vui lòng nhập RAM"
+        else:
+            m = _re.match(r'^(\d+(?:\.\d+)?)\s*GB$', ram, _re.IGNORECASE)
+            if not m:
+                ve['ram'] = f"{label}: RAM phải có dạng số + GB (VD: 8GB)"
+            elif float(m.group(1)) < 4:
+                ve['ram'] = f"{label}: RAM phải ít nhất là 4GB"
+
+        # --- BỘ NHỚ (tuỳ chọn nhưng nếu nhập thì phải đúng định dạng) ---
+        storage = (v.get('storage') or '').strip()
+        if storage:
+            m = _re.match(r'^(\d+(?:\.\d+)?)\s*(GB|TB)$', storage, _re.IGNORECASE)
+            if not m:
+                ve['storage'] = f"{label}: Bộ nhớ phải có dạng số + GB/TB (VD: 128GB, 1TB)"
+            else:
+                num  = float(m.group(1))
+                unit = m.group(2).upper()
+                if unit == 'GB' and num < 64:
+                    ve['storage'] = f"{label}: Bộ nhớ GB phải từ 64GB trở lên"
+                elif unit == 'TB' and num < 1:
+                    ve['storage'] = f"{label}: Bộ nhớ TB phải từ 1TB trở lên"
+
+        errors.append(ve)
+    return errors
+
+
 @api_view(['POST'])
 def create_product(request):
-    import json
-
     product_name = request.data.get('product_name', '').strip()
     brand        = request.data.get('brand', '').strip()
     description  = request.data.get('description', '').strip()
@@ -764,9 +827,15 @@ def create_product(request):
     if not variants:
         return Response({"message": "Cần ít nhất 1 biến thể"}, status=status.HTTP_400_BAD_REQUEST)
 
-    for v in variants:
-        if not v.get('price') or not v.get('stock'):
-            return Response({"message": "Mỗi biến thể cần có giá và số lượng"}, status=status.HTTP_400_BAD_REQUEST)
+    # Validate chi tiết từng biến thể
+    variant_errors = _validate_variants(variants)
+    all_errors = [e for e in variant_errors if e]
+    if all_errors:
+        # Gộp tất cả lỗi thành 1 message
+        messages = []
+        for ve in all_errors:
+            messages.extend(ve.values())
+        return Response({"message": " | ".join(messages), "variant_errors": variant_errors}, status=status.HTTP_400_BAD_REQUEST)
 
     # Tạo Product
     product = Product.objects.create(
@@ -1079,3 +1148,81 @@ def list_products(request):
             "storages":      storages,
         })
     return Response({"products": data}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 28: THÊM BIẾN THỂ VÀO SẢN PHẨM CÓ SẴN
+# POST /api/product/add-variants/
+# ============================================
+@api_view(['POST'])
+def add_variants(request):
+    product_id = request.data.get('product_id') or request.POST.get('product_id')
+    variants_json = request.POST.get('variants')
+
+    if not product_id:
+        return Response({"message": "Thiếu product_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+    product = Product.objects.filter(ProductID=product_id).first()
+    if not product:
+        return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        variants = json.loads(variants_json) if variants_json else []
+    except json.JSONDecodeError:
+        return Response({"message": "Dữ liệu biến thể không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not variants:
+        return Response({"message": "Vui lòng thêm ít nhất 1 biến thể"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate chi tiết từng biến thể
+    variant_errors = _validate_variants(variants)
+    all_errors = [e for e in variant_errors if e]
+    if all_errors:
+        messages = []
+        for ve in all_errors:
+            messages.extend(ve.values())
+        return Response({"message": " | ".join(messages), "variant_errors": variant_errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    created = []
+    for idx, v in enumerate(variants):
+        variant_obj = ProductVariant.objects.create(
+            ProductID        = product,
+            Color            = v.get('color') or None,
+            Storage          = v.get('storage') or None,
+            Ram              = v.get('ram') or None,
+            Price            = float(v.get('price', 0)),
+            StockQuantity    = int(v.get('stock', 0)),
+            Cpu              = v.get('cpu') or None,
+            OperatingSystem  = v.get('os') or None,
+            ScreenSize       = v.get('screenSize') or None,
+            ScreenTechnology = v.get('screenTech') or None,
+            RefreshRate      = v.get('refreshRate') or None,
+            Battery          = v.get('battery') or None,
+            ChargingSpeed    = v.get('chargingSpeed') or None,
+            FrontCamera      = v.get('frontCamera') or None,
+            RearCamera       = v.get('rearCamera') or None,
+            Weights          = v.get('weights') or None,
+            Updates          = v.get('updates') or None,
+        )
+        # Upload ảnh biến thể
+        variant_img = request.FILES.get(f'variant_image_{idx}')
+        if variant_img:
+            try:
+                result = cloudinary.uploader.upload(
+                    variant_img,
+                    folder        = f"sellphone/variants/{product.ProductID}",
+                    public_id     = f"variant_{variant_obj.VariantID}",
+                    overwrite     = True,
+                    resource_type = "image",
+                    transformation = [{"width": 800, "height": 800, "crop": "limit"}],
+                )
+                variant_obj.Image = result["secure_url"]
+                variant_obj.save()
+            except Exception:
+                pass
+        created.append(variant_obj.VariantID)
+
+    return Response({
+        "message": f"Đã thêm {len(created)} biến thể thành công",
+        "variant_ids": created,
+    }, status=status.HTTP_201_CREATED)

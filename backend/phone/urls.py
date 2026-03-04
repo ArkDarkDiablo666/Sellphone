@@ -40,6 +40,7 @@ urlpatterns = [
     path('product/list/',               views.list_products),
     path('product/create/',             views.create_product),
     path('product/import/',             views.import_stock),
+    path('product/add-variants/',       views.add_variants),
     path('product/<int:product_id>/variants/', views.get_product_variants),
     path('product/<int:product_id>/detail/',   views.get_product_detail),
 
