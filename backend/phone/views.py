@@ -12,7 +12,7 @@ from django.conf import settings
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Customer, generate_customer_id
+from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id
 
 # Lưu OTP tạm thời trong memory { email: otp_code }
 otp_storage = {}
@@ -509,3 +509,385 @@ def upload_avatar(request):
 
     except Exception as e:
         return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ============================================
+# API 14: ĐĂNG NHẬP STAFF / ADMIN
+# POST /api/auth/admin/login/
+# Body: { username, password }  ← username = Email
+# ============================================
+@api_view(['POST'])
+def admin_login(request):
+    username = request.data.get('username', '').strip()
+    password = request.data.get('password', '').strip()
+
+    if not username:
+        return Response({"message": "Vui lòng nhập tên tài khoản", "field": "username"}, status=status.HTTP_400_BAD_REQUEST)
+    if not password:
+        return Response({"message": "Vui lòng nhập mật khẩu", "field": "password"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Tìm staff theo Email
+    staff = Staff.objects.filter(Email=username).first()
+    if not staff:
+        return Response({"message": "Tài khoản không tồn tại", "field": "username"}, status=status.HTTP_404_NOT_FOUND)
+
+    if not check_password(password, staff.Password):
+        return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Kiểm tra quyền
+    if staff.Role == 'Unentitled':
+        return Response(
+            {"message": "Bạn không có quyền truy cập", "field": "general"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    return Response({
+        "message": "Đăng nhập thành công",
+        "admin": {
+            "id":        staff.StaffID,
+            "full_name": staff.FullName,
+            "username":  staff.Email,
+            "role":      staff.Role,
+            "avatar":    "",
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 15: LẤY THÔNG TIN STAFF
+# GET /api/staff/<id>/
+# ============================================
+@api_view(['GET'])
+def get_staff(request, staff_id):
+    staff = Staff.objects.filter(StaffID=staff_id).first()
+    if not staff:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({
+        "id":        staff.StaffID,
+        "full_name": staff.FullName,
+        "email":     staff.Email,
+        "role":      staff.Role,
+        "avatar":    staff.Avatar or "" if hasattr(staff, 'Avatar') else "",
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 16: DANH SÁCH STAFF
+# GET /api/staff/list/
+# ============================================
+@api_view(['GET'])
+def list_staff(request):
+    staff_list = Staff.objects.all().order_by('StaffID')
+    data = [{
+        "id":        s.StaffID,
+        "full_name": s.FullName,
+        "email":     s.Email,
+        "role":      s.Role,
+        "avatar":    s.Avatar or "" if hasattr(s, 'Avatar') else "",
+    } for s in staff_list]
+    return Response({"staff": data}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 17: TẠO STAFF MỚI
+# POST /api/staff/create/
+# Body: { full_name, email, password, role }
+# ============================================
+@api_view(['POST'])
+def create_staff(request):
+    full_name = request.data.get('full_name', '').strip()
+    email     = request.data.get('email', '').strip()
+    password  = request.data.get('password', '').strip()
+    role      = request.data.get('role', 'Staff').strip()
+
+    if not full_name or not email or not password:
+        return Response({"message": "Vui lòng điền đầy đủ thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if len(password) < 6:
+        return Response({"message": "Mật khẩu phải có ít nhất 6 ký tự"}, status=status.HTTP_400_BAD_REQUEST)
+    if role not in ['Admin', 'Staff', 'Unentitled']:
+        return Response({"message": "Vai trò không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if Staff.objects.filter(Email=email).exists():
+        return Response({"message": "Email đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+
+    staff = Staff.objects.create(
+        FullName = full_name,
+        Email    = email,
+        Password = make_password(password),
+        Role     = role,
+    )
+    return Response({
+        "message": "Tạo tài khoản thành công",
+        "staff":   {"id": staff.StaffID, "full_name": staff.FullName, "email": staff.Email, "role": staff.Role},
+    }, status=status.HTTP_201_CREATED)
+
+
+# ============================================
+# API 18: CẬP NHẬT QUYỀN STAFF
+# POST /api/staff/update-role/
+# Body: { id, role }
+# ============================================
+@api_view(['POST'])
+def update_staff_role(request):
+    staff_id = request.data.get('id')
+    role     = request.data.get('role', '').strip()
+
+    if not staff_id or not role:
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if role not in ['Admin', 'Staff', 'Unentitled']:
+        return Response({"message": "Vai trò không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+    staff = Staff.objects.filter(StaffID=staff_id).first()
+    if not staff:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    staff.Role = role
+    staff.save()
+    return Response({"message": "Cập nhật quyền thành công"}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 19: ĐỔI MẬT KHẨU STAFF
+# POST /api/staff/change-password/
+# Body: { id, current_password, new_password }
+# ============================================
+@api_view(['POST'])
+def change_staff_password(request):
+    staff_id         = request.data.get('id')
+    current_password = request.data.get('current_password', '').strip()
+    new_password     = request.data.get('new_password', '').strip()
+
+    if not staff_id or not current_password or not new_password:
+        return Response({"message": "Vui lòng điền đầy đủ thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if ' ' in new_password:
+        return Response({"message": "Mật khẩu không được chứa dấu cách"}, status=status.HTTP_400_BAD_REQUEST)
+    if len(new_password) < 6:
+        return Response({"message": "Mật khẩu phải có ít nhất 6 ký tự"}, status=status.HTTP_400_BAD_REQUEST)
+
+    staff = Staff.objects.filter(StaffID=staff_id).first()
+    if not staff:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+    if not check_password(current_password, staff.Password):
+        return Response({"message": "Mật khẩu hiện tại không đúng"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    staff.Password = make_password(new_password)
+    staff.save()
+    return Response({"message": "Đổi mật khẩu thành công"}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 20: UPLOAD AVATAR STAFF
+# POST /api/staff/upload-avatar/
+# Body: multipart/form-data { id, avatar_file }
+# ============================================
+@api_view(['POST'])
+def upload_staff_avatar(request):
+    staff_id    = request.data.get('id')
+    avatar_file = request.FILES.get('avatar_file')
+
+    if not staff_id or not avatar_file:
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    staff = Staff.objects.filter(StaffID=staff_id).first()
+    if not staff:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        upload_result = cloudinary.uploader.upload(
+            avatar_file,
+            folder        = "sellphone/staff_avatars",
+            public_id     = f"staff_avatar_{staff_id}",
+            overwrite     = True,
+            resource_type = "image",
+            transformation = [{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}],
+        )
+        avatar_url = upload_result["secure_url"]
+        staff.Avatar = avatar_url
+        staff.save()
+        return Response({"message": "Upload thành công", "avatar_url": avatar_url}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ============================================
+# API 21: DANH SÁCH DANH MỤC
+# GET /api/product/categories/
+# ============================================
+@api_view(['GET'])
+def list_categories(request):
+    cats = Category.objects.all().order_by('CategoryID')
+    return Response({
+        "categories": [{"id": c.CategoryID, "name": c.CategoryName} for c in cats]
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 22: DANH SÁCH SẢN PHẨM
+# GET /api/product/list/
+# ============================================
+@api_view(['GET'])
+def list_products(request):
+    products = Product.objects.select_related('CategoryID').all().order_by('-CreatedAt')
+    data = []
+    for p in products:
+        variant_count = ProductVariant.objects.filter(ProductID=p).count()
+        data.append({
+            "id":            p.ProductID,
+            "name":          p.ProductName,
+            "brand":         p.Brand or "",
+            "description":   p.Description or "",
+            "category":      p.CategoryID.CategoryName,
+            "category_id":   p.CategoryID.CategoryID,
+            "variant_count": variant_count,
+        })
+    return Response({"products": data}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 23: TẠO SẢN PHẨM + BIẾN THỂ + ẢNH
+# POST /api/product/create/
+# Body: multipart/form-data
+#   product_name, brand, description, category_id
+#   variants (JSON string)
+#   images (files, nhiều file)
+# ============================================
+@api_view(['POST'])
+def create_product(request):
+    import json
+
+    product_name = request.data.get('product_name', '').strip()
+    brand        = request.data.get('brand', '').strip()
+    description  = request.data.get('description', '').strip()
+    category_id  = request.data.get('category_id')
+    variants_raw = request.data.get('variants', '[]')
+    images       = request.FILES.getlist('images')
+
+    if not product_name:
+        return Response({"message": "Vui lòng nhập tên sản phẩm"}, status=status.HTTP_400_BAD_REQUEST)
+    if not category_id:
+        return Response({"message": "Vui lòng chọn danh mục"}, status=status.HTTP_400_BAD_REQUEST)
+
+    category = Category.objects.filter(CategoryID=category_id).first()
+    if not category:
+        return Response({"message": "Danh mục không tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        variants = json.loads(variants_raw)
+    except Exception:
+        return Response({"message": "Dữ liệu biến thể không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not variants:
+        return Response({"message": "Cần ít nhất 1 biến thể"}, status=status.HTTP_400_BAD_REQUEST)
+
+    for v in variants:
+        if not v.get('price') or not v.get('stock'):
+            return Response({"message": "Mỗi biến thể cần có giá và số lượng"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Tạo Product
+    product = Product.objects.create(
+        ProductName = product_name,
+        Brand       = brand or None,
+        Description = description or None,
+        CategoryID  = category,
+    )
+
+    # Tạo Variants
+    for v in variants:
+        ProductVariant.objects.create(
+            ProductID        = product,
+            Color            = v.get('color') or None,
+            Storage          = v.get('storage') or None,
+            Ram              = v.get('ram') or None,
+            Price            = float(v.get('price', 0)),
+            StockQuantity    = int(v.get('stock', 0)),
+            Cpu              = v.get('cpu') or None,
+            OperatingSystem  = v.get('os') or None,
+            ScreenSize       = v.get('screenSize') or None,
+            ScreenTechnology = v.get('screenTech') or None,
+            RefreshRate      = v.get('refreshRate') or None,
+            Battery          = v.get('battery') or None,
+            ChargingSpeed    = v.get('chargingSpeed') or None,
+            FrontCamera      = v.get('frontCamera') or None,
+            RearCamera       = v.get('rearCamera') or None,
+            Weights          = v.get('weights') or None,
+            Updates          = v.get('updates') or None,
+        )
+
+    # Upload ảnh lên Cloudinary
+    for idx, img_file in enumerate(images):
+        try:
+            result = cloudinary.uploader.upload(
+                img_file,
+                folder        = f"sellphone/products/{product.ProductID}",
+                public_id     = f"product_{product.ProductID}_img_{idx}",
+                overwrite     = True,
+                resource_type = "image",
+                transformation = [{"width": 800, "height": 800, "crop": "limit"}],
+            )
+            ProductImage.objects.create(
+                ProductID = product,
+                ImageUrl  = result["secure_url"],
+                IsPrimary = (idx == 0),
+            )
+        except Exception:
+            pass  # Bỏ qua lỗi upload ảnh, vẫn tạo sản phẩm
+
+    return Response({
+        "message":    "Tạo sản phẩm thành công",
+        "product_id": product.ProductID,
+    }, status=status.HTTP_201_CREATED)
+
+
+# ============================================
+# API 24: BIẾN THỂ CỦA SẢN PHẨM
+# GET /api/product/<id>/variants/
+# ============================================
+@api_view(['GET'])
+def get_product_variants(request, product_id):
+    product = Product.objects.filter(ProductID=product_id).first()
+    if not product:
+        return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+
+    variants = ProductVariant.objects.filter(ProductID=product)
+    data = [{
+        "id":      v.VariantID,
+        "color":   v.Color or "",
+        "storage": v.Storage or "",
+        "ram":     v.Ram or "",
+        "price":   str(v.Price),
+        "stock":   v.StockQuantity,
+    } for v in variants]
+
+    return Response({"variants": data}, status=status.HTTP_200_OK)
+
+
+# ============================================
+# API 25: NHẬP HÀNG - TĂNG STOCK
+# POST /api/product/import/
+# Body: { items: [{ variant_id, quantity }] }
+# ============================================
+@api_view(['POST'])
+def import_stock(request):
+    items = request.data.get('items', [])
+
+    if not items:
+        return Response({"message": "Không có dữ liệu nhập hàng"}, status=status.HTTP_400_BAD_REQUEST)
+
+    updated = []
+    for item in items:
+        variant_id = item.get('variant_id')
+        quantity   = int(item.get('quantity', 0))
+
+        if quantity <= 0:
+            continue
+
+        variant = ProductVariant.objects.filter(VariantID=variant_id).first()
+        if variant:
+            variant.StockQuantity += quantity
+            variant.save()
+            updated.append({"variant_id": variant_id, "new_stock": variant.StockQuantity})
+
+    return Response({
+        "message": f"Đã nhập hàng cho {len(updated)} biến thể",
+        "updated": updated,
+    }, status=status.HTTP_200_OK)

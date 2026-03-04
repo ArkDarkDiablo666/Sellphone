@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>ERD - Sellphone Database</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: auto;
+  }
+
+  .header {
+    text-align: center;
+    padding: 32px 20px 20px;
+    position: relative;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #58a6ff;
+  }
+  .header p { font-size: 12px; color: #8b949e; margin-top: 4px; letter-spacing: 1px; }
+
+  .legend {
+    display: flex; gap: 20px; justify-content: center;
+    padding: 10px 20px 20px; flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #8b949e; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  .canvas-wrap {
+    position: relative;
+    width: 2100px;
+    height: 1380px;
+    margin: 0 auto;
+  }
+
+  svg.lines {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .table {
+    position: absolute;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    min-width: 200px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    z-index: 2;
+    overflow: hidden;
+  }
+  .table-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .table-header .icon { font-size: 13px; }
+  .table-body { padding: 6px 0; }
+  .field {
+    padding: 3px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    display: flex; align-items: center; gap: 6px;
+    line-height: 1.6;
+    color: #c9d1d9;
+  }
+  .field:hover { background: #1f2937; }
+  .field .badge {
+    font-size: 9px; font-weight: 700; padding: 1px 4px;
+    border-radius: 3px; letter-spacing: 0.5px; min-width: 24px;
+    text-align: center; flex-shrink: 0;
+  }
+  .badge-pk { background: #f7c948; color: #000; }
+  .badge-fk { background: #388bfd; color: #fff; }
+  .badge-uk { background: #3fb950; color: #000; }
+  .field-name { flex: 1; }
+  .field-type { color: #8b949e; font-size: 9.5px; }
+  .divider { height: 1px; background: #21262d; margin: 4px 0; }
+
+  /* Color themes per group */
+  .group-user   .table-header { background: #1a2a1a; color: #3fb950; border-bottom: 1px solid #238636; }
+  .group-user   { border-color: #238636; }
+  .group-product .table-header { background: #1a1f2e; color: #79c0ff; border-bottom: 1px solid #1f6feb; }
+  .group-product { border-color: #1f6feb; }
+  .group-order  .table-header { background: #2a1f1a; color: #ffa657; border-bottom: 1px solid #9e6a03; }
+  .group-order  { border-color: #9e6a03; }
+  .group-payment .table-header { background: #1f1a2e; color: #d2a8ff; border-bottom: 1px solid #6e40c9; }
+  .group-payment { border-color: #6e40c9; }
+  .group-review .table-header { background: #2a1a1f; color: #ff7b72; border-bottom: 1px solid #da3633; }
+  .group-review { border-color: #da3633; }
+  .group-discount .table-header { background: #1f2a2a; color: #39d353; border-bottom: 1px solid #2ea043; }
+  .group-discount { border-color: #2ea043; }
+
+  .rel-label {
+    position: absolute;
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #58a6ff;
+    background: #0d1117;
+    padding: 1px 4px;
+    border-radius: 3px;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📊 ERD — Website Bán Điện Thoại</h1>
+  <p>Entity Relationship Diagram · SQL Server · 14 Tables</p>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#f7c948"></div> Primary Key (PK)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#388bfd"></div> Foreign Key (FK)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> Unique (UK)</div>
+  <div class="legend-item" style="color:#3fb950">■ Người dùng</div>
+  <div class="legend-item" style="color:#79c0ff">■ Sản phẩm</div>
+  <div class="legend-item" style="color:#ffa657">■ Đơn hàng</div>
+  <div class="legend-item" style="color:#d2a8ff">■ Thanh toán & Vận chuyển</div>
+  <div class="legend-item" style="color:#ff7b72">■ Đánh giá</div>
+  <div class="legend-item" style="color:#39d353">■ Khuyến mãi</div>
+</div>
+
+<div class="canvas-wrap" id="canvas">
+<svg class="lines" id="svg-lines"></svg>
+
+<!-- ===== CUSTOMER ===== -->
+<div class="table group-user" id="t-customer" style="left:30px;top:30px;width:220px">
+  <div class="table-header"><span class="icon">👤</span>Customer</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">CustomerID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-uk">UK</span><span class="field-name">Email</span><span class="field-type">VARCHAR(150)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">FullName</span><span class="field-type">NVARCHAR(100)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Password</span><span class="field-type">VARCHAR(255)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">PhoneNumber</span><span class="field-type">VARCHAR(15)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Address</span><span class="field-type">NVARCHAR(255)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">CreatedAt</span><span class="field-type">DATETIME</span></div>
+  </div>
+</div>
+
+<!-- ===== STAFF ===== -->
+<div class="table group-user" id="t-staff" style="left:30px;top:280px;width:220px">
+  <div class="table-header"><span class="icon">🛡️</span>Staff</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">StaffID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-uk">UK</span><span class="field-name">Email</span><span class="field-type">VARCHAR(150)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">FullName</span><span class="field-type">NVARCHAR(100)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Password</span><span class="field-type">VARCHAR(255)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Role</span><span class="field-type">VARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">CreatedAt</span><span class="field-type">DATETIME</span></div>
+  </div>
+</div>
+
+<!-- ===== CATEGORY ===== -->
+<div class="table group-product" id="t-category" style="left:330px;top:30px;width:210px">
+  <div class="table-header"><span class="icon">📂</span>Category</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">CategoryID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">CategoryName</span><span class="field-type">NVARCHAR(100)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Description</span><span class="field-type">NVARCHAR(MAX)</span></div>
+  </div>
+</div>
+
+<!-- ===== BRAND ===== -->
+<div class="table group-product" id="t-brand" style="left:330px;top:170px;width:210px">
+  <div class="table-header"><span class="icon">🏷️</span>Brand</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">BrandID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">BrandName</span><span class="field-type">NVARCHAR(100)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Description</span><span class="field-type">NVARCHAR(MAX)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Logo</span><span class="field-type">VARCHAR(500)</span></div>
+  </div>
+</div>
+
+<!-- ===== PRODUCT ===== -->
+<div class="table group-product" id="t-product" style="left:630px;top:80px;width:220px">
+  <div class="table-header"><span class="icon">📱</span>Product</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">ProductID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">CategoryID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">BrandID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ProductName</span><span class="field-type">NVARCHAR(200)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Description</span><span class="field-type">NVARCHAR(MAX)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">CreatedAt</span><span class="field-type">DATETIME</span></div>
+  </div>
+</div>
+
+<!-- ===== PRODUCT VARIANT ===== -->
+<div class="table group-product" id="t-variant" style="left:630px;top:310px;width:235px">
+  <div class="table-header"><span class="icon">🔧</span>ProductVariant</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">VariantID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">ProductID</span><span class="field-type">INT</span></div>
+    <div class="divider"></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Cpu</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">OperatingSystem</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ScreenSize</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ScreenTechnology</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">RefreshRate</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Battery</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ChargingSpeed</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Storage</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Ram</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">FrontCamera</span><span class="field-type">NVARCHAR(500)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">RearCamera</span><span class="field-type">NVARCHAR(500)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Color</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Weights</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Updates</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="divider"></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Price</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">StockQuantity</span><span class="field-type">INT</span></div>
+  </div>
+</div>
+
+<!-- ===== PRODUCT IMAGE ===== -->
+<div class="table group-product" id="t-image" style="left:330px;top:450px;width:215px">
+  <div class="table-header"><span class="icon">🖼️</span>ProductImage</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">ImageID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">ProductID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ImageUrl</span><span class="field-type">VARCHAR(500)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">IsPrimary</span><span class="field-type">BIT</span></div>
+  </div>
+</div>
+
+<!-- ===== CART ===== -->
+<div class="table group-order" id="t-cart" style="left:30px;top:560px;width:215px">
+  <div class="table-header"><span class="icon">🛒</span>Cart</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">CustomerID</span><span class="field-type">INT (FK)</span></div>
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">VariantID</span><span class="field-type">INT (FK)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Quantity</span><span class="field-type">INT</span></div>
+  </div>
+</div>
+
+<!-- ===== ORDER ===== -->
+<div class="table group-order" id="t-order" style="left:330px;top:700px;width:235px">
+  <div class="table-header"><span class="icon">📦</span>Order</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">OrderID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">CustomerID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">CodeID</span><span class="field-type">INT (null)</span></div>
+    <div class="divider"></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">OrderDate</span><span class="field-type">DATETIME</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">OriginalAmount</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">DiscountValue</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">TotalAmount</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Status</span><span class="field-type">NVARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ShippingAddress</span><span class="field-type">NVARCHAR(255)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">PhoneNumber</span><span class="field-type">VARCHAR(15)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Note</span><span class="field-type">NVARCHAR(500)</span></div>
+  </div>
+</div>
+
+<!-- ===== ORDER DETAIL ===== -->
+<div class="table group-order" id="t-orderdetail" style="left:630px;top:820px;width:225px">
+  <div class="table-header"><span class="icon">📋</span>OrderDetail</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">OrderID</span><span class="field-type">INT (FK)</span></div>
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">VariantID</span><span class="field-type">INT (FK)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Quantity</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">UnitPrice</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Subtotal</span><span class="field-type">COMPUTED</span></div>
+  </div>
+</div>
+
+<!-- ===== PAYMENT ===== -->
+<div class="table group-payment" id="t-payment" style="left:330px;top:1060px;width:225px">
+  <div class="table-header"><span class="icon">💳</span>Payment</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">PaymentID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">OrderID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Method</span><span class="field-type">VARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Status</span><span class="field-type">VARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">PaidAt</span><span class="field-type">DATETIME</span></div>
+  </div>
+</div>
+
+<!-- ===== SHIPPING ===== -->
+<div class="table group-payment" id="t-shipping" style="left:630px;top:1060px;width:225px">
+  <div class="table-header"><span class="icon">🚚</span>Shipping</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">ShippingID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">OrderID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ShippingProvider</span><span class="field-type">NVARCHAR(100)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">TrackingCode</span><span class="field-type">VARCHAR(100)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Status</span><span class="field-type">VARCHAR(50)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">EstimatedDelivery</span><span class="field-type">DATE</span></div>
+  </div>
+</div>
+
+<!-- ===== REVIEW ===== -->
+<div class="table group-review" id="t-review" style="left:930px;top:380px;width:215px">
+  <div class="table-header"><span class="icon">⭐</span>Review</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">ReviewID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">ProductID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-fk">FK</span><span class="field-name">CustomerID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Rating</span><span class="field-type">INT (1-5)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Comment</span><span class="field-type">NVARCHAR(1000)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ReviewDate</span><span class="field-type">DATETIME</span></div>
+  </div>
+</div>
+
+<!-- ===== DISCOUNT CODE ===== -->
+<div class="table group-discount" id="t-discount" style="left:930px;top:660px;width:250px">
+  <div class="table-header"><span class="icon">🎟️</span>DiscountCode</div>
+  <div class="table-body">
+    <div class="field"><span class="badge badge-pk">PK</span><span class="field-name">CodeID</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge badge-uk">UK</span><span class="field-name">Code</span><span class="field-type">VARCHAR(50)</span></div>
+    <div class="divider"></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">DiscountPercent</span><span class="field-type">DECIMAL(5,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">DiscountAmount</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">MinOrderValue</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">MaxDiscount</span><span class="field-type">DECIMAL(18,2)</span></div>
+    <div class="divider"></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ValidFrom</span><span class="field-type">DATE</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">ValidTo</span><span class="field-type">DATE</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">UsageLimit</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">UsedCount</span><span class="field-type">INT</span></div>
+    <div class="field"><span class="badge" style="opacity:0"> </span><span class="field-name">Status</span><span class="field-type">VARCHAR(20)</span></div>
+  </div>
+</div>
+
+</div><!-- canvas-wrap -->
+
+<script>
+// Draw relationship lines
+const relations = [
+  // [fromId, toId, label, color]
+  ['t-customer', 't-order',       '1..N', '#3fb950'],
+  ['t-customer', 't-cart',        '1..N', '#3fb950'],
+  ['t-customer', 't-review',      '1..N', '#3fb950'],
+  ['t-category', 't-product',     '1..N', '#79c0ff'],
+  ['t-brand',    't-product',     '1..N', '#79c0ff'],
+  ['t-product',  't-variant',     '1..N', '#79c0ff'],
+  ['t-product',  't-image',       '1..N', '#79c0ff'],
+  ['t-product',  't-review',      '1..N', '#ff7b72'],
+  ['t-variant',  't-cart',        'N..M', '#ffa657'],
+  ['t-variant',  't-orderdetail', 'N..M', '#ffa657'],
+  ['t-order',    't-orderdetail', '1..N', '#ffa657'],
+  ['t-order',    't-payment',     '1..1', '#d2a8ff'],
+  ['t-order',    't-shipping',    '1..1', '#d2a8ff'],
+  ['t-discount', 't-order',       '1..N', '#39d353'],
+];
+
+window.addEventListener('load', () => {
+  const svg = document.getElementById('svg-lines');
+  const canvas = document.getElementById('canvas');
+  const canvasRect = canvas.getBoundingClientRect();
+  const scrollLeft = canvas.offsetLeft;
+  const scrollTop  = canvas.offsetTop;
+
+  function getCenter(el) {
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left - canvasRect.left + r.width / 2,
+      y: r.top  - canvasRect.top  + r.height / 2,
+      left: r.left - canvasRect.left,
+      right: r.left - canvasRect.left + r.width,
+      top: r.top - canvasRect.top,
+      bottom: r.top - canvasRect.top + r.height,
+      w: r.width,
+      h: r.height
+    };
+  }
+
+  relations.forEach(([fromId, toId, label, color]) => {
+    const fromEl = document.getElementById(fromId);
+    const toEl   = document.getElementById(toId);
+    if (!fromEl || !toEl) return;
+
+    const f = getCenter(fromEl);
+    const t = getCenter(toEl);
+
+    // Pick connection side
+    let x1, y1, x2, y2;
+    const dx = t.x - f.x;
+    const dy = t.y - f.y;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // horizontal dominant
+      x1 = dx > 0 ? f.right : f.left;
+      y1 = f.y;
+      x2 = dx > 0 ? t.left  : t.right;
+      y2 = t.y;
+    } else {
+      // vertical dominant
+      x1 = f.x;
+      y1 = dy > 0 ? f.bottom : f.top;
+      x2 = t.x;
+      y2 = dy > 0 ? t.top    : t.bottom;
+    }
+
+    // Bezier midpoints
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke-opacity', '0.7');
+    path.setAttribute('stroke-dasharray', label === '1..1' ? '6,3' : 'none');
+    svg.appendChild(path);
+
+    // Dot at start
+    const c1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c1.setAttribute('cx', x1); c1.setAttribute('cy', y1);
+    c1.setAttribute('r', '3'); c1.setAttribute('fill', color);
+    svg.appendChild(c1);
+
+    // Arrowhead at end
+    const angle = Math.atan2(y2 - my, x2 - mx);
+    const aw = 8, ah = 5;
+    const ax1 = x2 - aw * Math.cos(angle) + ah * Math.sin(angle);
+    const ay1 = y2 - aw * Math.sin(angle) - ah * Math.cos(angle);
+    const ax2 = x2 - aw * Math.cos(angle) - ah * Math.sin(angle);
+    const ay2 = y2 - aw * Math.sin(angle) + ah * Math.cos(angle);
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    arrow.setAttribute('points', `${x2},${y2} ${ax1},${ay1} ${ax2},${ay2}`);
+    arrow.setAttribute('fill', color);
+    svg.appendChild(arrow);
+
+    // Label
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', mx);
+    text.setAttribute('y', my - 4);
+    text.setAttribute('fill', color);
+    text.setAttribute('font-size', '9');
+    text.setAttribute('font-family', 'JetBrains Mono, monospace');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('opacity', '0.9');
+    text.textContent = label;
+    svg.appendChild(text);
+  });
+});
+</script>
+</body>
+</html>

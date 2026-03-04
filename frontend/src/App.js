@@ -7,6 +7,10 @@ import Product from "./Product";
 import Cart from "./Cart";
 import Payment from "./Payment";
 import Informatio from "./Information";
+import Loginmanage from "./Loginmanage";
+import Admin from "./Admin";
+import Staff from "./Staff";
+
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
 function App() {
@@ -24,6 +28,9 @@ function App() {
         <Route path="/cart" element={<Cart />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/information" element={<Informatio />} />
+        <Route path="/admin/login"  element={<Loginmanage />} />
+        <Route path="/admin"        element={<Admin />} />
+        <Route path="/staff"        element={<Staff />} />
 
         {/* FALLBACK */}
         <Route path="*" element={<Login />} />

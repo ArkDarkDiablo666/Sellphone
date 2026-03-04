@@ -15,9 +15,9 @@ export default function Resetpassword() {
   const navigate = useNavigate();
 
   const validatePassword = (pass) => {
-    if (!pass)            return "Vui lòng nhập mật khẩu";
+    if (!pass)              return "Vui lòng nhập mật khẩu";
     if (pass.includes(" ")) return "Mật khẩu không được chứa dấu cách";
-    if (pass.length < 6)  return "Mật khẩu phải có ít nhất 6 ký tự";
+    if (pass.length < 6)    return "Mật khẩu phải có ít nhất 6 ký tự";
     return "";
   };
 
@@ -27,9 +27,9 @@ export default function Resetpassword() {
     const passError = validatePassword(password);
     if (passError) newErrors.password = passError;
 
-    if (!confirm)              newErrors.confirm = "Vui lòng nhập lại mật khẩu";
-    else if (confirm.includes(" ")) newErrors.confirm = "Mật khẩu không được chứa dấu cách";
-    else if (password !== confirm)  newErrors.confirm = "Mật khẩu không trùng khớp";
+    if (!confirm)                    newErrors.confirm = "Vui lòng nhập lại mật khẩu";
+    else if (confirm.includes(" "))  newErrors.confirm = "Mật khẩu không được chứa dấu cách";
+    else if (password !== confirm)   newErrors.confirm = "Mật khẩu không trùng khớp";
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
@@ -64,14 +64,16 @@ export default function Resetpassword() {
       <div className="absolute inset-0 bg-black/60"></div>
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
+        {/* LEFT — ảnh */}
         <div className="w-1/2">
           <img src={bg} alt="" className="w-full h-full object-cover" />
         </div>
 
+        {/* RIGHT — form */}
         <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col justify-center px-20 text-white">
           <h2 className="text-3xl font-semibold text-white mb-6">Tạo mật khẩu mới</h2>
 
-          <div className="flex flex-col gap-[16px]">
+          <div className="flex flex-col gap-4">
 
             {errors.general && (
               <p className="text-red-400 text-sm text-center">{errors.general}</p>
@@ -88,8 +90,11 @@ export default function Resetpassword() {
                   className={`w-full p-3 pl-6 pr-12 rounded-full bg-transparent border text-white placeholder-gray-400 focus:ring-2 outline-none transition
                     ${errors.password ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
                 />
-                <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                <button
+                  type="button"
+                  onClick={() => setShowPass(!showPass)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                >
                   {showPass ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
@@ -107,22 +112,26 @@ export default function Resetpassword() {
                   className={`w-full p-3 pl-6 pr-12 rounded-full bg-transparent border text-white placeholder-gray-400 focus:ring-2 outline-none transition
                     ${errors.confirm ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
                 />
-                <button type="button" onClick={() => setShowConfirm(!showConfirm)}
-                  className="w-full p-3 flex items-center justify-center rounded-full text-white text-sm font-medium
-                  bg-[rgba(255,149,0,0.7)] border border-[#ff9500]
-                  backdrop-blur-[2px]
-                  shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
-                  hover:bg-[rgba(255,149,0,0.9)] transition">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                >
                   {showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
               {errors.confirm && <p className="text-red-400 text-xs pl-4 mt-1">{errors.confirm}</p>}
             </div>
 
+            {/* XÁC NHẬN */}
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="p-3 rounded-full bg-gray-300 hover:bg-white text-black font-semibold transition disabled:opacity-60"
+              className="w-full p-3 flex items-center justify-center rounded-full text-white text-sm font-medium
+                bg-[rgba(255,149,0,0.7)] border border-[#ff9500]
+                backdrop-blur-[2px]
+                shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+                hover:bg-[rgba(255,149,0,0.9)] transition"
             >
               {loading ? "Đang cập nhật..." : "Xác nhận"}
             </button>

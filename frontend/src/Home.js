@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, ShoppingCart, User, LogOut, Settings, ChevronDown } from "lucide-react";
 import bgImage from "./Image/image-177.png";
-
+import {
+  User, LogOut, Camera, Settings, Package,
+  PackagePlus, Users, ChevronRight, Eye, EyeOff,
+  Pencil, Check, X, Plus, Shield, AlertTriangle, Search, ShoppingCart,ChevronDown,ShoppingBag  
+} from "lucide-react";
 export default function Home() {
   const navigate = useNavigate();
   const [user, setUser] = React.useState(() => JSON.parse(localStorage.getItem("user")));
@@ -50,19 +53,20 @@ export default function Home() {
       {/* ===== HỘP THOẠI XÁC NHẬN ĐĂNG XUẤT ===== */}
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
-          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <h3 className="text-lg font-semibold mb-2">Đăng xuất</h3>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
+          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle size={18} className="text-red-400" />
+              </div>
+              <h3 className="font-semibold">Đăng xuất</h3>
+            </div>
             <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmLogout(false)}
-                className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-sm transition">
-                Hủy
-              </button>
+                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10">Hủy</button>
               <button onClick={handleLogout}
-                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">
-                Đăng xuất
-              </button>
+                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Đăng xuất</button>
             </div>
           </div>
         </div>
