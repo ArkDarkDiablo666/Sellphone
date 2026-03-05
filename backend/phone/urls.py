@@ -47,6 +47,21 @@ urlpatterns = [
     path('order/admin/list/',            views.admin_list_orders),
     path('order/update-status/',         views.update_order_status),
     path('order/create/',                views.create_order),
+    path('order/return/request/',         views.create_return_request),
+    path('order/return/list/',            views.list_return_requests),
+    path('order/return/process/',         views.process_return_request),
+    path('order/<int:order_id>/return/',  views.get_return_request),
+
+    # Post / Blog
+    path('post/list/',                   views.list_posts),
+    path('post/create/',                 views.create_post),
+    path('post/update/',                 views.update_post),
+    path('post/delete/',                 views.delete_post),
+    path('post/<int:post_id>/',          views.get_post),
+
+    # Product Content (mô tả rich)
+    path('product/content/save/',        views.save_product_content),
+    path('product/<int:product_id>/content/', views.get_product_content),
 
     # Customer Address — static trước wildcard
     path('customer/upload-avatar/',      views.upload_avatar),

@@ -1436,92 +1436,122 @@ def apply_voucher(request):
 @api_view(['POST'])
 def create_order(request):
     from .models import Voucher
+    from django.db import transaction
+
     customer_id      = request.data.get('customer_id')
     items            = request.data.get('items', [])
     voucher_code     = request.data.get('voucher_code')
     subtotal         = float(request.data.get('subtotal', 0) or 0)
     discount         = float(request.data.get('discount', 0) or 0)
     total            = float(request.data.get('total', 0) or 0)
-    payment_method   = request.data.get('payment_method', 'cod')  # 'cod' | 'momo'
+    payment_method   = request.data.get('payment_method', 'cod')
     receiver_name    = request.data.get('receiver_name', '').strip()
     receiver_phone   = request.data.get('receiver_phone', '').strip()
     receiver_address = request.data.get('receiver_address', '').strip()
     note             = request.data.get('note', '').strip()
 
-    if not customer_id or not items or not receiver_name or not receiver_phone or not receiver_address:
-        return Response({"message": "Thiếu thông tin đặt hàng"}, status=status.HTTP_400_BAD_REQUEST)
+    # ── 1. Validate input ────────────────────────────────────
+    if not customer_id:
+        return Response({"message": "Thiếu thông tin tài khoản"}, status=status.HTTP_400_BAD_REQUEST)
+    if not items:
+        return Response({"message": "Giỏ hàng trống"}, status=status.HTTP_400_BAD_REQUEST)
+    if not receiver_name:
+        return Response({"message": "Vui lòng nhập tên người nhận"}, status=status.HTTP_400_BAD_REQUEST)
+    if not receiver_phone:
+        return Response({"message": "Vui lòng nhập số điện thoại"}, status=status.HTTP_400_BAD_REQUEST)
+    if not receiver_address:
+        return Response({"message": "Vui lòng nhập địa chỉ nhận hàng"}, status=status.HTTP_400_BAD_REQUEST)
 
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer:
         return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
 
-    # Kiểm tra stock đủ không
+    # ── 2. Validate từng item + kiểm tra stock TRƯỚC khi tạo đơn ──
+    validated_items = []
     for item in items:
         raw_vid = item.get('variant_id')
         try:
             vid = int(raw_vid)
         except (TypeError, ValueError):
-            return Response({"message": f"variant_id không hợp lệ: '{raw_vid}'. Vui lòng chọn sản phẩm từ trang chi tiết."}, status=status.HTTP_400_BAD_REQUEST)
-        variant = ProductVariant.objects.filter(VariantID=vid).first()
-        if not variant:
-            return Response({"message": f"Biến thể #{vid} không tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
-        qty = int(item.get('qty', 1))
-        if variant.StockQuantity < qty:
-            p = variant.ProductID
-            return Response({"message": f"'{p.ProductName}' chỉ còn {variant.StockQuantity} sản phẩm"}, status=status.HTTP_400_BAD_REQUEST)
-
-    shipping_address = f"{receiver_name} - {receiver_phone} - {receiver_address}"
-    if note:
-        shipping_address += f" | Ghi chú: {note}"
-
-    # Tạo Order
-    order_kwargs = dict(
-        CustomerID      = customer,
-        TotalAmount     = total,
-        Status          = 'Processing',     # ← Bắt đầu bằng Processing (đang xử lý)
-        ShippingAddress = shipping_address,
-    )
-    # Thêm field mới nếu model có hỗ trợ
-    try:
-        order = Order(**order_kwargs)
-        order.PaymentMethod = payment_method
-        order.Subtotal      = subtotal
-        order.Discount      = discount
-        order.StatusNote    = ""
-        order.save()
-    except Exception:
-        order = Order.objects.create(**order_kwargs)
-
-    # Tạo OrderDetail & trừ stock
-    for item in items:
-        variant = ProductVariant.objects.filter(VariantID=int(item.get('variant_id'))).first()
-        if variant:
-            qty = int(item.get('qty', 1))
-            OrderDetail.objects.create(
-                OrderID   = order,
-                VariantID = variant,
-                Quantity  = qty,
-                UnitPrice = float(item.get('price', 0)),
+            return Response(
+                {"message": f"Sản phẩm không hợp lệ. Vui lòng xóa giỏ hàng và thêm lại từ trang chi tiết."},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            # Trừ stock thủ công nếu signal/save không auto-trừ
-            try:
+        variant = ProductVariant.objects.select_related('ProductID').filter(VariantID=vid).first()
+        if not variant:
+            return Response({"message": f"Sản phẩm #{vid} không còn tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+
+        qty = int(item.get('qty', 1))
+        if qty <= 0:
+            return Response({"message": "Số lượng sản phẩm phải lớn hơn 0"}, status=status.HTTP_400_BAD_REQUEST)
+        if variant.StockQuantity < qty:
+            pname = variant.ProductID.ProductName
+            color = f" ({variant.Color})" if variant.Color else ""
+            return Response(
+                {"message": f"'{pname}{color}' chỉ còn {variant.StockQuantity} sản phẩm trong kho"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        price = float(item.get('price', 0))
+        if price <= 0:
+            return Response({"message": f"Giá sản phẩm không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_items.append({"variant": variant, "qty": qty, "price": price})
+
+    # ── 3. Tạo đơn hàng trong transaction ───────────────────
+    #    Nếu bất kỳ bước nào lỗi → rollback toàn bộ, không trừ stock
+    try:
+        with transaction.atomic():
+            shipping_address = f"{receiver_name} - {receiver_phone} - {receiver_address}"
+            if note:
+                shipping_address += f" | Ghi chú: {note}"
+
+            # Tạo Order
+            order = Order(
+                CustomerID      = customer,
+                TotalAmount     = total,
+                Status          = 'Processing',
+                ShippingAddress = shipping_address,
+            )
+            # Gán field mới (có thể chưa migrate xong)
+            for field, val in [('PaymentMethod', payment_method), ('Subtotal', subtotal),
+                                ('Discount', discount), ('StatusNote', '')]:
+                try:
+                    setattr(order, field, val)
+                except Exception:
+                    pass
+            order.save()
+
+            # Tạo OrderDetail + trừ stock SAU KHI đơn hàng tạo thành công
+            for vi in validated_items:
+                variant = vi['variant']
+                qty     = vi['qty']
+                OrderDetail.objects.create(
+                    OrderID   = order,
+                    VariantID = variant,
+                    Quantity  = qty,
+                    UnitPrice = vi['price'],
+                )
+                # Trừ stock — nằm trong transaction, nếu lỗi sẽ rollback
                 variant.StockQuantity = max(0, variant.StockQuantity - qty)
                 variant.save()
-            except Exception:
-                pass
 
-    # Tăng UsedCount voucher
-    if voucher_code:
-        v = Voucher.objects.filter(Code=voucher_code.upper()).first()
-        if v:
-            v.UsedCount += 1
-            v.save()
+            # Tăng UsedCount voucher
+            if voucher_code:
+                v = Voucher.objects.filter(Code=voucher_code.upper()).first()
+                if v:
+                    v.UsedCount += 1
+                    v.save()
 
-    # Kết quả — nếu MoMo thì trả thêm URL thanh toán (placeholder)
+    except Exception as e:
+        return Response(
+            {"message": f"Đặt hàng thất bại, vui lòng thử lại. ({str(e)})"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
     resp = {"message": "Đặt hàng thành công", "order_id": order.OrderID}
     if payment_method == "momo":
-        # TODO: tích hợp MoMo API thực tế
-        resp["momo_url"] = None   # None = không redirect, xử lý COD-like
+        resp["momo_url"] = None  # TODO: tích hợp MoMo API
     return Response(resp, status=status.HTTP_201_CREATED)
 
 
@@ -1681,20 +1711,31 @@ def list_orders(request):
 # ============================================================
 @api_view(['POST'])
 def cancel_order(request):
+    from django.db import transaction
     order_id    = request.data.get('order_id')
     customer_id = request.data.get('customer_id')
+
     o = Order.objects.filter(OrderID=order_id, CustomerID=customer_id).first()
     if not o:
         return Response({"message": "Không tìm thấy đơn hàng"}, status=status.HTTP_404_NOT_FOUND)
-    if o.Status != 'Pending':
-        return Response({"message": "Chỉ có thể hủy đơn hàng đang chờ xác nhận"}, status=status.HTTP_400_BAD_REQUEST)
-    # Hoàn lại stock
-    for d in OrderDetail.objects.filter(OrderID=o):
-        d.VariantID.StockQuantity += d.Quantity
-        d.VariantID.save()
-    o.Status = 'Cancelled'
-    o.save()
-    return Response({"message": "Đã hủy đơn hàng"}, status=status.HTTP_200_OK)
+    if o.Status in ('Shipping', 'Delivered', 'Cancelled'):
+        label = {'Shipping': 'đang giao', 'Delivered': 'đã giao', 'Cancelled': 'đã hủy'}.get(o.Status)
+        return Response({"message": f"Không thể hủy đơn hàng {label}"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            # Cộng lại stock cho từng biến thể
+            for d in OrderDetail.objects.select_related('VariantID').filter(OrderID=o):
+                d.VariantID.StockQuantity += d.Quantity
+                d.VariantID.save()
+            o.Status = 'Cancelled'
+            try: o.StatusNote = 'Khách hàng hủy đơn'
+            except Exception: pass
+            o.save()
+    except Exception as e:
+        return Response({"message": f"Hủy đơn thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({"message": "Đã hủy đơn hàng thành công"}, status=status.HTTP_200_OK)
 
 
 # ============================================================
@@ -1768,18 +1809,486 @@ def update_order_status(request):
     if new_status == 'Cancelled' and o.Status in ['Shipping', 'Delivered']:
         return Response({"message": "Không thể hủy đơn đang giao hoặc đã giao"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Hoàn stock nếu hủy
-    if new_status == 'Cancelled' and o.Status not in ['Shipping', 'Delivered']:
-        for d in OrderDetail.objects.filter(OrderID=o):
-            d.VariantID.StockQuantity += d.Quantity
-            d.VariantID.save()
-
-    o.Status = new_status
-    # Lưu note nếu model có field StatusNote
+    from django.db import transaction
     try:
-        o.StatusNote = note
-    except Exception:
-        pass
-    o.save()
+        with transaction.atomic():
+            # Cộng lại stock khi admin hủy đơn
+            if new_status == 'Cancelled':
+                for d in OrderDetail.objects.select_related('VariantID').filter(OrderID=o):
+                    d.VariantID.StockQuantity += d.Quantity
+                    d.VariantID.save()
 
-    return Response({"message": f"Đã cập nhật trạng thái sang '{new_status}'"}, status=status.HTTP_200_OK)
+            o.Status = new_status
+            try: o.StatusNote = note
+            except Exception: pass
+            o.save()
+    except Exception as e:
+        return Response({"message": f"Cập nhật thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    label = {
+        'Processing': 'Đang xử lý', 'Shipping': 'Đang giao hàng',
+        'Delivered': 'Đã giao hàng', 'Cancelled': 'Đã hủy'
+    }.get(new_status, new_status)
+    return Response({"message": f"Cập nhật thành công: {label}"}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: KHÁCH TẠO YÊU CẦU TRẢ HÀNG
+# POST /api/order/return/request/
+# Body: { order_id, customer_id, reason, media[] (files) }
+# Giới hạn: trong 7 ngày sau khi Delivered, tổng file <= 500MB
+# ============================================================
+@api_view(['POST'])
+def create_return_request(request):
+    from django.db import transaction
+    from django.utils import timezone
+    from datetime import timedelta
+    import os
+
+    order_id    = request.data.get('order_id')
+    customer_id = request.data.get('customer_id')
+    reason      = request.data.get('reason', '').strip()
+    files       = request.FILES.getlist('media')
+
+    if not order_id or not customer_id:
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if not reason:
+        return Response({"message": "Vui lòng nhập lý do trả hàng"}, status=status.HTTP_400_BAD_REQUEST)
+
+    o = Order.objects.filter(OrderID=order_id, CustomerID=customer_id).first()
+    if not o:
+        return Response({"message": "Không tìm thấy đơn hàng"}, status=status.HTTP_404_NOT_FOUND)
+    if o.Status != 'Delivered':
+        return Response({"message": "Chỉ có thể yêu cầu trả hàng cho đơn đã giao"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Kiểm tra trong 7 ngày
+    delivered_at = getattr(o, 'DeliveredAt', None) or o.OrderDate
+    if timezone.now() > delivered_at + timedelta(days=7):
+        return Response({"message": "Đã quá 7 ngày kể từ khi nhận hàng, không thể yêu cầu trả"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Kiểm tra đã có yêu cầu trả hàng chưa
+    existing = ReturnRequest.objects.filter(OrderID=o).first()
+    if existing:
+        return Response({"message": f"Đơn hàng này đã có yêu cầu trả hàng (#{existing.ReturnID})"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Kiểm tra tổng dung lượng file <= 500MB
+    MAX_SIZE = 500 * 1024 * 1024  # 500MB
+    total_size = sum(f.size for f in files)
+    if total_size > MAX_SIZE:
+        mb = total_size / (1024 * 1024)
+        return Response({"message": f"Tổng dung lượng file ({mb:.1f}MB) vượt quá 500MB"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate từng file
+    ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm']
+    for f in files:
+        if f.content_type not in ALLOWED_IMAGE + ALLOWED_VIDEO:
+            return Response({"message": f"File '{f.name}' không được hỗ trợ. Chỉ chấp nhận ảnh và video."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            rr = ReturnRequest.objects.create(
+                OrderID  = o,
+                Reason   = reason,
+                Status   = 'Pending',
+            )
+            # Upload từng file lên Cloudinary
+            media_urls = []
+            for f in files:
+                try:
+                    resource_type = 'video' if f.content_type.startswith('video') else 'image'
+                    result = cloudinary.uploader.upload(
+                        f,
+                        folder        = f"sellphone/returns/{o.OrderID}",
+                        public_id     = f"return_{rr.ReturnID}_{f.name}",
+                        overwrite     = True,
+                        resource_type = resource_type,
+                    )
+                    ReturnMedia.objects.create(
+                        ReturnID   = rr,
+                        Url        = result['secure_url'],
+                        MediaType  = 'video' if resource_type == 'video' else 'image',
+                    )
+                    media_urls.append(result['secure_url'])
+                except Exception as upload_err:
+                    pass  # Bỏ qua lỗi upload file đơn lẻ, vẫn tạo request
+
+            # Cập nhật trạng thái đơn hàng sang ReturnRequested
+            o.Status = 'ReturnRequested'
+            try: o.StatusNote = f'Yêu cầu trả hàng: {reason}'
+            except Exception: pass
+            o.save()
+
+    except Exception as e:
+        return Response({"message": f"Tạo yêu cầu thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({
+        "message": "Đã gửi yêu cầu trả hàng thành công",
+        "return_id": rr.ReturnID,
+        "media_count": len(media_urls),
+    }, status=status.HTTP_201_CREATED)
+
+
+# ============================================================
+# API: ADMIN XEM YÊU CẦU TRẢ HÀNG
+# GET /api/order/return/list/
+# ============================================================
+@api_view(['GET'])
+def list_return_requests(request):
+    returns = ReturnRequest.objects.all().select_related('OrderID').order_by('-CreatedAt')
+    result  = []
+    for rr in returns:
+        o = rr.OrderID
+        media = ReturnMedia.objects.filter(ReturnID=rr)
+        result.append({
+            "return_id":   rr.ReturnID,
+            "order_id":    o.OrderID,
+            "customer_id": str(o.CustomerID_id),
+            "customer_name": o.CustomerID.FullName,
+            "reason":      rr.Reason,
+            "status":      rr.Status,  # Pending | Approved | Rejected | Completed
+            "admin_note":  rr.AdminNote or "",
+            "created_at":  rr.CreatedAt.isoformat(),
+            "media": [{"url": m.Url, "type": m.MediaType} for m in media],
+            "order_total": str(o.TotalAmount),
+        })
+    return Response({"returns": result}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: ADMIN XỬ LÝ YÊU CẦU TRẢ HÀNG
+# POST /api/order/return/process/
+# Body: { return_id, action: "approve"|"reject"|"complete", note }
+# Luồng: Pending → Approved → Returning → Completed (cộng stock khi Completed)
+#         Pending → Rejected
+# ============================================================
+@api_view(['POST'])
+def process_return_request(request):
+    from django.db import transaction
+
+    return_id  = request.data.get('return_id')
+    action     = request.data.get('action')   # approve | reject | complete | returning
+    note       = request.data.get('note', '').strip()
+
+    VALID_ACTIONS = ('approve', 'reject', 'complete', 'returning')
+    if action not in VALID_ACTIONS:
+        return Response({"message": f"Hành động không hợp lệ. Chọn: {', '.join(VALID_ACTIONS)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+    rr = ReturnRequest.objects.select_related('OrderID').filter(ReturnID=return_id).first()
+    if not rr:
+        return Response({"message": "Không tìm thấy yêu cầu trả hàng"}, status=status.HTTP_404_NOT_FOUND)
+
+    o = rr.OrderID
+
+    # Kiểm tra luồng hợp lệ
+    FLOW = {
+        'approve':   ('Pending',   'Approved',   'Đã chấp nhận - chờ khách gửi hàng về'),
+        'reject':    ('Pending',   'Rejected',   'Đã từ chối yêu cầu trả hàng'),
+        'returning': ('Approved',  'Returning',  'Đang nhận hàng hoàn về'),
+        'complete':  ('Returning', 'Completed',  'Hoàn tất trả hàng'),
+    }
+    required_status, new_rr_status, default_note = FLOW[action]
+    if rr.Status != required_status:
+        return Response(
+            {"message": f"Không thể '{action}' khi yêu cầu đang ở trạng thái '{rr.Status}'"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        with transaction.atomic():
+            rr.Status    = new_rr_status
+            rr.AdminNote = note or default_note
+            rr.save()
+
+            # Cập nhật trạng thái đơn hàng
+            ORDER_STATUS_MAP = {
+                'approve':   'ReturnApproved',
+                'reject':    'Delivered',       # Từ chối → về Delivered
+                'returning': 'Returning',
+                'complete':  'Returned',
+            }
+            o.Status = ORDER_STATUS_MAP[action]
+            try: o.StatusNote = note or default_note
+            except Exception: pass
+
+            # Chỉ cộng lại stock khi HOÀN TẤT (complete)
+            if action == 'complete':
+                for d in OrderDetail.objects.select_related('VariantID').filter(OrderID=o):
+                    d.VariantID.StockQuantity += d.Quantity
+                    d.VariantID.save()
+
+            o.save()
+
+    except Exception as e:
+        return Response({"message": f"Xử lý thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({"message": f"✅ {note or default_note}"}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: KHÁCH XEM YÊU CẦU TRẢ HÀNG CỦA ĐƠN
+# GET /api/order/<order_id>/return/
+# ============================================================
+@api_view(['GET'])
+def get_return_request(request, order_id):
+    o  = Order.objects.filter(OrderID=order_id).first()
+    if not o:
+        return Response({"return": None}, status=status.HTTP_200_OK)
+    rr = ReturnRequest.objects.filter(OrderID=o).first()
+    if not rr:
+        return Response({"return": None}, status=status.HTTP_200_OK)
+    media = ReturnMedia.objects.filter(ReturnID=rr)
+    return Response({
+        "return": {
+            "return_id":  rr.ReturnID,
+            "reason":     rr.Reason,
+            "status":     rr.Status,
+            "admin_note": rr.AdminNote or "",
+            "created_at": rr.CreatedAt.isoformat(),
+            "media": [{"url": m.Url, "type": m.MediaType} for m in media],
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# ╔══════════════════════════════════════════════════════════╗
+# ║  BÀI VIẾT (Post/Blog)                                   ║
+# ╚══════════════════════════════════════════════════════════╝
+
+# GET /api/post/list/?category=all|Mới nhất|Cũ nhất|Mẹo vặt
+@api_view(['GET'])
+def list_posts(request):
+    category = request.query_params.get('category', 'all')
+    posts    = Post.objects.all()
+    if category and category != 'all':
+        posts = posts.filter(Category=category)
+    posts = posts.order_by('-CreatedAt')
+    result = []
+    for p in posts:
+        # Lấy ảnh thumbnail đầu tiên từ blocks
+        import json as _json
+        thumb = ""
+        try:
+            blocks = _json.loads(p.Blocks) if isinstance(p.Blocks, str) else (p.Blocks or [])
+            for b in blocks:
+                if b.get('type') == 'image' and b.get('url'):
+                    thumb = b['url']; break
+        except Exception:
+            pass
+        result.append({
+            "id":         p.PostID,
+            "title":      p.Title,
+            "category":   p.Category or "Mẹo vặt",
+            "thumbnail":  thumb,
+            "created_at": p.CreatedAt.isoformat(),
+            "author":     p.Author or "Admin",
+        })
+    return Response({"posts": result}, status=status.HTTP_200_OK)
+
+
+# GET /api/post/<id>/
+@api_view(['GET'])
+def get_post(request, post_id):
+    p = Post.objects.filter(PostID=post_id).first()
+    if not p:
+        return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
+    import json as _json
+    try:
+        blocks = _json.loads(p.Blocks) if isinstance(p.Blocks, str) else (p.Blocks or [])
+    except Exception:
+        blocks = []
+    return Response({
+        "post": {
+            "id":         p.PostID,
+            "title":      p.Title,
+            "category":   p.Category or "",
+            "blocks":     blocks,
+            "created_at": p.CreatedAt.isoformat(),
+            "author":     p.Author or "Admin",
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# POST /api/post/create/   (admin)
+@api_view(['POST'])
+def create_post(request):
+    import json as _json
+    title    = request.data.get('title', '').strip()
+    category = request.data.get('category', '').strip()
+    blocks   = request.data.get('blocks', '[]')
+    author   = request.data.get('author', 'Admin').strip()
+
+    if not title:
+        return Response({"message": "Vui lòng nhập tiêu đề bài viết"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # blocks có thể là string JSON hoặc list
+    if isinstance(blocks, str):
+        try:
+            blocks_parsed = _json.loads(blocks)
+        except Exception:
+            blocks_parsed = []
+    else:
+        blocks_parsed = blocks
+
+    # Upload ảnh trong blocks lên Cloudinary
+    files = request.FILES  # key = "block_img_<idx>"
+    for key in files:
+        if key.startswith('block_img_'):
+            idx = key.replace('block_img_', '')
+            try:
+                result = cloudinary.uploader.upload(
+                    files[key],
+                    folder        = "sellphone/posts",
+                    resource_type = "image",
+                    transformation = [{"width": 1200, "crop": "limit"}],
+                )
+                # Gán url vào block tương ứng
+                for b in blocks_parsed:
+                    if b.get('_idx') == idx and b.get('type') == 'image':
+                        b['url'] = result['secure_url']
+                        break
+            except Exception:
+                pass
+
+    # Upload video blocks
+    for key in files:
+        if key.startswith('block_vid_'):
+            idx = key.replace('block_vid_', '')
+            try:
+                result = cloudinary.uploader.upload(
+                    files[key],
+                    folder        = "sellphone/posts/videos",
+                    resource_type = "video",
+                )
+                for b in blocks_parsed:
+                    if b.get('_idx') == idx and b.get('type') == 'video':
+                        b['url'] = result['secure_url']
+                        break
+            except Exception:
+                pass
+
+    post = Post.objects.create(
+        Title    = title,
+        Category = category or "Mẹo vặt",
+        Blocks   = _json.dumps(blocks_parsed, ensure_ascii=False),
+        Author   = author,
+    )
+    return Response({"message": "Đăng bài thành công", "post_id": post.PostID}, status=status.HTTP_201_CREATED)
+
+
+# POST /api/post/update/   (admin)
+@api_view(['POST'])
+def update_post(request):
+    import json as _json
+    post_id  = request.data.get('post_id')
+    p = Post.objects.filter(PostID=post_id).first()
+    if not p:
+        return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
+
+    title    = request.data.get('title', p.Title).strip()
+    category = request.data.get('category', p.Category).strip()
+    blocks   = request.data.get('blocks', '[]')
+    if isinstance(blocks, str):
+        try: blocks_parsed = _json.loads(blocks)
+        except: blocks_parsed = []
+    else:
+        blocks_parsed = blocks
+
+    # Upload media mới
+    for key in request.FILES:
+        if key.startswith('block_img_'):
+            idx = key.replace('block_img_', '')
+            try:
+                result = cloudinary.uploader.upload(request.FILES[key], folder="sellphone/posts", resource_type="image")
+                for b in blocks_parsed:
+                    if b.get('_idx') == idx and b.get('type') == 'image':
+                        b['url'] = result['secure_url']; break
+            except: pass
+        elif key.startswith('block_vid_'):
+            idx = key.replace('block_vid_', '')
+            try:
+                result = cloudinary.uploader.upload(request.FILES[key], folder="sellphone/posts/videos", resource_type="video")
+                for b in blocks_parsed:
+                    if b.get('_idx') == idx and b.get('type') == 'video':
+                        b['url'] = result['secure_url']; break
+            except: pass
+
+    p.Title    = title
+    p.Category = category
+    p.Blocks   = _json.dumps(blocks_parsed, ensure_ascii=False)
+    p.save()
+    return Response({"message": "Cập nhật bài viết thành công"}, status=status.HTTP_200_OK)
+
+
+# POST /api/post/delete/   (admin)
+@api_view(['POST'])
+def delete_post(request):
+    post_id = request.data.get('post_id')
+    p = Post.objects.filter(PostID=post_id).first()
+    if not p:
+        return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
+    p.delete()
+    return Response({"message": "Đã xóa bài viết"}, status=status.HTTP_200_OK)
+
+
+# ╔══════════════════════════════════════════════════════════╗
+# ║  MÔ TẢ SẢN PHẨM RICH (ProductContent)                  ║
+# ╚══════════════════════════════════════════════════════════╝
+
+# GET /api/product/<id>/content/
+@api_view(['GET'])
+def get_product_content(request, product_id):
+    import json as _json
+    pc = ProductContent.objects.filter(ProductID_id=product_id).first()
+    if not pc:
+        return Response({"content": None}, status=status.HTTP_200_OK)
+    try:
+        blocks = _json.loads(pc.Blocks) if isinstance(pc.Blocks, str) else (pc.Blocks or [])
+    except:
+        blocks = []
+    return Response({"content": {"blocks": blocks, "updated_at": pc.UpdatedAt.isoformat()}}, status=status.HTTP_200_OK)
+
+
+# POST /api/product/content/save/   (admin)
+@api_view(['POST'])
+def save_product_content(request):
+    import json as _json
+    product_id = request.data.get('product_id')
+    blocks     = request.data.get('blocks', '[]')
+
+    product = Product.objects.filter(ProductID=product_id).first()
+    if not product:
+        return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+
+    if isinstance(blocks, str):
+        try: blocks_parsed = _json.loads(blocks)
+        except: blocks_parsed = []
+    else:
+        blocks_parsed = blocks
+
+    # Upload media trong blocks
+    for key in request.FILES:
+        if key.startswith('block_img_'):
+            idx = key.replace('block_img_', '')
+            try:
+                result = cloudinary.uploader.upload(request.FILES[key],
+                    folder=f"sellphone/product_content/{product_id}", resource_type="image",
+                    transformation=[{"width": 1200, "crop": "limit"}])
+                for b in blocks_parsed:
+                    if b.get('_idx') == idx and b.get('type') == 'image':
+                        b['url'] = result['secure_url']; break
+            except: pass
+        elif key.startswith('block_vid_'):
+            idx = key.replace('block_vid_', '')
+            try:
+                result = cloudinary.uploader.upload(request.FILES[key],
+                    folder=f"sellphone/product_content/{product_id}", resource_type="video")
+                for b in blocks_parsed:
+                    if b.get('_idx') == idx and b.get('type') == 'video':
+                        b['url'] = result['secure_url']; break
+            except: pass
+
+    pc, _ = ProductContent.objects.update_or_create(
+        ProductID_id = product_id,
+        defaults     = {"Blocks": _json.dumps(blocks_parsed, ensure_ascii=False)},
+    )
+    return Response({"message": "Lưu mô tả sản phẩm thành công"}, status=status.HTTP_200_OK)

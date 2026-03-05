@@ -267,3 +267,59 @@ class CustomerAddress(models.Model):
 
     class Meta:
         db_table = 'CustomerAddress'
+
+class ReturnRequest(models.Model):
+    RETURN_STATUS = [
+        ('Pending',   'Chờ xét duyệt'),
+        ('Approved',  'Đã chấp nhận'),
+        ('Rejected',  'Đã từ chối'),
+        ('Returning', 'Đang nhận hàng hoàn về'),
+        ('Completed', 'Hoàn tất'),
+    ]
+    ReturnID   = models.AutoField(primary_key=True)
+    OrderID    = models.OneToOneField('Order', on_delete=models.CASCADE, db_column='OrderID')
+    Reason     = models.TextField()
+    Status     = models.CharField(max_length=20, choices=RETURN_STATUS, default='Pending')
+    AdminNote  = models.CharField(max_length=500, null=True, blank=True)
+    CreatedAt  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ReturnRequest'
+
+
+class ReturnMedia(models.Model):
+    MediaID   = models.AutoField(primary_key=True)
+    ReturnID  = models.ForeignKey('ReturnRequest', on_delete=models.CASCADE, db_column='ReturnID')
+    Url       = models.CharField(max_length=500)
+    MediaType = models.CharField(max_length=10, default='image')  # 'image' | 'video'
+
+    class Meta:
+        db_table = 'ReturnMedia'
+
+class Post(models.Model):
+    CATEGORIES = [
+        ('Mới nhất', 'Mới nhất'),
+        ('Mẹo vặt',  'Mẹo vặt'),
+        ('Đánh giá', 'Đánh giá'),
+        ('Tin tức',  'Tin tức'),
+    ]
+    PostID    = models.AutoField(primary_key=True)
+    Title     = models.CharField(max_length=300)
+    Category  = models.CharField(max_length=50, default='Mẹo vặt')
+    Blocks    = models.TextField(default='[]')   # JSON blocks
+    Author    = models.CharField(max_length=100, default='Admin')
+    CreatedAt = models.DateTimeField(auto_now_add=True)
+    UpdatedAt = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'Post'
+
+
+class ProductContent(models.Model):
+    ContentID = models.AutoField(primary_key=True)
+    ProductID = models.OneToOneField('Product', on_delete=models.CASCADE, db_column='ProductID')
+    Blocks    = models.TextField(default='[]')   # JSON blocks
+    UpdatedAt = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ProductContent'
