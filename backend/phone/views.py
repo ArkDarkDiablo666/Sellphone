@@ -13,7 +13,7 @@ from django.conf import settings
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id
+from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail
 
 # Lưu OTP tạm thời trong memory { email: otp_code }
 otp_storage = {}
@@ -781,7 +781,7 @@ def _validate_variants(variants):
             if not m:
                 ve['ram'] = f"{label}: RAM phải có dạng số + GB (VD: 8GB)"
             elif float(m.group(1)) < 4:
-                ve['ram'] = f"{label}: RAM phải ít nhất là 4GB"
+                ve['ram'] = f"{label}: RAM tối thiểu là 4GB"
 
         # --- BỘ NHỚ (tuỳ chọn nhưng nếu nhập thì phải đúng định dạng) ---
         storage = (v.get('storage') or '').strip()
@@ -1226,3 +1226,560 @@ def add_variants(request):
         "message": f"Đã thêm {len(created)} biến thể thành công",
         "variant_ids": created,
     }, status=status.HTTP_201_CREATED)
+
+
+# ===========================================================
+# MODEL VOUCHER (thêm vào models.py):
+# class Voucher(models.Model):
+#   VoucherID   = AutoField(primary_key=True)
+#   Code        = CharField(max_length=50, unique=True)
+#   Type        = CharField(max_length=10)  # 'percent' | 'fixed'
+#   Value       = DecimalField(max_digits=12, decimal_places=2)
+#   Scope       = CharField(max_length=20, default='all')  # 'all'|'category'|'product'
+#   CategoryID  = ForeignKey(Category, null=True, blank=True, ...)
+#   ProductID   = ForeignKey(Product, null=True, blank=True, ...)
+#   MinOrder    = DecimalField(max_digits=12, decimal_places=2, default=0)
+#   MaxDiscount = DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+#   StartDate   = DateField(null=True, blank=True)
+#   EndDate     = DateField(null=True, blank=True)
+#   UsageLimit  = IntegerField(null=True, blank=True)
+#   UsedCount   = IntegerField(default=0)
+#   IsActive    = BooleanField(default=True)
+#   class Meta: db_table = 'Voucher'
+# ===========================================================
+
+# ===========================================================
+# MODEL CUSTOMERADDRESS (thêm vào models.py):
+# class CustomerAddress(models.Model):
+#   AddressID  = AutoField(primary_key=True)
+#   CustomerID = ForeignKey(Customer, on_delete=CASCADE, db_column='CustomerID')
+#   Name       = CharField(max_length=100)
+#   Phone      = CharField(max_length=20)
+#   Address    = CharField(max_length=300)
+#   class Meta: db_table = 'CustomerAddress'
+# ===========================================================
+
+# ===========================================================
+# MODEL ORDER (thêm vào models.py):
+# class Order(models.Model):
+#   OrderID         = AutoField(primary_key=True)
+#   CustomerID      = ForeignKey(Customer, on_delete=PROTECT, db_column='CustomerID')
+#   ReceiverName    = CharField(max_length=100)
+#   ReceiverPhone   = CharField(max_length=20)
+#   ReceiverAddress = CharField(max_length=300)
+#   Note            = CharField(max_length=500, blank=True, null=True)
+#   VoucherCode     = CharField(max_length=50, blank=True, null=True)
+#   Subtotal        = DecimalField(max_digits=14, decimal_places=2)
+#   Discount        = DecimalField(max_digits=14, decimal_places=2, default=0)
+#   Total           = DecimalField(max_digits=14, decimal_places=2)
+#   Status          = CharField(max_length=30, default='pending')
+#   CreatedAt       = DateTimeField(auto_now_add=True)
+#   class Meta: db_table = 'Order'
+#
+# class OrderItem(models.Model):
+#   OrderItemID = AutoField(primary_key=True)
+#   OrderID     = ForeignKey(Order, on_delete=CASCADE, db_column='OrderID')
+#   VariantID   = ForeignKey(ProductVariant, on_delete=PROTECT, db_column='VariantID')
+#   Qty         = IntegerField()
+#   Price       = DecimalField(max_digits=12, decimal_places=2)
+#   class Meta: db_table = 'OrderItem'
+# ===========================================================
+
+from datetime import date as _date
+
+# ============================================================
+# API 29: DANH SÁCH VOUCHER (admin)
+# GET /api/voucher/list/
+# ============================================================
+@api_view(['GET'])
+def list_vouchers(request):
+    from .models import Voucher
+    today = _date.today()
+    vouchers = Voucher.objects.all().order_by('-VoucherID')
+    data = []
+    for v in vouchers:
+        is_active = v.IsActive
+        if v.EndDate and v.EndDate < today: is_active = False
+        if v.UsageLimit and v.UsedCount >= v.UsageLimit: is_active = False
+        data.append({
+            "id":           v.VoucherID,
+            "code":         v.Code,
+            "type":         v.Type,
+            "value":        str(v.Value),
+            "scope":        v.Scope,
+            "category_id":  v.CategoryID.CategoryID if v.CategoryID else None,
+            "product_id":   v.ProductID.ProductID  if v.ProductID  else None,
+            "min_order":    str(v.MinOrder),
+            "max_discount": str(v.MaxDiscount) if v.MaxDiscount else None,
+            "start_date":   str(v.StartDate) if v.StartDate else None,
+            "end_date":     str(v.EndDate)   if v.EndDate   else None,
+            "usage_limit":  v.UsageLimit,
+            "used_count":   v.UsedCount,
+            "is_active":    is_active,
+        })
+    return Response({"vouchers": data}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API 30: TẠO VOUCHER (admin)
+# POST /api/voucher/create/
+# ============================================================
+@api_view(['POST'])
+def create_voucher(request):
+    from .models import Voucher
+    code  = request.data.get('code', '').strip().upper()
+    vtype = request.data.get('type', 'percent')
+    value = request.data.get('value')
+    scope = request.data.get('scope', 'all')
+
+    if not code:
+        return Response({"message": "Vui lòng nhập mã voucher"}, status=status.HTTP_400_BAD_REQUEST)
+    if Voucher.objects.filter(Code=code).exists():
+        return Response({"message": "Mã voucher đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+    if not value or float(value) <= 0:
+        return Response({"message": "Giá trị voucher không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+    if vtype == 'percent' and float(value) > 100:
+        return Response({"message": "Phần trăm giảm không được vượt quá 100%"}, status=status.HTTP_400_BAD_REQUEST)
+
+    cat_id  = request.data.get('category_id')
+    prod_id = request.data.get('product_id')
+    cat_obj = Category.objects.filter(CategoryID=cat_id).first() if cat_id else None
+    prod_obj = Product.objects.filter(ProductID=prod_id).first() if prod_id else None
+
+    start_raw   = request.data.get('start_date')
+    end_raw     = request.data.get('end_date')
+    start_date  = _date.fromisoformat(start_raw) if start_raw else None
+    end_date    = _date.fromisoformat(end_raw)   if end_raw   else None
+    min_order   = float(request.data.get('min_order', 0) or 0)
+    max_disc    = request.data.get('max_discount')
+    usage_limit = request.data.get('usage_limit')
+
+    v = Voucher.objects.create(
+        Code        = code,
+        Type        = vtype,
+        Value       = float(value),
+        Scope       = scope,
+        CategoryID  = cat_obj,
+        ProductID   = prod_obj,
+        MinOrder    = min_order,
+        MaxDiscount = float(max_disc) if max_disc else None,
+        StartDate   = start_date,
+        EndDate     = end_date,
+        UsageLimit  = int(usage_limit) if usage_limit else None,
+        IsActive    = True,
+    )
+    return Response({"message": "Tạo voucher thành công", "id": v.VoucherID}, status=status.HTTP_201_CREATED)
+
+
+# ============================================================
+# API 31: VÔ HIỆU HÓA VOUCHER (admin)
+# POST /api/voucher/deactivate/
+# ============================================================
+@api_view(['POST'])
+def deactivate_voucher(request):
+    from .models import Voucher
+    vid = request.data.get('id')
+    v = Voucher.objects.filter(VoucherID=vid).first()
+    if not v:
+        return Response({"message": "Không tìm thấy voucher"}, status=status.HTTP_404_NOT_FOUND)
+    v.IsActive = False
+    v.save()
+    return Response({"message": "Đã vô hiệu hóa voucher"}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API 32: ÁP DỤNG VOUCHER (khách hàng)
+# POST /api/voucher/apply/
+# Body: { code }
+# ============================================================
+@api_view(['POST'])
+def apply_voucher(request):
+    from .models import Voucher
+    code = request.data.get('code', '').strip().upper()
+    if not code:
+        return Response({"message": "Vui lòng nhập mã voucher"}, status=status.HTTP_400_BAD_REQUEST)
+
+    v = Voucher.objects.filter(Code=code).first()
+    if not v:
+        return Response({"message": "Mã voucher không tồn tại"}, status=status.HTTP_404_NOT_FOUND)
+    if not v.IsActive:
+        return Response({"message": "Voucher đã bị vô hiệu hóa"}, status=status.HTTP_400_BAD_REQUEST)
+
+    today = _date.today()
+    if v.StartDate and v.StartDate > today:
+        return Response({"message": "Voucher chưa đến thời gian sử dụng"}, status=status.HTTP_400_BAD_REQUEST)
+    if v.EndDate and v.EndDate < today:
+        return Response({"message": "Voucher đã hết hạn"}, status=status.HTTP_400_BAD_REQUEST)
+    if v.UsageLimit and v.UsedCount >= v.UsageLimit:
+        return Response({"message": "Voucher đã hết lượt sử dụng"}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        "message": "Áp dụng voucher thành công",
+        "voucher": {
+            "id":           v.VoucherID,
+            "code":         v.Code,
+            "type":         v.Type,
+            "value":        float(v.Value),
+            "scope":        v.Scope,
+            "category_id":  v.CategoryID.CategoryID if v.CategoryID else None,
+            "product_id":   v.ProductID.ProductID  if v.ProductID  else None,
+            "min_order":    float(v.MinOrder),
+            "max_discount": float(v.MaxDiscount) if v.MaxDiscount else None,
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API 33: ĐẶT HÀNG
+# POST /api/order/create/
+# ============================================================
+@api_view(['POST'])
+def create_order(request):
+    from .models import Voucher
+    customer_id      = request.data.get('customer_id')
+    items            = request.data.get('items', [])
+    voucher_code     = request.data.get('voucher_code')
+    subtotal         = float(request.data.get('subtotal', 0) or 0)
+    discount         = float(request.data.get('discount', 0) or 0)
+    total            = float(request.data.get('total', 0) or 0)
+    payment_method   = request.data.get('payment_method', 'cod')  # 'cod' | 'momo'
+    receiver_name    = request.data.get('receiver_name', '').strip()
+    receiver_phone   = request.data.get('receiver_phone', '').strip()
+    receiver_address = request.data.get('receiver_address', '').strip()
+    note             = request.data.get('note', '').strip()
+
+    if not customer_id or not items or not receiver_name or not receiver_phone or not receiver_address:
+        return Response({"message": "Thiếu thông tin đặt hàng"}, status=status.HTTP_400_BAD_REQUEST)
+
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Kiểm tra stock đủ không
+    for item in items:
+        raw_vid = item.get('variant_id')
+        try:
+            vid = int(raw_vid)
+        except (TypeError, ValueError):
+            return Response({"message": f"variant_id không hợp lệ: '{raw_vid}'. Vui lòng chọn sản phẩm từ trang chi tiết."}, status=status.HTTP_400_BAD_REQUEST)
+        variant = ProductVariant.objects.filter(VariantID=vid).first()
+        if not variant:
+            return Response({"message": f"Biến thể #{vid} không tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+        qty = int(item.get('qty', 1))
+        if variant.StockQuantity < qty:
+            p = variant.ProductID
+            return Response({"message": f"'{p.ProductName}' chỉ còn {variant.StockQuantity} sản phẩm"}, status=status.HTTP_400_BAD_REQUEST)
+
+    shipping_address = f"{receiver_name} - {receiver_phone} - {receiver_address}"
+    if note:
+        shipping_address += f" | Ghi chú: {note}"
+
+    # Tạo Order
+    order_kwargs = dict(
+        CustomerID      = customer,
+        TotalAmount     = total,
+        Status          = 'Processing',     # ← Bắt đầu bằng Processing (đang xử lý)
+        ShippingAddress = shipping_address,
+    )
+    # Thêm field mới nếu model có hỗ trợ
+    try:
+        order = Order(**order_kwargs)
+        order.PaymentMethod = payment_method
+        order.Subtotal      = subtotal
+        order.Discount      = discount
+        order.StatusNote    = ""
+        order.save()
+    except Exception:
+        order = Order.objects.create(**order_kwargs)
+
+    # Tạo OrderDetail & trừ stock
+    for item in items:
+        variant = ProductVariant.objects.filter(VariantID=int(item.get('variant_id'))).first()
+        if variant:
+            qty = int(item.get('qty', 1))
+            OrderDetail.objects.create(
+                OrderID   = order,
+                VariantID = variant,
+                Quantity  = qty,
+                UnitPrice = float(item.get('price', 0)),
+            )
+            # Trừ stock thủ công nếu signal/save không auto-trừ
+            try:
+                variant.StockQuantity = max(0, variant.StockQuantity - qty)
+                variant.save()
+            except Exception:
+                pass
+
+    # Tăng UsedCount voucher
+    if voucher_code:
+        v = Voucher.objects.filter(Code=voucher_code.upper()).first()
+        if v:
+            v.UsedCount += 1
+            v.save()
+
+    # Kết quả — nếu MoMo thì trả thêm URL thanh toán (placeholder)
+    resp = {"message": "Đặt hàng thành công", "order_id": order.OrderID}
+    if payment_method == "momo":
+        # TODO: tích hợp MoMo API thực tế
+        resp["momo_url"] = None   # None = không redirect, xử lý COD-like
+    return Response(resp, status=status.HTTP_201_CREATED)
+
+
+# ============================================================
+# API 34: ĐỊA CHỈ KHÁCH HÀNG
+# GET /api/customer/<id>/addresses/
+# ============================================================
+@api_view(['GET'])
+def get_customer_addresses(request, customer_id):
+    from .models import CustomerAddress
+    addrs = CustomerAddress.objects.filter(CustomerID=customer_id)
+    return Response({
+        "addresses": [{"id": a.AddressID, "name": a.Name, "phone": a.Phone, "address": a.Address} for a in addrs]
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API 35: TẠO ĐỊA CHỈ
+# POST /api/customer/address/create/
+# ============================================================
+@api_view(['POST'])
+def create_customer_address(request):
+    from .models import CustomerAddress
+    customer_id = request.data.get('customer_id')
+    name    = request.data.get('name', '').strip()
+    phone   = request.data.get('phone', '').strip()
+    address = request.data.get('address', '').strip()
+    if not all([customer_id, name, phone, address]):
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+    a = CustomerAddress.objects.create(CustomerID=customer, Name=name, Phone=phone, Address=address)
+    return Response({"message": "Đã lưu địa chỉ", "id": a.AddressID}, status=status.HTTP_201_CREATED)
+
+
+# ============================================================
+# API 36: CẬP NHẬT ĐỊA CHỈ
+# POST /api/customer/address/update/
+# ============================================================
+@api_view(['POST'])
+def update_customer_address(request):
+    from .models import CustomerAddress
+    addr_id = request.data.get('id')
+    a = CustomerAddress.objects.filter(AddressID=addr_id).first()
+    if not a: return Response({"message": "Không tìm thấy địa chỉ"}, status=status.HTTP_404_NOT_FOUND)
+    a.Name = request.data.get('name', a.Name).strip()
+    a.Phone = request.data.get('phone', a.Phone).strip()
+    a.Address = request.data.get('address', a.Address).strip()
+    a.save()
+    return Response({"message": "Đã cập nhật địa chỉ"}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API 37: XÓA ĐỊA CHỈ
+# POST /api/customer/address/delete/
+# ============================================================
+@api_view(['POST'])
+def delete_customer_address(request):
+    from .models import CustomerAddress
+    addr_id = request.data.get('id')
+    a = CustomerAddress.objects.filter(AddressID=addr_id).first()
+    if not a: return Response({"message": "Không tìm thấy địa chỉ"}, status=status.HTTP_404_NOT_FOUND)
+    a.delete()
+    return Response({"message": "Đã xóa địa chỉ"}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: LẤY VOUCHER TỐT NHẤT ĐANG HIỆU LỰC
+# GET /api/voucher/best/
+# ============================================================
+@api_view(['GET'])
+def get_best_voucher(request):
+    from .models import Voucher
+    today = _date.today()
+    vouchers = Voucher.objects.filter(IsActive=True)
+
+    active = []
+    for v in vouchers:
+        if v.StartDate and v.StartDate > today: continue
+        if v.EndDate   and v.EndDate   < today: continue
+        if v.UsageLimit and v.UsedCount >= v.UsageLimit: continue
+        active.append(v)
+
+    if not active:
+        return Response({"voucher": None}, status=status.HTTP_200_OK)
+
+    # Ước tính giá trị giảm: percent dùng value, fixed dùng value trực tiếp
+    # Sắp xếp: fixed theo value, percent theo value (% cao hơn = tốt hơn)
+    def sort_key(v):
+        if v.Type == 'fixed':   return float(v.Value)
+        if v.Type == 'percent': return float(v.Value) * 1_000_000  # ưu tiên % cao
+        return 0
+
+    best = max(active, key=sort_key)
+
+    return Response({
+        "voucher": {
+            "id":           best.VoucherID,
+            "code":         best.Code,
+            "type":         best.Type,
+            "value":        float(best.Value),
+            "scope":        best.Scope,
+            "category_id":  best.CategoryID.CategoryID if best.CategoryID else None,
+            "product_id":   best.ProductID.ProductID   if best.ProductID  else None,
+            "min_order":    float(best.MinOrder),
+            "max_discount": float(best.MaxDiscount) if best.MaxDiscount else None,
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: DANH SÁCH ĐƠN HÀNG CỦA KHÁCH
+# GET /api/order/list/?customer_id=KH001
+# ============================================================
+@api_view(['GET'])
+def list_orders(request):
+    customer_id = request.query_params.get('customer_id')
+    if not customer_id:
+        return Response({"message": "Thiếu customer_id"}, status=status.HTTP_400_BAD_REQUEST)
+    orders = Order.objects.filter(CustomerID=customer_id).order_by('-OrderDate')
+    result = []
+    for o in orders:
+        details = OrderDetail.objects.filter(OrderID=o).select_related('VariantID__ProductID')
+        items = []
+        for d in details:
+            v = d.VariantID
+            p = v.ProductID
+            primary_img = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first()
+            items.append({
+                "product_name": p.ProductName,
+                "color":        v.Color or "",
+                "storage":      v.Storage or "",
+                "ram":          v.Ram or "",
+                "quantity":     d.Quantity,
+                "unit_price":   str(d.UnitPrice),
+                "image":        v.Image or (primary_img.ImageUrl if primary_img else ""),
+            })
+        result.append({
+            "id":              o.OrderID,
+            "status":          o.Status,
+            "total_amount":    str(o.TotalAmount),
+            "shipping_address":o.ShippingAddress,
+            "payment_method":  getattr(o, 'PaymentMethod', 'cod'),
+            "status_note":     getattr(o, 'StatusNote', ''),
+            "subtotal":        str(getattr(o, 'Subtotal', o.TotalAmount) or o.TotalAmount),
+            "discount":        str(getattr(o, 'Discount', 0) or 0),
+            "created_at":      o.OrderDate.isoformat(),
+            "items":           items,
+        })
+    return Response({"orders": result}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: HỦY ĐƠN HÀNG (khách - chỉ khi Pending)
+# POST /api/order/cancel/
+# ============================================================
+@api_view(['POST'])
+def cancel_order(request):
+    order_id    = request.data.get('order_id')
+    customer_id = request.data.get('customer_id')
+    o = Order.objects.filter(OrderID=order_id, CustomerID=customer_id).first()
+    if not o:
+        return Response({"message": "Không tìm thấy đơn hàng"}, status=status.HTTP_404_NOT_FOUND)
+    if o.Status != 'Pending':
+        return Response({"message": "Chỉ có thể hủy đơn hàng đang chờ xác nhận"}, status=status.HTTP_400_BAD_REQUEST)
+    # Hoàn lại stock
+    for d in OrderDetail.objects.filter(OrderID=o):
+        d.VariantID.StockQuantity += d.Quantity
+        d.VariantID.save()
+    o.Status = 'Cancelled'
+    o.save()
+    return Response({"message": "Đã hủy đơn hàng"}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: ADMIN - DANH SÁCH TẤT CẢ ĐƠN HÀNG
+# GET /api/order/admin/list/
+# ============================================================
+@api_view(['GET'])
+def admin_list_orders(request):
+    orders = Order.objects.all().order_by('-OrderDate')
+    result = []
+    for o in orders:
+        details = OrderDetail.objects.filter(OrderID=o).select_related('VariantID__ProductID')
+        items = []
+        for d in details:
+            v = d.VariantID
+            p = v.ProductID
+            primary_img = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first()
+            items.append({
+                "product_name": p.ProductName,
+                "color":        v.Color or "",
+                "storage":      v.Storage or "",
+                "ram":          v.Ram or "",
+                "quantity":     d.Quantity,
+                "unit_price":   str(d.UnitPrice),
+                "image":        v.Image or (primary_img.ImageUrl if primary_img else ""),
+            })
+        cust = o.CustomerID
+        result.append({
+            "id":               o.OrderID,
+            "status":           o.Status,
+            "total_amount":     str(o.TotalAmount),
+            "shipping_address": o.ShippingAddress,
+            "payment_method":   getattr(o, 'PaymentMethod', 'cod'),
+            "status_note":      getattr(o, 'StatusNote', ''),
+            "subtotal":         str(getattr(o, 'Subtotal', o.TotalAmount) or o.TotalAmount),
+            "discount":         str(getattr(o, 'Discount', 0) or 0),
+            "created_at":       o.OrderDate.isoformat(),
+            "customer_name":    cust.FullName,
+            "customer_phone":   cust.PhoneNumber or "",
+            "items":            items,
+        })
+    return Response({"orders": result}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# API: ADMIN - CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG
+# POST /api/order/update-status/
+# Body: { order_id, status, note }
+# Các status hợp lệ: Pending → Processing → Shipping → Delivered | Cancelled
+# ============================================================
+@api_view(['POST'])
+def update_order_status(request):
+    VALID = ['Pending', 'Processing', 'Shipping', 'Delivered', 'Cancelled']
+    FLOW  = { 'Pending': 'Processing', 'Processing': 'Shipping', 'Shipping': 'Delivered' }
+
+    order_id   = request.data.get('order_id')
+    new_status = request.data.get('status')
+    note       = request.data.get('note', '').strip()
+
+    if new_status not in VALID:
+        return Response({"message": f"Trạng thái không hợp lệ. Chọn: {', '.join(VALID)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+    o = Order.objects.filter(OrderID=order_id).first()
+    if not o:
+        return Response({"message": "Không tìm thấy đơn hàng"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Kiểm tra luồng: chỉ cho phép tiến/hủy
+    if new_status != 'Cancelled' and FLOW.get(o.Status) != new_status:
+        return Response({"message": f"Không thể chuyển từ '{o.Status}' sang '{new_status}'"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if new_status == 'Cancelled' and o.Status in ['Shipping', 'Delivered']:
+        return Response({"message": "Không thể hủy đơn đang giao hoặc đã giao"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Hoàn stock nếu hủy
+    if new_status == 'Cancelled' and o.Status not in ['Shipping', 'Delivered']:
+        for d in OrderDetail.objects.filter(OrderID=o):
+            d.VariantID.StockQuantity += d.Quantity
+            d.VariantID.save()
+
+    o.Status = new_status
+    # Lưu note nếu model có field StatusNote
+    try:
+        o.StatusNote = note
+    except Exception:
+        pass
+    o.save()
+
+    return Response({"message": f"Đã cập nhật trạng thái sang '{new_status}'"}, status=status.HTTP_200_OK)

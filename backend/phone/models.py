@@ -160,6 +160,10 @@ class Order(models.Model):
     TotalAmount     = models.DecimalField(max_digits=18, decimal_places=2)
     Status          = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Pending')
     ShippingAddress = models.CharField(max_length=255)
+    PaymentMethod   = models.CharField(max_length=20, default='cod')
+    StatusNote      = models.CharField(max_length=500, null=True, blank=True)
+    Subtotal        = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    Discount        = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     class Meta:
         db_table = 'Order'
@@ -233,3 +237,33 @@ class Shipping(models.Model):
 
     class Meta:
         db_table = 'Shipping'
+
+class Voucher(models.Model):
+    VoucherID   = models.AutoField(primary_key=True)
+    Code        = models.CharField(max_length=50, unique=True)
+    Type        = models.CharField(max_length=10)       # 'percent' | 'fixed'
+    Value       = models.DecimalField(max_digits=12, decimal_places=2)
+    Scope       = models.CharField(max_length=20, default='all')  # 'all'|'category'|'product'
+    CategoryID  = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, db_column='CategoryID')
+    ProductID   = models.ForeignKey('Product',  on_delete=models.SET_NULL, null=True, blank=True, db_column='ProductID')
+    MinOrder    = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    MaxDiscount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    StartDate   = models.DateField(null=True, blank=True)
+    EndDate     = models.DateField(null=True, blank=True)
+    UsageLimit  = models.IntegerField(null=True, blank=True)
+    UsedCount   = models.IntegerField(default=0)
+    IsActive    = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'Voucher'
+
+
+class CustomerAddress(models.Model):
+    AddressID  = models.AutoField(primary_key=True)
+    CustomerID = models.ForeignKey('Customer', on_delete=models.CASCADE, db_column='CustomerID')
+    Name       = models.CharField(max_length=100)
+    Phone      = models.CharField(max_length=20)
+    Address    = models.CharField(max_length=300)
+
+    class Meta:
+        db_table = 'CustomerAddress'
