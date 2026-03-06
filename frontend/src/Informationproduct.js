@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
+import { BlockRenderer } from "./Blockeditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCart } from "./Cart";
 import {
-  User, LogOut, Settings, Search, ShoppingCart, ChevronDown,
+  User, LogOut, Settings, ShoppingCart, ChevronDown,
   AlertTriangle, ChevronLeft, ChevronRight, Package,
   Shield, Truck, RotateCcw, ZapIcon
 } from "lucide-react";
@@ -11,6 +13,8 @@ const API = "http://localhost:8000";
 export default function InformationProduct() {
   const { id }    = useParams();
   const navigate  = useNavigate();
+  const { addItem, setShow, voucher, autoApplyBestVoucher } = useCart();
+  const [addedMsg, setAddedMsg]   = useState("");
   const [user, setUser] = React.useState(() => JSON.parse(localStorage.getItem("user")));
 
   React.useEffect(() => {
@@ -40,6 +44,7 @@ export default function InformationProduct() {
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [activeImg,       setActiveImg]       = useState(0);
   const [activeTab,       setActiveTab]       = useState("info"); // info | specs | review
+  const [productContent, setProductContent] = useState([]);
   const [qty,             setQty]             = useState(1);
 
   // Related
@@ -58,6 +63,11 @@ export default function InformationProduct() {
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data) => {
         setProduct(data.product);
+        // Load rich content
+        fetch(`${API}/api/product/${id}/content/`)
+          .then(r => r.json())
+          .then(d => setProductContent(d.content?.blocks || []))
+          .catch(() => {});
         setVariants(data.variants || []);
         setImages(data.images    || []);
         setRelated(data.related  || []);
@@ -65,7 +75,8 @@ export default function InformationProduct() {
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
-  }, [id]);
+    autoApplyBestVoucher();
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
 
@@ -95,10 +106,45 @@ export default function InformationProduct() {
     }
   }, [selColor, selStorage, variants]);
 
-  const currentPrice = selectedVariant ? parseInt(selectedVariant.price) : 0;
+  const currentPrice    = selectedVariant ? parseInt(selectedVariant.price) : 0;
+
+  // Tính giá sau giảm voucher
+  const discountedPrice = (() => {
+    if (!currentPrice || !voucher || !selectedVariant) return currentPrice;
+    if (voucher.scope === "category" && voucher.category_id && String(product?.category_id) !== String(voucher.category_id)) return currentPrice;
+    if (voucher.scope === "product"  && voucher.product_id  && String(product?.id)          !== String(voucher.product_id))  return currentPrice;
+    if (voucher.type === "percent") return Math.round(currentPrice * (1 - Math.min(voucher.value, 100) / 100));
+    if (voucher.type === "fixed")   return Math.max(0, currentPrice - voucher.value);
+    return currentPrice;
+  })();
+  const hasDiscount = discountedPrice < currentPrice;
   const currentStock = selectedVariant ? selectedVariant.stock : 0;
 
   // Specs table từ selectedVariant
+  const handleAddToCart = (buyNow = false) => {
+    if (!selectedVariant || currentStock === 0) return;
+    addItem(
+      { id: product.id, name: product.name, image: images[0]?.url || images[0] || "", categoryId: product.category_id },
+      {
+        id:      selectedVariant.id,
+        color:   selectedVariant.color,
+        storage: selectedVariant.storage,
+        ram:     selectedVariant.ram,
+        price:   parseFloat(selectedVariant.price) || 0,
+        image:   selectedVariant.image,
+        stock:   parseInt(selectedVariant.stock) || 0,
+      },
+      qty
+    );
+    if (buyNow) {
+      setShow(false);
+      navigate("/cart");
+    } else {
+      setAddedMsg("Đã thêm vào giỏ hàng!");
+      setTimeout(() => setAddedMsg(""), 2000);
+    }
+  };
+
   const specsGroups = selectedVariant ? [
     {
       label: "Bộ xử lý",
@@ -197,6 +243,7 @@ export default function InformationProduct() {
         <div className="flex gap-8 items-center text-gray-300">
           <Link to="/"        className="hover:text-white transition">Trang chủ</Link>
           <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
+          <Link to="/blog"    className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex items-center gap-5 text-gray-300">
           <button onClick={() => navigate(user ? "/cart" : "/login")}>
@@ -318,13 +365,30 @@ export default function InformationProduct() {
             </div>
 
             {/* Giá */}
-            <div className="flex items-baseline gap-3">
-              <span className="text-3xl font-bold text-[#ff3b30]">
-                {currentPrice ? currentPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
-              </span>
-              {currentStock > 0
-                ? <span className="text-xs text-green-400">Còn hàng ({currentStock})</span>
-                : <span className="text-xs text-red-400">Hết hàng</span>}
+            <div className="flex flex-col gap-1">
+              <div className="flex items-baseline gap-3 flex-wrap">
+                {hasDiscount && (
+                  <span className="text-xl text-white/30 line-through">
+                    {currentPrice.toLocaleString("vi-VN")}đ
+                  </span>
+                )}
+                <span className={`text-3xl font-bold ${hasDiscount ? "text-orange-400" : "text-[#ff3b30]"}`}>
+                  {discountedPrice ? discountedPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+                </span>
+                {currentStock > 0
+                  ? <span className="text-xs text-green-400">Còn hàng ({currentStock})</span>
+                  : <span className="text-xs text-red-400">Hết hàng</span>}
+              </div>
+              {hasDiscount && voucher && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-orange-500/15 border border-orange-500/30 text-orange-400 px-2 py-0.5 rounded-full font-medium">
+                    🏷 {voucher.code} -{voucher.type === "percent" ? `${voucher.value}%` : `${parseInt(voucher.value).toLocaleString("vi-VN")}đ`}
+                  </span>
+                  <span className="text-xs text-green-400">
+                    Tiết kiệm {(currentPrice - discountedPrice).toLocaleString("vi-VN")}đ
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Màu sắc */}
@@ -372,12 +436,12 @@ export default function InformationProduct() {
                 <button onClick={() => setQty((q) => Math.min(currentStock, q + 1))}
                   className="w-10 h-10 flex items-center justify-center hover:bg-white/10 transition text-lg">+</button>
               </div>
-              <button disabled={currentStock === 0}
+              <button onClick={() => handleAddToCart(false)} disabled={currentStock === 0}
                 className="flex-1 h-11 rounded-xl bg-[rgba(255,149,0,0.8)] hover:bg-[rgba(255,149,0,1)] disabled:opacity-40 disabled:cursor-not-allowed
                   border border-[#ff9500] text-white font-semibold text-sm transition">
-                Thêm vào giỏ hàng
+                {addedMsg || "Thêm vào giỏ hàng"}
               </button>
-              <button disabled={currentStock === 0}
+              <button onClick={() => handleAddToCart(true)} disabled={currentStock === 0}
                 className="flex-1 h-11 rounded-xl bg-[#ff3b30] hover:bg-[#e0352a] disabled:opacity-40 disabled:cursor-not-allowed
                   text-white font-semibold text-sm transition">
                 Mua ngay
@@ -423,9 +487,12 @@ export default function InformationProduct() {
           {/* Mô tả */}
           {activeTab === "info" && (
             <div className="max-w-3xl">
-              {product.description
-                ? <p className="text-white/60 text-sm leading-relaxed">{product.description}</p>
-                : <p className="text-white/20 text-sm italic">Chưa có mô tả sản phẩm</p>}
+              {productContent.length > 0
+                ? <BlockRenderer blocks={productContent} />
+                : product.description
+                  ? <div className="prose-custom text-white/70 text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: product.description }} />
+                  : <p className="text-white/20 text-sm italic">Chưa có mô tả sản phẩm</p>}
             </div>
           )}
 
@@ -481,9 +548,25 @@ export default function InformationProduct() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-sm line-clamp-2 leading-snug mb-1">{p.name}</h3>
-                    <p className="text-[#ff3b30] font-semibold text-sm text-right">
-                      {p.min_price ? parseInt(p.min_price).toLocaleString("vi-VN") + "đ" : "Liên hệ"}
-                    </p>
+                    {(() => {
+                      const op = parseFloat(p.min_price || 0);
+                      let dp = op;
+                      let hasDis = false;
+                      if (voucher && op) {
+                        if (voucher.scope === "all") {
+                          dp = voucher.type === "percent" ? Math.round(op * (1 - Math.min(voucher.value,100)/100)) : Math.max(0, op - voucher.value);
+                          hasDis = dp < op;
+                        }
+                      }
+                      return (
+                        <div className="text-right">
+                          {hasDis && <p className="text-white/30 text-xs line-through leading-none">{op.toLocaleString("vi-VN")}đ</p>}
+                          <p className={`font-semibold text-sm ${hasDis ? "text-orange-400" : "text-[#ff3b30]"}`}>
+                            {dp ? dp.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </article>
               ))}

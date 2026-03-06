@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useCart } from "./Cart";
 import { Link, useNavigate } from "react-router-dom";
 import {
   User, LogOut, Settings, Search, ShoppingCart, ChevronDown,
-  AlertTriangle, SlidersHorizontal, X, ChevronRight, Package
+  AlertTriangle, SlidersHorizontal, X, ChevronRight, Package, ShoppingBag
 } from "lucide-react";
 import bgImage from "./Image/image-177.png";
 
@@ -19,6 +20,7 @@ const STORAGE_OPTIONS = ["64GB","128GB","256GB","512GB","1TB","2TB"];
 
 export default function Product() {
   const navigate = useNavigate();
+  const { totalCount, voucher, autoApplyBestVoucher } = useCart();
   const [user, setUser] = React.useState(() => JSON.parse(localStorage.getItem("user")));
 
   React.useEffect(() => {
@@ -55,6 +57,8 @@ export default function Product() {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
+  useEffect(() => { autoApplyBestVoucher(); }, []); // eslint-disable-line
+
   useEffect(() => {
     Promise.all([
       fetch(`${API}/api/product/list/`).then((r) => r.json()),
@@ -88,6 +92,21 @@ export default function Product() {
 
   const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
 
+    // Tính giá hiển thị sau voucher cho product card
+  const getDisplayPrice = (product) => {
+    const originalPrice = parseFloat(product.min_price || 0);
+    if (!originalPrice) return { price: 0, hasDiscount: false, originalPrice: 0 };
+    if (!voucher)       return { price: originalPrice, hasDiscount: false, originalPrice };
+    if (voucher.scope === "category" && voucher.category_id && String(product.category_id) !== String(voucher.category_id))
+      return { price: originalPrice, hasDiscount: false, originalPrice };
+    if (voucher.scope === "product" && voucher.product_id && String(product.id) !== String(voucher.product_id))
+      return { price: originalPrice, hasDiscount: false, originalPrice };
+    let discounted = originalPrice;
+    if (voucher.type === "percent") discounted = Math.round(originalPrice * (1 - Math.min(voucher.value, 100) / 100));
+    if (voucher.type === "fixed")   discounted = Math.max(0, originalPrice - voucher.value);
+    return { price: discounted, hasDiscount: discounted < originalPrice, originalPrice };
+  };
+
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
 
@@ -119,6 +138,7 @@ export default function Product() {
         <div className="flex gap-8 items-center text-gray-300">
           <Link to="/"        className="hover:text-white transition">Trang chủ</Link>
           <Link to="/product" className="text-white font-medium">Sản phẩm</Link>
+          <Link to="/blog"    className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex items-center gap-5 text-gray-300">
           <div className="relative hidden md:block">
@@ -127,8 +147,13 @@ export default function Product() {
               placeholder="Tìm sản phẩm..."
               className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm outline-none focus:border-white/30 transition w-52" />
           </div>
-          <button onClick={() => navigate(user ? "/cart" : "/login")}>
+          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
             <ShoppingCart size={22} className="hover:text-white transition" />
+                {totalCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                    {totalCount > 9 ? "9+" : totalCount}
+                  </span>
+                )}
           </button>
           {user ? (
             <div className="relative" ref={dropdownRef}>
@@ -150,6 +175,10 @@ export default function Product() {
                       <p className="text-xs text-white/40 truncate">{user.email}</p>
                     </div>
                   </div>
+                  <button onClick={() => { setDropdownOpen(false); navigate("/orders"); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition flex items-center gap-2">
+                    <ShoppingBag size={14} className="text-orange-400" /> Đơn hàng của tôi
+                  </button>
                   <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-white/5 transition">
                     <Settings size={15} /> Tài khoản
@@ -270,10 +299,30 @@ export default function Product() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <h3 className="font-semibold text-white text-sm leading-snug line-clamp-2">{p.name}</h3>
-                    <p className="text-[#ff3b30] font-semibold text-base text-right">
-                      {p.min_price ? parseInt(p.min_price).toLocaleString("vi-VN") + "đ" : "Liên hệ"}
-                    </p>
-                    <button onClick={(e) => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
+                    {(() => {
+                      const { price, hasDiscount, originalPrice } = getDisplayPrice(p);
+                      return (
+                        <div className="text-right">
+                          {hasDiscount && (
+                            <p className="text-white/30 text-xs line-through leading-none">
+                              {originalPrice.toLocaleString("vi-VN")}đ
+                            </p>
+                          )}
+                          <p className={`font-semibold text-base ${hasDiscount ? "text-orange-400" : "text-[#ff3b30]"}`}>
+                            {price ? price.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+                          </p>
+                          {hasDiscount && voucher && (
+                            <p className="text-[10px] text-green-400 leading-none mt-0.5">
+                              -{voucher.type === "percent" ? `${voucher.value}%` : `${parseInt(voucher.value).toLocaleString("vi-VN")}đ`}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <button onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/product/${p.id}`);
+                    }}
                       className="w-full h-9 flex items-center justify-center rounded-full text-white text-sm font-medium
                         bg-[rgba(255,149,0,0.7)] border border-[#ff9500] backdrop-blur-[2px]
                         shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
@@ -321,6 +370,7 @@ function FilterRow({ label, image, active, onClick }) {
 }
 
 function TagChip({ label, active, onClick }) {
+
   return (
     <button onClick={onClick}
       className={`px-2.5 py-1 rounded-lg text-xs border transition

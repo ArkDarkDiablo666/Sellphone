@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 const API = "http://localhost:8000";
 
 const saveUser = (data) => {
-  localStorage.setItem("user", JSON.stringify(data));
+  localStorage.setItem("admin_user", JSON.stringify(data));
 };
 
 export default function Loginmanage() {

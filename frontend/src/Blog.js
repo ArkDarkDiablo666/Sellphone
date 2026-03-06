@@ -1,0 +1,231 @@
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Clock, Tag, Search, ChevronRight } from "lucide-react";
+import { BlockRenderer } from "./Blockeditor";
+
+const API = "http://localhost:8000";
+
+const CATEGORIES = ["Tất cả", "Mới nhất", "Cũ nhất", "Mẹo vặt", "Đánh giá", "Tin tức"];
+
+function timeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 60)     return `${Math.floor(diff)} giây trước`;
+  if (diff < 3600)   return `${Math.floor(diff/60)} phút trước`;
+  if (diff < 86400)  return `${Math.floor(diff/3600)} giờ trước`;
+  if (diff < 604800) return `${Math.floor(diff/86400)} ngày trước`;
+  return new Date(dateStr).toLocaleDateString("vi-VN");
+}
+
+// ── Chi tiết bài viết ────────────────────────────────────────
+export function BlogDetail() {
+  const { id }    = useParams();
+  const navigate  = useNavigate();
+  const [post,    setPost]    = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API}/api/post/${id}/`)
+      .then(r => r.json()).then(d => setPost(d.post))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) return (
+    <div className="min-h-screen text-white flex items-center justify-center" style={{ background: "#1C1C1E" }}>
+      <div className="w-8 h-8 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+    </div>
+  );
+  if (!post) return (
+    <div className="min-h-screen text-white flex flex-col items-center justify-center gap-4" style={{ background: "#1C1C1E" }}>
+      <p className="text-white/40">Không tìm thấy bài viết</p>
+      <button onClick={() => navigate("/blog")} className="px-4 py-2 rounded-xl bg-orange-500 text-sm">Quay lại</button>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
+      <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
+        style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>
+        <div className="text-xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
+        <button onClick={() => navigate("/blog")} className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition">
+          <ArrowLeft size={15} /> Bài viết
+        </button>
+      </nav>
+
+      <div className="pt-24 pb-16 px-6 max-w-3xl mx-auto">
+        {/* Category + date */}
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-orange-500/15 text-orange-400">{post.category}</span>
+          <span className="flex items-center gap-1.5 text-xs text-white/30">
+            <Clock size={11} /> {timeAgo(post.created_at)}
+          </span>
+          <span className="text-xs text-white/20">by {post.author}</span>
+        </div>
+
+        {/* Title */}
+        <h1 className="text-2xl font-bold text-white mb-8 leading-snug">{post.title}</h1>
+
+        {/* Content */}
+        <div className="prose-custom">
+          <BlockRenderer blocks={post.blocks || []} />
+        </div>
+
+        {/* Back */}
+        <div className="mt-12 pt-8 border-t border-white/5">
+          <button onClick={() => navigate("/blog")}
+            className="flex items-center gap-2 text-sm text-orange-400 hover:text-orange-300 transition">
+            <ArrowLeft size={14} /> Xem tất cả bài viết
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Danh sách bài viết ───────────────────────────────────────
+export default function Blog() {
+  const navigate      = useNavigate();
+  const [posts,       setPosts]       = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [activeTab,   setActiveTab]   = useState("Tất cả");
+  const [search,      setSearch]      = useState("");
+
+  useEffect(() => {
+    loadPosts(activeTab);
+  }, [activeTab]);
+
+  const loadPosts = (cat) => {
+    setLoading(true);
+    const q = cat === "Tất cả" ? "all" : cat === "Mới nhất" ? "all" : cat === "Cũ nhất" ? "all" : cat;
+    fetch(`${API}/api/post/list/?category=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(d => {
+        let list = d.posts || [];
+        if (cat === "Mới nhất") list = [...list].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+        if (cat === "Cũ nhất")  list = [...list].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+        setPosts(list);
+      }).finally(() => setLoading(false));
+  };
+
+  const filtered = search
+    ? posts.filter(p => p.title.toLowerCase().includes(search.toLowerCase()))
+    : posts;
+
+  const featured = filtered[0];
+  const rest     = filtered.slice(1);
+
+  return (
+    <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
+      <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
+        style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>
+        <div className="text-xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
+        <div className="flex items-center gap-6 text-sm">
+          {["Trang chủ","Sản phẩm","Bài viết"].map((item, i) => {
+            const paths = ["/", "/product", "/blog"];
+            return (
+              <button key={item} onClick={() => navigate(paths[i])}
+                className={`transition ${item === "Bài viết" ? "text-orange-400" : "text-white/50 hover:text-white"}`}>
+                {item}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <div className="pt-24 pb-16 px-8 max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-2xl font-bold">Bài viết nổi bật</h1>
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Tìm bài viết..."
+              className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm outline-none focus:border-orange-500/50 transition w-52" />
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-0 mb-8 border-b border-white/8">
+          {CATEGORIES.map(cat => (
+            <button key={cat} onClick={() => setActiveTab(cat)}
+              className={`px-5 py-2.5 text-sm transition border-b-2 -mb-px ${
+                activeTab === cat
+                  ? "text-orange-400 border-orange-500"
+                  : "text-white/40 hover:text-white/70 border-transparent"
+              }`}>
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <div className="text-center py-20 text-white/20">Đang tải...</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-20 text-white/20">Không có bài viết nào</div>
+        ) : (
+          <div className="flex flex-col gap-8">
+            {/* Featured — ảnh to */}
+            {featured && (
+              <div onClick={() => navigate(`/blog/${featured.id}`)}
+                className="cursor-pointer rounded-2xl overflow-hidden border border-white/5 hover:border-orange-500/30 transition group"
+                style={{ background: "#161616" }}>
+                <div className="relative h-64 overflow-hidden">
+                  {featured.thumbnail
+                    ? <img src={featured.thumbnail} alt={featured.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    : <div className="w-full h-full flex items-center justify-center" style={{ background: "#222" }}>
+                        <Tag size={40} className="text-white/10" />
+                      </div>
+                  }
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 60%)" }} />
+                  <div className="absolute bottom-0 left-0 p-5">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 mb-2 inline-block">{featured.category}</span>
+                    <h2 className="text-lg font-bold text-white leading-snug">{featured.title}</h2>
+                  </div>
+                  <div className="absolute top-4 right-4 text-xs text-white/50 bg-black/50 px-2.5 py-1 rounded-full">
+                    {timeAgo(featured.created_at)}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Rest — card ngang */}
+            <div className="flex flex-col gap-4">
+              {rest.map((post, i) => (
+                <div key={post.id}
+                  onClick={() => navigate(`/blog/${post.id}`)}
+                  className={`cursor-pointer rounded-2xl border border-white/5 hover:border-orange-500/20 transition flex overflow-hidden group ${i % 2 === 1 ? "flex-row-reverse" : ""}`}
+                  style={{ background: "#161616" }}>
+                  {post.thumbnail ? (
+                    <div className="w-56 shrink-0 overflow-hidden">
+                      <img src={post.thumbnail} alt={post.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    </div>
+                  ) : (
+                    <div className="w-40 shrink-0 flex items-center justify-center" style={{ background: "#1e1e1e" }}>
+                      <Tag size={28} className="text-white/10" />
+                    </div>
+                  )}
+                  <div className="flex-1 p-5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400/80">{post.category}</span>
+                      </div>
+                      <h3 className="font-semibold text-white/90 leading-snug group-hover:text-orange-400 transition">{post.title}</h3>
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="flex items-center gap-1.5 text-xs text-white/30">
+                        <Clock size={11} /> {timeAgo(post.created_at)}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs text-orange-400/60 group-hover:text-orange-400 transition">
+                        Đọc thêm <ChevronRight size={12} />
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

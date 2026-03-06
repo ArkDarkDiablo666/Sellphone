@@ -1,16 +1,162 @@
 import { useState, useEffect, useRef } from "react";
+import Blockeditor from "./Blockeditor";
 import { useNavigate } from "react-router-dom";
 import {
   User, LogOut, Camera, Settings, Package,
   PackagePlus, Users, ChevronRight, Eye, EyeOff,
-  Pencil, Check, X, Plus, Shield, AlertTriangle, LayoutGrid
+  Pencil, Check, X, Plus, Shield, AlertTriangle, LayoutGrid, Ticket,
+  AlignLeft, AlignCenter, AlignRight, Image as ImageIcon,
+  ShoppingBag, Clock, RefreshCw, Truck, CheckCircle2, XCircle, ChevronDown,
+  RotateCcw, FileVideo, AlertCircle, FileText, Newspaper, Trash2 
 } from "lucide-react";
 
 const API = "http://localhost:8000";
 
+
+// ============================================================
+// RICH TEXT EDITOR - cho mô tả sản phẩm
+// ============================================================
+function RichEditor({ value, onChange }) {
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || "";
+    }
+  }, []); // eslint-disable-line
+
+  const exec = (cmd, val = null) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val);
+    syncContent();
+  };
+
+  const syncContent = () => {
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+
+  const insertImage = () => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*";
+    input.onchange = async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        exec("insertImage", reader.result);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  const setFontSize = (size) => exec("fontSize", size);
+  const setColor    = (color) => exec("foreColor", color);
+
+  const COLORS = ["#ffffff","#ff9500","#ff3b30","#30d158","#0a84ff","#bf5af2","#ffd60a","#636366","#000000"];
+  const SIZES  = [{ label:"S", val:"2" },{ label:"N", val:"3" },{ label:"L", val:"4" },{ label:"XL", val:"5" },{ label:"2XL", val:"6" }];
+
+  return (
+    <div className="border border-white/10 rounded-xl overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-1 px-3 py-2 bg-white/3 border-b border-white/10">
+        {/* Bold / Italic / Underline */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("bold"); }}
+          className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition text-xs font-bold">B</button>
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("italic"); }}
+          className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition text-xs italic">I</button>
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("underline"); }}
+          className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition text-xs underline">U</button>
+
+        <div className="w-px h-5 bg-white/10 mx-1" />
+
+        {/* Căn lề */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("justifyLeft"); }}
+          title="Trái" className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition">
+          <AlignLeft size={13} />
+        </button>
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("justifyCenter"); }}
+          title="Giữa" className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition">
+          <AlignCenter size={13} />
+        </button>
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("justifyRight"); }}
+          title="Phải" className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition">
+          <AlignRight size={13} />
+        </button>
+
+        <div className="w-px h-5 bg-white/10 mx-1" />
+
+        {/* Kích thước chữ */}
+        <div className="flex items-center gap-0.5">
+          {SIZES.map((s) => (
+            <button key={s.val} type="button" onMouseDown={(e) => { e.preventDefault(); setFontSize(s.val); }}
+              className="px-2 h-7 rounded-lg hover:bg-white/10 text-xs transition text-white/60 hover:text-white">
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-white/10 mx-1" />
+
+        {/* Màu chữ */}
+        <div className="flex items-center gap-1">
+          {COLORS.map((c) => (
+            <button key={c} type="button" onMouseDown={(e) => { e.preventDefault(); setColor(c); }}
+              title={c}
+              style={{ backgroundColor: c }}
+              className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition" />
+          ))}
+          {/* Custom color */}
+          <label className="w-5 h-5 rounded-full border border-dashed border-white/30 hover:border-white/60 flex items-center justify-center cursor-pointer transition" title="Màu tùy chỉnh">
+            <span className="text-[8px] text-white/40">+</span>
+            <input type="color" className="opacity-0 absolute w-0 h-0"
+              onChange={(e) => { setColor(e.target.value); }} />
+          </label>
+        </div>
+
+        <div className="w-px h-5 bg-white/10 mx-1" />
+
+        {/* Chèn ảnh */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); insertImage(); }}
+          title="Chèn ảnh" className="w-7 h-7 rounded-lg hover:bg-orange-500/20 text-orange-400 flex items-center justify-center transition">
+          <ImageIcon size={13} />
+        </button>
+
+        {/* Danh sách */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("insertUnorderedList"); }}
+          className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition text-xs">•≡</button>
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("insertOrderedList"); }}
+          className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center transition text-xs">1≡</button>
+
+        <div className="w-px h-5 bg-white/10 mx-1" />
+
+        {/* Xóa định dạng */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); exec("removeFormat"); }}
+          title="Xóa định dạng" className="w-7 h-7 rounded-lg hover:bg-red-500/10 text-white/30 hover:text-red-400 flex items-center justify-center transition text-xs">T̶</button>
+      </div>
+
+      {/* Content editable */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={syncContent}
+        onBlur={syncContent}
+        className="min-h-[140px] max-h-[320px] overflow-y-auto p-4 text-sm text-white/70 outline-none leading-relaxed"
+        style={{ caretColor: "white" }}
+        data-placeholder="Nhập mô tả sản phẩm... (hỗ trợ định dạng chữ, màu sắc, kích thước, chèn ảnh)"
+      />
+
+      <style>{`
+        [contenteditable]:empty:before { content: attr(data-placeholder); color: rgba(255,255,255,0.2); pointer-events: none; }
+        [contenteditable] img { max-width: 100%; border-radius: 8px; margin: 4px 0; }
+      `}</style>
+    </div>
+  );
+}
+
 export default function Admin() {
   const navigate  = useNavigate();
-  const adminLocal = JSON.parse(localStorage.getItem("user") || "{}");
+  const adminLocal = JSON.parse(localStorage.getItem("admin_user") || "{}");
 
   const [activeTab, setActiveTab]         = useState("profile");
   const [admin, setAdmin]                 = useState(null);
@@ -75,6 +221,46 @@ export default function Admin() {
   const [addVarSaving,      setAddVarSaving]      = useState(false);
   const [existingVariants,  setExistingVariants]  = useState([]);
 
+  // Voucher management
+  const [voucherList,    setVoucherList]    = useState([]);
+
+  // Order management
+  const [orderList,    setOrderList]    = useState([]);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [orderDetail,  setOrderDetail]  = useState(null);
+  const [updatingOrder,setUpdatingOrder]= useState(null);
+  const [statusNote,   setStatusNote]   = useState("");
+
+  // Post (bài viết)
+  const [postList,      setPostList]      = useState([]);
+  const [postLoading,   setPostLoading]   = useState(false);
+  const [showPostForm,  setShowPostForm]  = useState(false);
+  const [editingPost,   setEditingPost]   = useState(null);
+  const [postForm,      setPostForm]      = useState({ title: "", category: "Mẹo vặt", blocks: [], mediaFiles: {} });
+  const [postSaving,    setPostSaving]    = useState(false);
+
+  // Product content (mô tả rich)
+  const [pcProductId,   setPcProductId]   = useState("");
+  const [pcBlocks,      setPcBlocks]      = useState([]);
+  const [pcMediaFiles,  setPcMediaFiles]  = useState({});
+  const [pcSaving,      setPcSaving]      = useState(false);
+  const [pcLoaded,      setPcLoaded]      = useState(false);
+
+  // Return management
+  const [returnList,    setReturnList]    = useState([]);
+  const [returnLoading, setReturnLoading] = useState(false);
+  const [returnDetail,  setReturnDetail]  = useState(null);
+  const [returnNote,    setReturnNote]    = useState("");
+  const [processingReturn, setProcessingReturn] = useState(false);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [showAddVoucher, setShowAddVoucher] = useState(false);
+  const [voucherSaving,  setVoucherSaving]  = useState(false);
+  const [newVoucher, setNewVoucher] = useState({
+    code: "", type: "percent", value: "", scope: "all",
+    category_id: "", product_id: "", min_order: "", max_discount: "",
+    start_date: "", end_date: "", usage_limit: "",
+  });
+
   // Import
   const [importProductId, setImportProductId]     = useState("");
   const [importVariants, setImportVariants]        = useState([]);
@@ -111,6 +297,12 @@ export default function Admin() {
   useEffect(() => { if (activeTab === "product")  loadProducts(); }, [activeTab]); // eslint-disable-line
   useEffect(() => { if (activeTab === "category") loadCategories(); }, [activeTab]); // eslint-disable-line
   useEffect(() => { if (activeTab === "import")  loadProducts();  }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "voucher") loadVouchers();  }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "orders")  loadOrders();    }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "returns") loadReturns();   }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "posts")   loadPosts();     }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "product") loadProducts();  }, [activeTab]); // eslint-disable-line
+  useEffect(() => { if (activeTab === "product_content") loadProducts(); }, [activeTab]);
 
   const loadProducts = async () => {
     setProductLoading(true);
@@ -136,7 +328,7 @@ export default function Admin() {
     const match = val.trim().match(/^(\d+(?:\.\d+)?)\s*GB$/i);
     if (!match) return "RAM phải có dạng số + GB (VD: 8GB)";
     const num = parseFloat(match[1]);
-    if (num < 4) return "RAM phải ít nhất là 4GB";
+    if (num < 4) return "RAM tối thiểu là 4GB";
     return null;
   };
 
@@ -156,6 +348,7 @@ export default function Admin() {
     const errs = {};
     if (!newProduct.name.trim()) errs.name       = "Vui lòng nhập tên sản phẩm";
     if (!newProduct.categoryId)  errs.categoryId = "Vui lòng chọn danh mục";
+    if (variants.length === 0)   errs.variants   = "Sản phẩm cần ít nhất 1 biến thể";
 
     // Validate từng biến thể
     const variantErrs = variants.map((v, i) => {
@@ -174,7 +367,9 @@ export default function Admin() {
         if (ramErr) ve.ram = ramErr;
       }
 
-      if (v.storage) {
+      if (!v.storage) {
+        ve.storage = "Vui lòng nhập bộ nhớ trong";
+      } else {
         const storageErr = validateStorage(v.storage);
         if (storageErr) ve.storage = storageErr;
       }
@@ -237,7 +432,7 @@ export default function Admin() {
       if (!v.stock || isNaN(v.stock) || parseInt(v.stock) <= 0)   ve.stock = "Số lượng phải lớn hơn 0";
       else if (parseInt(v.stock) > 10000)                          ve.stock = "Tối đa 10.000";
       if (!v.ram) { ve.ram = "Vui lòng nhập RAM"; }
-      else { const m = String(v.ram).match(/^(\d+(?:\.\d+)?)GB$/i); if (!m || parseFloat(m[1]) <= 4) ve.ram = "RAM phải >= 4GB"; }
+      else { const m = String(v.ram).match(/^(\d+(?:\.\d+)?)GB$/i); if (!m || parseFloat(m[1]) <= 4) ve.ram = "RAM phải > 4GB"; }
       if (v.storage) { const m = String(v.storage).match(/^(\d+(?:\.\d+)?)(GB|TB)$/i); if (!m) ve.storage = "Dạng số + GB/TB"; else if (m[2].toUpperCase()==="GB"&&parseFloat(m[1])<64) ve.storage="Tối thiểu 64GB"; else if (m[2].toUpperCase()==="TB"&&parseFloat(m[1])<1) ve.storage="Tối thiểu 1TB"; }
       return ve;
     });
@@ -260,6 +455,213 @@ export default function Admin() {
         alert(`Đã thêm ${addVarList.length} biến thể thành công!`);
       } else { setAddVarErrors({ general: data.message }); }
     } finally { setAddVarSaving(false); }
+  };
+
+  const ORDER_STATUS_MAP = {
+    Pending:    { label: "Chờ xác nhận",   color: "#ff9500", next: "Processing", nextLabel: "Xác nhận xử lý"  },
+    Processing: { label: "Đang xử lý",     color: "#0a84ff", next: "Shipping",   nextLabel: "Bắt đầu giao"    },
+    Shipping:   { label: "Đang giao hàng", color: "#30d158", next: "Delivered",  nextLabel: "Xác nhận đã giao" },
+    Delivered:  { label: "Đã giao hàng",   color: "#34c759", next: null,         nextLabel: null               },
+    Cancelled:  { label: "Đã hủy",         color: "#ff3b30", next: null,         nextLabel: null               },
+  };
+
+  const POST_CATEGORIES = ["Mẹo vặt", "Mới nhất", "Đánh giá", "Tin tức"];
+
+  const loadPosts = async () => {
+    setPostLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/post/list/?category=all`);
+      const data = await res.json();
+      setPostList(data.posts || []);
+    } catch { /* ignore */ }
+    finally { setPostLoading(false); }
+  };
+
+  const savePost = async () => {
+    if (!postForm.title.trim()) { alert("Vui lòng nhập tiêu đề"); return; }
+    setPostSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("title",    postForm.title);
+      fd.append("category", postForm.category);
+      fd.append("author",   adminLocal?.fullName || adminLocal?.full_name || "Admin");
+      const blocksClean = postForm.blocks.map(({ _pendingFile, file, ...rest }) => rest);
+      fd.append("blocks",   JSON.stringify(blocksClean));
+      Object.entries(postForm.mediaFiles).forEach(([key, file]) => { if (file) fd.append(key, file); });
+      if (editingPost) fd.append("post_id", editingPost.id);
+      const url = editingPost ? `${API}/api/post/update/` : `${API}/api/post/create/`;
+      const res = await fetch(url, { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok) {
+        setShowPostForm(false); setEditingPost(null);
+        setPostForm({ title: "", category: "Mẹo vặt", blocks: [], mediaFiles: {} });
+        loadPosts();
+      } else alert(data.message);
+    } catch { alert("Lỗi kết nối"); }
+    finally { setPostSaving(false); }
+  };
+
+  const deletePost = async (postId) => {
+    if (!window.confirm("Xóa bài viết này?")) return;
+    const res = await fetch(`${API}/api/post/delete/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ post_id: postId }) });
+    if (res.ok) setPostList(p => p.filter(x => x.id !== postId));
+    else { const d = await res.json(); alert(d.message); }
+  };
+
+  const loadProductContent = async (pid) => {
+    if (!pid) return;
+    setPcLoaded(false);
+    try {
+      const res  = await fetch(`${API}/api/product/${pid}/content/`);
+      const data = await res.json();
+      setPcBlocks(data.content?.blocks || []);
+      setPcMediaFiles({});
+      setPcLoaded(true);
+    } catch { setPcBlocks([]); setPcLoaded(true); }
+  };
+
+  const saveProductContent = async () => {
+    if (!pcProductId) { alert("Vui lòng chọn sản phẩm"); return; }
+    setPcSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("product_id", pcProductId);
+      const blocksClean = pcBlocks.map(({ _pendingFile, file, ...rest }) => rest);
+      fd.append("blocks", JSON.stringify(blocksClean));
+      Object.entries(pcMediaFiles).forEach(([key, file]) => { if (file) fd.append(key, file); });
+      const res  = await fetch(`${API}/api/product/content/save/`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok) alert("✅ " + data.message);
+      else        alert(data.message);
+    } catch { alert("Lỗi kết nối"); }
+    finally { setPcSaving(false); }
+  };
+
+  const RETURN_STATUS_MAP = {
+    Pending:   { label: "Chờ xét duyệt",         color: "#ff9500" },
+    Approved:  { label: "Đã chấp nhận",           color: "#34c759" },
+    Rejected:  { label: "Đã từ chối",             color: "#ff3b30" },
+    Returning: { label: "Đang nhận hàng hoàn về", color: "#0a84ff" },
+    Completed: { label: "Hoàn tất",               color: "#34c759" },
+  };
+
+  const RETURN_ACTIONS = {
+    Pending:   [
+      { action: "approve",   label: "✅ Chấp nhận trả hàng", color: "#34c759", bg: "rgba(52,199,89,0.1)",  border: "rgba(52,199,89,0.3)"  },
+      { action: "reject",    label: "❌ Từ chối",             color: "#ff3b30", bg: "rgba(255,59,48,0.1)",  border: "rgba(255,59,48,0.3)"  },
+    ],
+    Approved:  [
+      { action: "returning", label: "📦 Đang nhận hàng về",  color: "#0a84ff", bg: "rgba(10,132,255,0.1)", border: "rgba(10,132,255,0.3)" },
+    ],
+    Returning: [
+      { action: "complete",  label: "✅ Hoàn tất — cộng lại kho", color: "#34c759", bg: "rgba(52,199,89,0.1)", border: "rgba(52,199,89,0.3)" },
+    ],
+  };
+
+  const loadReturns = async () => {
+    setReturnLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/order/return/list/`);
+      const data = await res.json();
+      setReturnList(data.returns || []);
+    } catch { /* ignore */ }
+    finally { setReturnLoading(false); }
+  };
+
+  const handleProcessReturn = async (returnId, action) => {
+    setProcessingReturn(true);
+    try {
+      const res  = await fetch(`${API}/api/order/return/process/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ return_id: returnId, action, note: returnNote }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const statusAfter = { approve: "Approved", reject: "Rejected", returning: "Returning", complete: "Completed" }[action];
+        setReturnList(p => p.map(r => r.return_id === returnId ? { ...r, status: statusAfter, admin_note: returnNote } : r));
+        if (returnDetail?.return_id === returnId) setReturnDetail(d => ({ ...d, status: statusAfter, admin_note: returnNote }));
+        setReturnNote("");
+        alert(data.message);
+      } else alert(data.message);
+    } catch { alert("Lỗi kết nối"); }
+    finally { setProcessingReturn(false); }
+  };
+
+  const loadOrders = async () => {
+    setOrderLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/order/admin/list/`);
+      const data = await res.json();
+      setOrderList(data.orders || []);
+    } catch { /* ignore */ }
+    finally { setOrderLoading(false); }
+  };
+
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    setUpdatingOrder(orderId);
+    try {
+      const res  = await fetch(`${API}/api/order/update-status/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, status: newStatus, note: statusNote }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOrderList((p) => p.map((o) => o.id === orderId ? { ...o, status: newStatus, status_note: statusNote } : o));
+        if (orderDetail?.id === orderId) setOrderDetail((d) => ({ ...d, status: newStatus, status_note: statusNote }));
+        setStatusNote("");
+      } else alert(data.message);
+    } catch { alert("Lỗi kết nối"); }
+    finally { setUpdatingOrder(null); }
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm("Hủy đơn hàng này?")) return;
+    setUpdatingOrder(orderId);
+    try {
+      const res  = await fetch(`${API}/api/order/update-status/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, status: "Cancelled", note: "Admin hủy đơn" }),
+      });
+      if (res.ok) setOrderList((p) => p.map((o) => o.id === orderId ? { ...o, status: "Cancelled" } : o));
+      else { const d = await res.json(); alert(d.message); }
+    } catch { alert("Lỗi kết nối"); }
+    finally { setUpdatingOrder(null); }
+  };
+
+  const loadVouchers = async () => {
+    setVoucherLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/voucher/list/`);
+      const data = await res.json();
+      if (res.ok) setVoucherList(data.vouchers || []);
+    } finally { setVoucherLoading(false); }
+  };
+
+  const handleSaveVoucher = async () => {
+    if (!newVoucher.code.trim()) { alert("Vui lòng nhập mã voucher"); return; }
+    if (!newVoucher.value || parseFloat(newVoucher.value) <= 0) { alert("Vui lòng nhập giá trị voucher"); return; }
+    setVoucherSaving(true);
+    try {
+      const res  = await fetch(`${API}/api/voucher/create/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newVoucher, value: parseFloat(newVoucher.value) }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowAddVoucher(false);
+        setNewVoucher({ code:"",type:"percent",value:"",scope:"all",category_id:"",product_id:"",min_order:"",max_discount:"",start_date:"",end_date:"",usage_limit:"" });
+        loadVouchers();
+        alert("Tạo voucher thành công!");
+      } else { alert(data.message); }
+    } finally { setVoucherSaving(false); }
+  };
+
+  const deactivateVoucher = async (id) => {
+    const res = await fetch(`${API}/api/voucher/deactivate/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (res.ok) loadVouchers();
   };
 
   const loadImportVariants = async (productId) => {
@@ -348,8 +750,8 @@ export default function Admin() {
       const data = await res.json();
       if (res.ok) {
         setAdmin((prev) => ({ ...prev, avatar: data.avatar_url }));
-        const stored  = JSON.parse(localStorage.getItem("user") || "{}");
-        localStorage.setItem("user", JSON.stringify({ ...stored, avatar: data.avatar_url }));
+        const stored  = JSON.parse(localStorage.getItem("admin_user") || "{}");
+        localStorage.setItem("admin_user", JSON.stringify({ ...stored, avatar: data.avatar_url }));
         window.dispatchEvent(new Event("userUpdated"));
       } else { alert(data.message); }
     } catch { alert("Không thể kết nối server"); }
@@ -417,7 +819,7 @@ export default function Admin() {
     } catch { alert("Lỗi cập nhật quyền"); }
   };
 
-  const handleLogout = () => { localStorage.removeItem("user"); navigate("/admin/login"); };
+  const handleLogout = () => { localStorage.removeItem("admin_user"); navigate("/admin/login"); };
 
   const ROLE_COLOR = {
     Admin:      "bg-orange-500/20 text-orange-300 border-orange-500/30",
@@ -431,6 +833,11 @@ export default function Admin() {
     { key: "category", label: "Danh mục sản phẩm",   icon: LayoutGrid },
     { key: "product",  label: "Quản lý sản phẩm",    icon: Package },
     { key: "import",   label: "Nhập hàng",            icon: PackagePlus },
+    { key: "orders",   label: "Đơn hàng",              icon: ShoppingBag },
+    { key: "returns",  label: "Trả hàng",               icon: RotateCcw },
+    { key: "voucher",  label: "Voucher",               icon: Ticket },
+    { key: "posts",    label: "Bài viết",              icon: Newspaper },
+    { key: "product_content", label: "Mô tả sản phẩm", icon: FileText },
     { key: "settings", label: "Cài đặt",              icon: Settings },
   ];
 
@@ -838,9 +1245,10 @@ export default function Admin() {
                         </select>
                         {productErrors.categoryId && <p className="text-red-400 text-xs mt-1">{productErrors.categoryId}</p>}
                       </div>
-                      <textarea placeholder="Mô tả sản phẩm" value={newProduct.description}
-                        onChange={(e) => setNewProduct((p) => ({ ...p, description: e.target.value }))}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition resize-none h-20" />
+                      <RichEditor
+                        value={newProduct.description}
+                        onChange={(html) => setNewProduct((p) => ({ ...p, description: html }))}
+                      />
                     </div>
                   </div>
 
@@ -1224,6 +1632,672 @@ export default function Admin() {
             </div>
           )}
 
+
+
+          {/* ===== ĐƠN HÀNG ===== */}
+          {activeTab === "orders" && (
+            <div className="flex flex-col gap-5">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-white/40">Quản lý tất cả đơn hàng</p>
+                <button onClick={loadOrders} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs transition">
+                  <RefreshCw size={13} /> Làm mới
+                </button>
+              </div>
+
+              {/* Chi tiết đơn hàng */}
+              {orderDetail ? (
+                <div className="flex flex-col gap-4">
+                  <button onClick={() => setOrderDetail(null)} className="flex items-center gap-2 text-sm text-white/40 hover:text-white transition w-fit">
+                    ← Quay lại danh sách
+                  </button>
+
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="font-semibold">Đơn #{orderDetail.id}</p>
+                        <p className="text-xs text-white/30 mt-0.5">{new Date(orderDetail.created_at).toLocaleString("vi-VN")}</p>
+                        <p className="text-xs text-white/40 mt-1">KH: {orderDetail.customer_name} · {orderDetail.customer_phone}</p>
+                      </div>
+                      <span className="text-xs px-2.5 py-1 rounded-full font-medium"
+                        style={{ color: ORDER_STATUS_MAP[orderDetail.status]?.color || "#fff", background: (ORDER_STATUS_MAP[orderDetail.status]?.color || "#fff") + "22" }}>
+                        {ORDER_STATUS_MAP[orderDetail.status]?.label || orderDetail.status}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-white/40 mb-4">📍 {orderDetail.shipping_address}</p>
+                    <p className="text-xs text-white/30 mb-4">
+                      {orderDetail.payment_method === "momo" ? "💜 MoMo" : "🚚 COD"}
+                    </p>
+
+                    {/* Sản phẩm */}
+                    <div className="border border-white/5 rounded-xl overflow-hidden mb-4">
+                      {(orderDetail.items || []).map((item, i) => (
+                        <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-white/5" style={{ background: "#222" }}>
+                            {item.image ? <img src={item.image} alt="" className="w-full h-full object-contain p-1" /> : null}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{item.product_name}</p>
+                            <p className="text-[10px] text-white/30">{[item.color, item.storage, item.ram].filter(Boolean).join(" · ")} × {item.quantity}</p>
+                          </div>
+                          <p className="text-xs text-orange-400 shrink-0">{(parseFloat(item.unit_price) * item.quantity).toLocaleString("vi-VN")}đ</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex justify-between text-sm font-bold pt-2 border-t border-white/10 mb-5">
+                      <span>Tổng thanh toán</span>
+                      <span className="text-orange-400">{parseFloat(orderDetail.total_amount).toLocaleString("vi-VN")}đ</span>
+                    </div>
+
+                    {/* Cập nhật trạng thái */}
+                    {ORDER_STATUS_MAP[orderDetail.status]?.next && (
+                      <div className="border border-orange-500/20 rounded-xl p-4 bg-orange-500/5">
+                        <p className="text-xs text-orange-400 font-medium mb-3">Cập nhật trạng thái đơn hàng</p>
+                        <input placeholder="Ghi chú cho khách hàng (tùy chọn)" value={statusNote}
+                          onChange={(e) => setStatusNote(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition mb-3" />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleUpdateOrderStatus(orderDetail.id, ORDER_STATUS_MAP[orderDetail.status].next)}
+                            disabled={updatingOrder === orderDetail.id}
+                            className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
+                            {updatingOrder === orderDetail.id ? "Đang cập nhật..." : ORDER_STATUS_MAP[orderDetail.status].nextLabel}
+                          </button>
+                          {orderDetail.status === "Pending" && (
+                            <button onClick={() => handleCancelOrder(orderDetail.id)}
+                              className="px-4 py-2 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 text-sm transition">
+                              Hủy đơn
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Danh sách đơn hàng */
+                orderLoading ? (
+                  <div className="text-center py-10 text-white/20 text-sm">Đang tải...</div>
+                ) : orderList.length === 0 ? (
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20">
+                    <ShoppingBag size={36} className="mx-auto mb-3 opacity-20" />
+                    <p className="text-sm">Chưa có đơn hàng nào</p>
+                  </div>
+                ) : (
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl overflow-hidden">
+                    {/* Table header */}
+                    <div className="grid grid-cols-12 px-5 py-3 border-b border-white/5 text-xs text-white/30 uppercase tracking-wider">
+                      <span className="col-span-1">#</span>
+                      <span className="col-span-3">Khách hàng</span>
+                      <span className="col-span-4">Địa chỉ</span>
+                      <span className="col-span-2">Tổng tiền</span>
+                      <span className="col-span-2">Trạng thái</span>
+                    </div>
+                    {orderList.map((order) => {
+                      const sm = ORDER_STATUS_MAP[order.status] || {};
+                      return (
+                        <div key={order.id}
+                          onClick={() => { setOrderDetail(order); setStatusNote(""); }}
+                          className="grid grid-cols-12 px-5 py-3.5 border-b border-white/5 last:border-0 items-center hover:bg-white/3 transition cursor-pointer">
+                          <span className="col-span-1 text-xs text-white/40">#{order.id}</span>
+                          <div className="col-span-3">
+                            <p className="text-sm font-medium truncate">{order.customer_name}</p>
+                            <p className="text-xs text-white/30">{order.customer_phone}</p>
+                          </div>
+                          <p className="col-span-4 text-xs text-white/40 truncate pr-3">{order.shipping_address}</p>
+                          <p className="col-span-2 text-sm font-medium text-orange-400">
+                            {parseFloat(order.total_amount).toLocaleString("vi-VN")}đ
+                          </p>
+                          <span className="col-span-2 text-xs px-2 py-0.5 rounded-full font-medium w-fit"
+                            style={{ color: sm.color || "#fff", background: (sm.color || "#fff") + "22" }}>
+                            {sm.label || order.status}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+
+
+          {/* ===== TRẢ HÀNG ===== */}
+          {activeTab === "returns" && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-white/40">Quản lý yêu cầu trả hàng từ khách</p>
+                <button onClick={loadReturns}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs transition">
+                  <RefreshCw size={13} /> Làm mới
+                </button>
+              </div>
+
+              {returnDetail ? (
+                /* ── CHI TIẾT YÊU CẦU TRẢ HÀNG ── */
+                <div className="flex flex-col gap-4">
+                  <button onClick={() => { setReturnDetail(null); setReturnNote(""); }}
+                    className="flex items-center gap-2 text-sm text-white/40 hover:text-white transition w-fit">
+                    ← Quay lại danh sách
+                  </button>
+
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-5">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="font-semibold">Yêu cầu trả #R{returnDetail.return_id}</p>
+                        <p className="text-xs text-white/30 mt-0.5">Đơn #{returnDetail.order_id} · {returnDetail.customer_name}</p>
+                        <p className="text-xs text-white/20 mt-0.5">{new Date(returnDetail.created_at).toLocaleString("vi-VN")}</p>
+                      </div>
+                      <span className="text-xs px-2.5 py-1 rounded-full font-medium"
+                        style={{
+                          color: RETURN_STATUS_MAP[returnDetail.status]?.color,
+                          background: (RETURN_STATUS_MAP[returnDetail.status]?.color || "#fff") + "22"
+                        }}>
+                        {RETURN_STATUS_MAP[returnDetail.status]?.label || returnDetail.status}
+                      </span>
+                    </div>
+
+                    {/* Lý do */}
+                    <div className="bg-white/4 rounded-xl p-4 mb-4">
+                      <p className="text-xs text-white/40 mb-1">Lý do khách hàng:</p>
+                      <p className="text-sm text-white/80">{returnDetail.reason}</p>
+                    </div>
+
+                    {/* Media từ khách */}
+                    {returnDetail.media?.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs text-white/40 mb-2">Bằng chứng ({returnDetail.media.length} file):</p>
+                        <div className="flex gap-2 flex-wrap">
+                          {returnDetail.media.map((m, i) => (
+                            <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                              className="w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center hover:border-orange-500/50 transition">
+                              {m.type === "video"
+                                ? <div className="flex flex-col items-center gap-1">
+                                    <FileVideo size={22} className="text-purple-400" />
+                                    <span className="text-[9px] text-white/30">Video</span>
+                                  </div>
+                                : <img src={m.url} alt="" className="w-full h-full object-cover" />}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Admin note cũ */}
+                    {returnDetail.admin_note && (
+                      <div className="bg-white/4 rounded-xl px-4 py-3 mb-4">
+                        <p className="text-xs text-white/30">Ghi chú admin trước đó:</p>
+                        <p className="text-sm text-white/60 italic mt-1">"{returnDetail.admin_note}"</p>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    {RETURN_ACTIONS[returnDetail.status] && (
+                      <div className="border border-white/8 rounded-xl p-4" style={{ background: "rgba(255,255,255,0.02)" }}>
+                        <p className="text-xs text-white/40 mb-3 font-medium">Xử lý yêu cầu</p>
+                        <input
+                          placeholder="Ghi chú cho khách hàng (tùy chọn)"
+                          value={returnNote}
+                          onChange={e => setReturnNote(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition mb-3"
+                        />
+
+                        {/* Hướng dẫn luồng */}
+                        <div className="flex items-start gap-2 mb-3 text-xs text-white/30">
+                          <AlertCircle size={12} className="shrink-0 mt-0.5 text-orange-400/60" />
+                          <span>
+                            {returnDetail.status === "Pending" && "Chấp nhận → khách gửi hàng về. Từ chối → kết thúc yêu cầu, đơn về Đã giao."}
+                            {returnDetail.status === "Approved" && "Xác nhận khi đã nhận được hàng từ khách gửi về."}
+                            {returnDetail.status === "Returning" && "Hoàn tất → stock sẽ được cộng lại tự động."}
+                          </span>
+                        </div>
+
+                        <div className="flex gap-2 flex-wrap">
+                          {RETURN_ACTIONS[returnDetail.status].map(btn => (
+                            <button key={btn.action}
+                              onClick={() => handleProcessReturn(returnDetail.return_id, btn.action)}
+                              disabled={processingReturn}
+                              className="flex-1 min-w-[140px] py-2.5 rounded-xl text-sm font-medium transition disabled:opacity-50 border"
+                              style={{ color: btn.color, background: btn.bg, borderColor: btn.border }}>
+                              {processingReturn ? "Đang xử lý..." : btn.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Trạng thái cuối */}
+                    {["Completed", "Rejected"].includes(returnDetail.status) && (
+                      <div className="mt-3 text-center text-sm text-white/30 py-3 border border-white/5 rounded-xl">
+                        {returnDetail.status === "Completed" ? "✅ Đã hoàn tất — stock đã được cộng lại" : "❌ Yêu cầu đã bị từ chối"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* ── DANH SÁCH YÊU CẦU TRẢ HÀNG ── */
+                returnLoading ? (
+                  <div className="text-center py-10 text-white/20 text-sm">Đang tải...</div>
+                ) : returnList.length === 0 ? (
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center">
+                    <RotateCcw size={36} className="mx-auto mb-3 text-white/10" />
+                    <p className="text-sm text-white/20">Chưa có yêu cầu trả hàng nào</p>
+                  </div>
+                ) : (
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl overflow-hidden">
+                    {/* Table header */}
+                    <div className="grid grid-cols-12 px-5 py-3 border-b border-white/5 text-xs text-white/30 uppercase tracking-wider">
+                      <span className="col-span-1">#</span>
+                      <span className="col-span-2">Đơn</span>
+                      <span className="col-span-3">Khách hàng</span>
+                      <span className="col-span-3">Lý do</span>
+                      <span className="col-span-2">Ngày gửi</span>
+                      <span className="col-span-1">T.Thái</span>
+                    </div>
+                    {returnList.map(rr => {
+                      const sm = RETURN_STATUS_MAP[rr.status] || {};
+                      return (
+                        <div key={rr.return_id}
+                          onClick={() => { setReturnDetail(rr); setReturnNote(""); }}
+                          className="grid grid-cols-12 px-5 py-3.5 border-b border-white/5 last:border-0 items-center hover:bg-white/3 transition cursor-pointer">
+                          <span className="col-span-1 text-xs text-white/40">#R{rr.return_id}</span>
+                          <span className="col-span-2 text-xs text-white/60">#{rr.order_id}</span>
+                          <div className="col-span-3">
+                            <p className="text-sm font-medium truncate">{rr.customer_name}</p>
+                          </div>
+                          <p className="col-span-3 text-xs text-white/40 truncate pr-2">{rr.reason}</p>
+                          <p className="col-span-2 text-xs text-white/30">{new Date(rr.created_at).toLocaleDateString("vi-VN")}</p>
+                          <span className="col-span-1 text-xs px-2 py-0.5 rounded-full font-medium"
+                            style={{ color: sm.color, background: (sm.color || "#fff") + "22" }}>
+                            {rr.status === "Pending" ? "Mới" : rr.status === "Completed" ? "Xong" : rr.status === "Rejected" ? "Từ chối" : "..."}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+
+          {/* ===== VOUCHER ===== */}
+          {activeTab === "voucher" && (
+            <div className="flex flex-col gap-6">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-white/40">Quản lý mã giảm giá</p>
+                </div>
+                <button onClick={() => setShowAddVoucher(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition">
+                  <Plus size={14} /> Tạo voucher
+                </button>
+              </div>
+
+              {/* Form tạo voucher */}
+              {showAddVoucher && (
+                <div className="bg-[#161616] border border-orange-500/20 rounded-2xl p-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-orange-400">Tạo voucher mới</p>
+                    <button onClick={() => setShowAddVoucher(false)} className="text-white/30 hover:text-white"><X size={16}/></button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Mã voucher */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Mã voucher *</label>
+                      <input placeholder="VD: SUMMER2025" value={newVoucher.code}
+                        onChange={(e) => setNewVoucher((p) => ({...p, code: e.target.value.toUpperCase()}))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition font-mono tracking-widest" />
+                    </div>
+
+                    {/* Loại giảm */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Loại giảm giá *</label>
+                      <select value={newVoucher.type} onChange={(e) => setNewVoucher((p) => ({...p, type: e.target.value}))}
+                        className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
+                        <option value="percent">Phần trăm (%)</option>
+                        <option value="fixed">Số tiền cố định (đ)</option>
+                      </select>
+                    </div>
+
+                    {/* Giá trị */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">
+                        Giá trị * {newVoucher.type === "percent" ? "(%) tối đa 100" : "(đ)"}
+                      </label>
+                      <input type="number" placeholder={newVoucher.type === "percent" ? "VD: 10" : "VD: 500000"} value={newVoucher.value}
+                        onChange={(e) => setNewVoucher((p) => ({...p, value: e.target.value}))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                    </div>
+
+                    {/* Phạm vi áp dụng */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Phạm vi áp dụng *</label>
+                      <select value={newVoucher.scope} onChange={(e) => setNewVoucher((p) => ({...p, scope: e.target.value, category_id: "", product_id: ""}))}
+                        className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
+                        <option value="all">Toàn bộ sản phẩm</option>
+                        <option value="category">Theo danh mục</option>
+                        <option value="product">Theo sản phẩm</option>
+                      </select>
+                    </div>
+
+                    {/* Chọn danh mục nếu scope = category */}
+                    {newVoucher.scope === "category" && (
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Danh mục *</label>
+                        <select value={newVoucher.category_id} onChange={(e) => setNewVoucher((p) => ({...p, category_id: e.target.value}))}
+                          className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
+                          <option value="">-- Chọn danh mục --</option>
+                          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Chọn sản phẩm nếu scope = product */}
+                    {newVoucher.scope === "product" && (
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Sản phẩm *</label>
+                        <select value={newVoucher.product_id} onChange={(e) => setNewVoucher((p) => ({...p, product_id: e.target.value}))}
+                          className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
+                          <option value="">-- Chọn sản phẩm --</option>
+                          {productList.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Đơn hàng tối thiểu */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Đơn hàng tối thiểu (đ)</label>
+                      <input type="number" placeholder="VD: 1000000" value={newVoucher.min_order}
+                        onChange={(e) => setNewVoucher((p) => ({...p, min_order: e.target.value}))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                    </div>
+
+                    {/* Giảm tối đa (chỉ với percent) */}
+                    {newVoucher.type === "percent" && (
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Giảm tối đa (đ)</label>
+                        <input type="number" placeholder="VD: 200000" value={newVoucher.max_discount}
+                          onChange={(e) => setNewVoucher((p) => ({...p, max_discount: e.target.value}))}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                      </div>
+                    )}
+
+                    {/* Ngày bắt đầu */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Ngày bắt đầu</label>
+                      <input type="date" value={newVoucher.start_date}
+                        onChange={(e) => setNewVoucher((p) => ({...p, start_date: e.target.value}))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                    </div>
+
+                    {/* Ngày kết thúc */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Ngày kết thúc</label>
+                      <input type="date" value={newVoucher.end_date}
+                        onChange={(e) => setNewVoucher((p) => ({...p, end_date: e.target.value}))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                    </div>
+
+                    {/* Giới hạn sử dụng */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Giới hạn lượt dùng</label>
+                      <input type="number" placeholder="Để trống = không giới hạn" value={newVoucher.usage_limit}
+                        onChange={(e) => setNewVoucher((p) => ({...p, usage_limit: e.target.value}))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
+                    <p className="text-xs text-white/30 mb-2">Xem trước</p>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-orange-400 font-bold text-base tracking-widest">{newVoucher.code || "VOUCHER"}</span>
+                      <span className="text-white/40">—</span>
+                      <span className="text-sm text-white/70">
+                        Giảm {newVoucher.value || "??"}{newVoucher.type === "percent" ? "%" : "đ"}
+                        {newVoucher.type === "percent" && newVoucher.max_discount ? ` (tối đa ${parseInt(newVoucher.max_discount).toLocaleString("vi-VN")}đ)` : ""}
+                        {newVoucher.scope === "all" ? " cho toàn bộ" : newVoucher.scope === "category" ? " cho danh mục" : " cho sản phẩm"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t border-white/5">
+                    <button onClick={handleSaveVoucher} disabled={voucherSaving}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
+                      <Check size={14} /> {voucherSaving ? "Đang lưu..." : "Tạo voucher"}
+                    </button>
+                    <button onClick={() => setShowAddVoucher(false)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition">
+                      <X size={14} /> Hủy
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Danh sách voucher */}
+              {voucherLoading ? (
+                <div className="text-center py-10 text-white/20 text-sm">Đang tải...</div>
+              ) : voucherList.length === 0 ? (
+                <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20">
+                  <Ticket size={36} className="mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">Chưa có voucher nào</p>
+                </div>
+              ) : (
+                <div className="bg-[#161616] border border-white/5 rounded-2xl overflow-hidden">
+                  <div className="grid grid-cols-6 px-5 py-3 border-b border-white/5 text-xs text-white/30 uppercase tracking-wider">
+                    <span className="col-span-2">Mã</span>
+                    <span>Giảm giá</span>
+                    <span>Phạm vi</span>
+                    <span>Hạn dùng</span>
+                    <span>Trạng thái</span>
+                  </div>
+                  {voucherList.map((v) => (
+                    <div key={v.id} className="grid grid-cols-6 px-5 py-4 border-b border-white/5 last:border-0 items-center hover:bg-white/2 transition">
+                      <div className="col-span-2">
+                        <p className="font-mono font-bold text-orange-400 tracking-widest">{v.code}</p>
+                        {v.min_order > 0 && <p className="text-xs text-white/30 mt-0.5">Đơn tối thiểu: {parseInt(v.min_order).toLocaleString("vi-VN")}đ</p>}
+                        <p className="text-xs text-white/20 mt-0.5">Đã dùng: {v.used_count}/{v.usage_limit || "∞"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-green-400">
+                          -{v.type === "percent" ? `${v.value}%` : `${parseInt(v.value).toLocaleString("vi-VN")}đ`}
+                        </p>
+                        {v.type === "percent" && v.max_discount > 0 && (
+                          <p className="text-xs text-white/30">Tối đa: {parseInt(v.max_discount).toLocaleString("vi-VN")}đ</p>
+                        )}
+                      </div>
+                      <div>
+                        {v.scope === "all"      && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">Tất cả</span>}
+                        {v.scope === "category" && <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400">Danh mục</span>}
+                        {v.scope === "product"  && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400">Sản phẩm</span>}
+                      </div>
+                      <div className="text-xs text-white/40">
+                        {v.end_date ? new Date(v.end_date).toLocaleDateString("vi-VN") : "Không giới hạn"}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {v.is_active
+                          ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400">Hiệu lực</span>
+                          : <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400">Hết hạn</span>}
+                        {v.is_active && (
+                          <button onClick={() => deactivateVoucher(v.id)}
+                            className="text-xs text-white/20 hover:text-red-400 transition px-2 py-0.5 rounded-lg hover:bg-red-500/10">
+                            Vô hiệu
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+
+          {/* ===== BÀI VIẾT ===== */}
+          {activeTab === "posts" && (
+            <div className="flex flex-col gap-5">
+              {showPostForm ? (
+                /* FORM VIẾT BÀI */
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold">{editingPost ? "Chỉnh sửa bài viết" : "Bài viết mới"}</p>
+                    <button onClick={() => { setShowPostForm(false); setEditingPost(null); setPostForm({ title: "", category: "Mẹo vặt", blocks: [], mediaFiles: {} }); }}
+                      className="text-white/40 hover:text-white transition"><X size={18} /></button>
+                  </div>
+
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-5 flex flex-col gap-4">
+                    {/* Tiêu đề */}
+                    <input value={postForm.title}
+                      onChange={e => setPostForm(p => ({ ...p, title: e.target.value }))}
+                      placeholder="Tiêu đề bài viết *"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base font-semibold outline-none focus:border-orange-500/50 transition" />
+
+                    {/* Category */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-white/40 shrink-0">Danh mục:</span>
+                      <div className="flex gap-2 flex-wrap">
+                        {POST_CATEGORIES.map(cat => (
+                          <button key={cat} onClick={() => setPostForm(p => ({ ...p, category: cat }))}
+                            className="px-3 py-1 rounded-full text-xs transition"
+                            style={{ background: postForm.category === cat ? "rgba(255,149,0,0.2)" : "rgba(255,255,255,0.05)", color: postForm.category === cat ? "#ff9500" : "rgba(255,255,255,0.4)", border: postForm.category === cat ? "1px solid rgba(255,149,0,0.4)" : "1px solid rgba(255,255,255,0.08)" }}>
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Block Editor */}
+                    <div>
+                      <p className="text-xs text-white/30 mb-3">Nội dung bài viết</p>
+                      <Blockeditor
+                        blocks={postForm.blocks}
+                        onChange={blocks => setPostForm(p => ({ ...p, blocks }))}
+                        mediaFiles={postForm.mediaFiles}
+                        onMediaChange={mediaFiles => setPostForm(p => ({ ...p, mediaFiles }))}
+                      />
+                    </div>
+                  </div>
+
+                  <button onClick={savePost} disabled={postSaving}
+                    className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">
+                    {postSaving ? "Đang lưu..." : editingPost ? "Cập nhật bài viết" : "Đăng bài viết"}
+                  </button>
+                </div>
+              ) : (
+                /* DANH SÁCH BÀI VIẾT */
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white/40">{postList.length} bài viết</p>
+                    <button onClick={() => { setShowPostForm(true); setEditingPost(null); setPostForm({ title: "", category: "Mẹo vặt", blocks: [], mediaFiles: {} }); }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition">
+                      <Plus size={14} /> Viết bài mới
+                    </button>
+                  </div>
+
+                  {postLoading ? (
+                    <div className="text-center py-10 text-white/20 text-sm">Đang tải...</div>
+                  ) : postList.length === 0 ? (
+                    <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center">
+                      <Newspaper size={36} className="mx-auto mb-3 text-white/10" />
+                      <p className="text-sm text-white/20">Chưa có bài viết nào</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {postList.map(post => (
+                        <div key={post.id} className="bg-[#161616] border border-white/5 rounded-2xl flex items-center gap-4 px-5 py-4 hover:border-white/10 transition">
+                          {post.thumbnail ? (
+                            <img src={post.thumbnail} alt="" className="w-14 h-14 rounded-xl object-cover shrink-0" />
+                          ) : (
+                            <div className="w-14 h-14 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
+                              <Newspaper size={20} className="text-white/15" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{post.title}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-xs text-orange-400/70">{post.category}</span>
+                              <span className="text-xs text-white/30">{new Date(post.created_at).toLocaleDateString("vi-VN")}</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <button onClick={() => window.open(`/blog/${post.id}`, "_blank")}
+                              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition">
+                              <Eye size={14} />
+                            </button>
+                            <button onClick={() => {
+                                fetch(`${API}/api/post/${post.id}/`).then(r=>r.json()).then(d => {
+                                  setEditingPost(post);
+                                  setPostForm({ title: d.post.title, category: d.post.category, blocks: d.post.blocks, mediaFiles: {} });
+                                  setShowPostForm(true);
+                                });
+                              }}
+                              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/40 hover:text-orange-400 transition">
+                              <Pencil size={14} />
+                            </button>
+                            <button onClick={() => deletePost(post.id)}
+                              className="p-2 rounded-xl bg-white/5 hover:bg-red-500/10 text-white/40 hover:text-red-400 transition">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ===== MÔ TẢ SẢN PHẨM RICH ===== */}
+          {activeTab === "product_content" && (
+            <div className="flex flex-col gap-5">
+              <p className="text-sm text-white/40">Chọn sản phẩm và tạo mô tả chi tiết (ảnh, video, văn bản)</p>
+
+              {/* Chọn sản phẩm */}
+              <div className="bg-[#161616] border border-white/5 rounded-2xl p-5">
+                <p className="text-xs text-white/40 mb-3 uppercase tracking-wider">Chọn sản phẩm</p>
+                <div className="flex gap-3 items-center">
+                  <select value={pcProductId}
+                    onChange={e => { setPcProductId(e.target.value); if (e.target.value) loadProductContent(e.target.value); }}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
+                    <option value="">-- Chọn sản phẩm --</option>
+                    {productList.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Editor */}
+              {pcProductId && pcLoaded && (
+                <>
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-5">
+                    <p className="text-xs text-white/40 mb-4 uppercase tracking-wider">Nội dung mô tả</p>
+                    <Blockeditor
+                      blocks={pcBlocks}
+                      onChange={setPcBlocks}
+                      mediaFiles={pcMediaFiles}
+                      onMediaChange={setPcMediaFiles}
+                    />
+                  </div>
+                  <button onClick={saveProductContent} disabled={pcSaving}
+                    className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">
+                    {pcSaving ? "Đang lưu..." : "Lưu mô tả sản phẩm"}
+                  </button>
+                </>
+              )}
+
+              {pcProductId && !pcLoaded && (
+                <div className="text-center py-10 text-white/20 text-sm">Đang tải nội dung...</div>
+              )}
+            </div>
+          )}
+
           {/* ===== CÀI ĐẶT ===== */}
           {activeTab === "settings" && (
             <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20">
@@ -1443,13 +2517,13 @@ function RamField({ value, onChange, error }) {
           className="flex-1 bg-transparent px-3 py-2 text-sm outline-none min-w-0"
         />
         <datalist id="ram-list">
-          {["4", "6", "8", "12", "16", "32"].map((s) => <option key={s} value={s} />)}
+          {["6", "8", "12", "16", "32"].map((s) => <option key={s} value={s} />)}
         </datalist>
         <span className="bg-[#2a2a2a] border-l border-white/10 px-3 py-2 text-sm text-white/50 select-none">GB</span>
       </div>
       {error
         ? <p className="text-red-400 text-xs mt-1">{error}</p>
-        : <p className="text-white/20 text-xs mt-1">Tối thiểu ít nhất là 4GB</p>
+        : <p className="text-white/20 text-xs mt-1">Tối thiểu lớn hơn 4GB</p>
       }
     </div>
   );

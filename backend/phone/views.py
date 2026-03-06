@@ -13,7 +13,7 @@ from django.conf import settings
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail
+from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia
 
 # Lưu OTP tạm thời trong memory { email: otp_code }
 otp_storage = {}
