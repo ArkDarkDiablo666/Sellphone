@@ -1,71 +1,203 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Type, AlignLeft, Image, Video, Quote, Minus,
   List, ChevronUp, ChevronDown, Trash2, Plus,
   Bold, Italic, Underline as UnderlineIcon, Link2,
-  GripVertical, Eye, EyeOff
+  GripVertical, Eye, EyeOff, BookOpen, Hash, Palette
 } from "lucide-react";
 
+// ─────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────
 let _idCounter = Date.now();
 const uid = () => String(++_idCounter);
 
+function slugify(str) {
+  return (str || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-") || "section-" + uid();
+}
+
+function stripHtml(html) {
+  return (html || "").replace(/<[^>]*>/g, "");
+}
+
+/** Lấy danh sách heading có anchor từ blocks – dùng cho TOC */
+function extractHeadings(blocks) {
+  return (blocks || [])
+    .filter(b => (b.type === "heading" || b.type === "subheading") && b.text)
+    .map(b => ({
+      id:    b.id,
+      text:  stripHtml(b.text),
+      level: b.type === "heading" ? 2 : 3,
+      slug:  b.slug || slugify(stripHtml(b.text)),
+    }));
+}
+
+// ─────────────────────────────────────────────────────────────
+//  BLOCK TYPES
+// ─────────────────────────────────────────────────────────────
 const BLOCK_TYPES = [
   { type: "heading",    icon: Type,      label: "Tiêu đề lớn"  },
-  { type: "subheading", icon: Type,      label: "Tiêu đề nhỏ"  },
+  { type: "subheading", icon: Hash,      label: "Tiêu đề nhỏ"  },
   { type: "paragraph",  icon: AlignLeft, label: "Đoạn văn"     },
   { type: "quote",      icon: Quote,     label: "Trích dẫn"    },
   { type: "list",       icon: List,      label: "Danh sách"    },
   { type: "image",      icon: Image,     label: "Hình ảnh"     },
   { type: "video",      icon: Video,     label: "Video"        },
   { type: "divider",    icon: Minus,     label: "Đường kẻ"     },
+  { type: "toc",        icon: BookOpen,  label: "Mục lục"      },
 ];
 
 function newBlock(type) {
-  const id = uid();
+  const id   = uid();
   const base = { id, type, _idx: id };
   switch (type) {
-    case "heading":    return { ...base, text: "", align: "left" };
-    case "subheading": return { ...base, text: "", align: "left" };
+    case "heading":    return { ...base, text: "", align: "left", slug: "" };
+    case "subheading": return { ...base, text: "", align: "left", slug: "" };
     case "paragraph":  return { ...base, text: "", align: "left" };
     case "quote":      return { ...base, text: "" };
     case "list":       return { ...base, items: [""] };
-    case "image":      return { ...base, url: "", caption: "", file: null };
-    case "video":      return { ...base, url: "", file: null };
+    case "image":      return { ...base, url: "", caption: "" };
+    case "video":      return { ...base, url: "" };
     case "divider":    return { ...base };
+    case "toc":        return { ...base, title: "Mục lục" };
     default:           return base;
   }
 }
 
-// ── Text formatting toolbar ──────────────────────────────────
-function FormatBar({ onFormat }) {
-  const btns = [
-    { cmd: "bold",      icon: Bold,          tip: "Đậm (Ctrl+B)"     },
-    { cmd: "italic",    icon: Italic,        tip: "Nghiêng (Ctrl+I)" },
-    { cmd: "underline", icon: UnderlineIcon, tip: "Gạch dưới"        },
-  ];
+// ─────────────────────────────────────────────────────────────
+//  COLOR PALETTE
+// ─────────────────────────────────────────────────────────────
+const TEXT_COLORS = [
+  { label: "Trắng",       value: "#ffffff" },
+  { label: "Cam",         value: "#ff9500" },
+  { label: "Đỏ",          value: "#ff3b30" },
+  { label: "Xanh lá",    value: "#30d158" },
+  { label: "Xanh dương",  value: "#0a84ff" },
+  { label: "Tím",         value: "#bf5af2" },
+  { label: "Vàng",        value: "#ffd60a" },
+  { label: "Xám",         value: "#8e8e93" },
+];
+
+// ─────────────────────────────────────────────────────────────
+//  FORMAT BAR
+// ─────────────────────────────────────────────────────────────
+function FormatBar({ onFormat, showAlign = true }) {
+  const [showColors, setShowColors] = useState(false);
+  const colorRef    = useRef(null);
+
+  useEffect(() => {
+    const fn = (e) => {
+      if (colorRef.current && !colorRef.current.contains(e.target)) setShowColors(false);
+    };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, []);
+
+  const exec = (cmd, val = null) => document.execCommand(cmd, false, val);
+
   return (
-    <div className="flex items-center gap-0.5 mb-2">
-      {btns.map(b => (
+    <div className="flex items-center gap-0.5 mb-2 flex-wrap">
+      {/* Bold / Italic / Underline */}
+      {[
+        { cmd: "bold",      icon: Bold,          tip: "Đậm"       },
+        { cmd: "italic",    icon: Italic,        tip: "Nghiêng"   },
+        { cmd: "underline", icon: UnderlineIcon, tip: "Gạch dưới" },
+      ].map(b => (
         <button key={b.cmd} type="button" title={b.tip}
-          onMouseDown={e => { e.preventDefault(); document.execCommand(b.cmd); }}
+          onMouseDown={e => { e.preventDefault(); exec(b.cmd); }}
           className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition">
           <b.icon size={12} />
         </button>
       ))}
-      <div className="w-px h-4 bg-white/10 mx-1" />
-      {["left","center","right"].map(align => (
-        <button key={align} type="button"
-          onMouseDown={e => { e.preventDefault(); onFormat && onFormat("align", align); }}
-          className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition text-[10px] font-mono">
-          {align === "left" ? "⇤" : align === "center" ? "⇔" : "⇥"}
+
+      {/* Chèn link */}
+      <button type="button" title="Chèn liên kết"
+        onMouseDown={e => {
+          e.preventDefault();
+          const url = window.prompt("Nhập URL liên kết:");
+          if (url) exec("createLink", url);
+        }}
+        className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition">
+        <Link2 size={12} />
+      </button>
+
+      {/* Màu chữ */}
+      <div className="relative" ref={colorRef}>
+        <button type="button" title="Màu chữ"
+          onMouseDown={e => { e.preventDefault(); setShowColors(s => !s); }}
+          className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition">
+          <Palette size={12} />
         </button>
-      ))}
+
+        {showColors && (
+          <div className="absolute top-full left-0 mt-1 z-50 bg-[#1e1e1e] border border-white/10 rounded-xl p-2.5 shadow-2xl"
+            style={{ minWidth: 180 }}>
+
+            {/* Màu chữ */}
+            <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5 px-0.5">Màu chữ</p>
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {TEXT_COLORS.map(c => (
+                <button key={c.value} type="button" title={c.label}
+                  onMouseDown={e => { e.preventDefault(); exec("foreColor", c.value); setShowColors(false); }}
+                  className="w-5 h-5 rounded-full border border-white/20 hover:scale-125 transition flex-shrink-0"
+                  style={{ backgroundColor: c.value }} />
+              ))}
+              {/* Custom */}
+              <label title="Màu tùy chỉnh"
+                className="w-5 h-5 rounded-full border border-dashed border-white/30 hover:border-orange-400 flex items-center justify-center cursor-pointer flex-shrink-0">
+                <span className="text-[8px] text-white/40 select-none">+</span>
+                <input type="color" className="opacity-0 absolute w-0 h-0"
+                  onChange={e => exec("foreColor", e.target.value)} />
+              </label>
+            </div>
+
+            {/* Nền chữ */}
+            <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5 px-0.5">Nền chữ</p>
+            <div className="flex flex-wrap gap-1.5">
+              {TEXT_COLORS.filter(c => c.value !== "#ffffff").map(c => (
+                <button key={c.value} type="button" title={c.label}
+                  onMouseDown={e => { e.preventDefault(); exec("hiliteColor", c.value); setShowColors(false); }}
+                  className="w-5 h-5 rounded border border-white/20 hover:scale-125 transition flex-shrink-0"
+                  style={{ backgroundColor: c.value }} />
+              ))}
+              {/* Bỏ nền (transparent) */}
+              <button type="button" title="Bỏ nền"
+                onMouseDown={e => { e.preventDefault(); exec("hiliteColor", "transparent"); setShowColors(false); }}
+                className="w-5 h-5 rounded border border-dashed border-white/30 hover:border-orange-400 flex items-center justify-center flex-shrink-0">
+                <span className="text-[8px] text-white/40">∅</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Căn chỉnh */}
+      {showAlign && (
+        <>
+          <div className="w-px h-4 bg-white/10 mx-0.5" />
+          {["left","center","right"].map(a => (
+            <button key={a} type="button"
+              onMouseDown={e => { e.preventDefault(); onFormat && onFormat("align", a); }}
+              title={a === "left" ? "Căn trái" : a === "center" ? "Căn giữa" : "Căn phải"}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition text-[10px] font-mono">
+              {a === "left" ? "⇤" : a === "center" ? "⇔" : "⇥"}
+            </button>
+          ))}
+        </>
+      )}
     </div>
   );
 }
 
-// ── Từng block ───────────────────────────────────────────────
-function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles, onMediaChange }) {
+// ─────────────────────────────────────────────────────────────
+//  BLOCK ITEM
+// ─────────────────────────────────────────────────────────────
+function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles, onMediaChange, allBlocks }) {
   const fileRef  = useRef();
   const videoRef = useRef();
   const [focused, setFocused] = useState(false);
@@ -74,19 +206,17 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
 
   const handleImageFile = (file) => {
     if (!file) return;
-    const preview = URL.createObjectURL(file);
-    upd({ url: preview, _pendingFile: true });
+    upd({ url: URL.createObjectURL(file), _pendingFile: true });
     onMediaChange({ ...mediaFiles, [`block_img_${block._idx}`]: file });
   };
 
   const handleVideoFile = (file) => {
     if (!file) return;
-    const preview = URL.createObjectURL(file);
-    upd({ url: preview, _pendingFile: true });
+    upd({ url: URL.createObjectURL(file), _pendingFile: true });
     onMediaChange({ ...mediaFiles, [`block_vid_${block._idx}`]: file });
   };
 
-  const style_map = {
+  const styleMap = {
     heading:    "text-2xl font-bold",
     subheading: "text-lg font-semibold",
     paragraph:  "text-sm leading-relaxed",
@@ -94,8 +224,10 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
   };
 
   return (
-    <div className={`group relative flex gap-2 items-start rounded-xl transition ${focused ? "bg-white/3" : "hover:bg-white/2"} p-2`}>
-      {/* Drag handle + order */}
+    <div className={`group relative flex gap-2 items-start rounded-xl transition
+      ${focused ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"} p-2`}>
+
+      {/* Move handles */}
       <div className="flex flex-col items-center gap-0.5 pt-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
         <GripVertical size={14} className="text-white/20 cursor-grab" />
         <button onClick={() => onMove(index, -1)} disabled={index === 0}
@@ -108,57 +240,112 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
         </button>
       </div>
 
-      {/* Block content */}
+      {/* Content */}
       <div className="flex-1 min-w-0">
-        {/* Text blocks */}
-        {["heading","subheading","paragraph","quote"].includes(block.type) && (
+
+        {/* ── HEADING ── */}
+        {block.type === "heading" && (
           <div>
-            {focused && block.type !== "quote" && <FormatBar onFormat={(_, align) => upd({ align })} />}
-            <div
-              contentEditable
-              suppressContentEditableWarning
+            {focused && <FormatBar onFormat={(_, a) => upd({ align: a })} />}
+            <div contentEditable suppressContentEditableWarning
+              onFocus={() => setFocused(true)}
+              onBlur={e => {
+                setFocused(false);
+                const html  = e.target.innerHTML;
+                const plain = stripHtml(html);
+                upd({ text: html, slug: slugify(plain) });
+              }}
+              dangerouslySetInnerHTML={{ __html: block.text }}
+              style={{ textAlign: block.align || "left" }}
+              data-placeholder="Tiêu đề lớn..."
+              className={`w-full outline-none bg-transparent min-h-[32px] ${styleMap.heading}
+                text-white/90 empty:before:content-[attr(data-placeholder)] empty:before:text-white/20`} />
+            {block.slug && (
+              <p className="text-[9px] text-white/20 mt-0.5 select-none">
+                anchor: <code className="text-orange-400/50">#{block.slug}</code>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── SUBHEADING ── */}
+        {block.type === "subheading" && (
+          <div>
+            {focused && <FormatBar onFormat={(_, a) => upd({ align: a })} />}
+            <div contentEditable suppressContentEditableWarning
+              onFocus={() => setFocused(true)}
+              onBlur={e => {
+                setFocused(false);
+                const html  = e.target.innerHTML;
+                const plain = stripHtml(html);
+                upd({ text: html, slug: slugify(plain) });
+              }}
+              dangerouslySetInnerHTML={{ __html: block.text }}
+              style={{ textAlign: block.align || "left" }}
+              data-placeholder="Tiêu đề nhỏ..."
+              className={`w-full outline-none bg-transparent min-h-[28px] ${styleMap.subheading}
+                text-white/90 empty:before:content-[attr(data-placeholder)] empty:before:text-white/20`} />
+            {block.slug && (
+              <p className="text-[9px] text-white/20 mt-0.5 select-none">
+                anchor: <code className="text-orange-400/50">#{block.slug}</code>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── PARAGRAPH ── */}
+        {block.type === "paragraph" && (
+          <div>
+            {focused && <FormatBar onFormat={(_, a) => upd({ align: a })} />}
+            <div contentEditable suppressContentEditableWarning
               onFocus={() => setFocused(true)}
               onBlur={e => { setFocused(false); upd({ text: e.target.innerHTML }); }}
               dangerouslySetInnerHTML={{ __html: block.text }}
               style={{ textAlign: block.align || "left" }}
-              className={`w-full outline-none bg-transparent min-h-[28px] ${style_map[block.type]} text-white/90 empty:before:content-[attr(data-placeholder)] empty:before:text-white/20`}
-              data-placeholder={
-                block.type === "heading" ? "Tiêu đề lớn..." :
-                block.type === "subheading" ? "Tiêu đề nhỏ..." :
-                block.type === "quote" ? "Trích dẫn..." : "Nhập nội dung..."
-              }
-            />
+              data-placeholder="Nhập nội dung..."
+              className={`w-full outline-none bg-transparent min-h-[28px] ${styleMap.paragraph}
+                text-white/90 empty:before:content-[attr(data-placeholder)] empty:before:text-white/20`} />
           </div>
         )}
 
-        {/* List block */}
+        {/* ── QUOTE ── */}
+        {block.type === "quote" && (
+          <div>
+            {focused && <FormatBar showAlign={false} />}
+            <div contentEditable suppressContentEditableWarning
+              onFocus={() => setFocused(true)}
+              onBlur={e => { setFocused(false); upd({ text: e.target.innerHTML }); }}
+              dangerouslySetInnerHTML={{ __html: block.text }}
+              data-placeholder="Trích dẫn..."
+              className={`w-full outline-none bg-transparent min-h-[28px] ${styleMap.quote}
+                empty:before:content-[attr(data-placeholder)] empty:before:text-white/20`} />
+          </div>
+        )}
+
+        {/* ── LIST ── */}
         {block.type === "list" && (
           <div className="flex flex-col gap-1">
             {(block.items || [""]).map((item, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0 mt-0.5" />
                 <input value={item}
-                  onChange={e => {
-                    const items = [...block.items];
-                    items[i] = e.target.value;
-                    upd({ items });
-                  }}
+                  onChange={e => { const items = [...block.items]; items[i] = e.target.value; upd({ items }); }}
                   onKeyDown={e => {
                     if (e.key === "Enter") { e.preventDefault(); const items = [...block.items]; items.splice(i+1,0,""); upd({ items }); }
-                    if (e.key === "Backspace" && !item && block.items.length > 1) {
-                      e.preventDefault(); const items = block.items.filter((_,j) => j !== i); upd({ items });
-                    }
+                    if (e.key === "Backspace" && !item && block.items.length > 1) { e.preventDefault(); upd({ items: block.items.filter((_,j) => j !== i) }); }
                   }}
                   placeholder="Mục danh sách..."
                   className="flex-1 bg-transparent outline-none text-sm text-white/80 placeholder-white/20" />
               </div>
             ))}
             <button onClick={() => upd({ items: [...block.items, ""] })}
-              className="text-xs text-orange-400/60 hover:text-orange-400 transition mt-1 w-fit">+ Thêm mục</button>
+              className="text-xs text-orange-400/60 hover:text-orange-400 transition mt-1 w-fit">
+              + Thêm mục
+            </button>
           </div>
         )}
 
-        {/* Image block */}
+        {/* ── IMAGE ── */}
         {block.type === "image" && (
           <div>
             {block.url ? (
@@ -184,7 +371,7 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
           </div>
         )}
 
-        {/* Video block */}
+        {/* ── VIDEO ── */}
         {block.type === "video" && (
           <div>
             {block.url ? (
@@ -200,7 +387,7 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
                 <div onClick={() => videoRef.current?.click()}
                   className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center cursor-pointer hover:border-orange-500/40 transition mb-2">
                   <Video size={24} className="mx-auto mb-2 text-white/20" />
-                  <p className="text-xs text-white/30">Click để tải video lên (MP4, MOV, WEBM)</p>
+                  <p className="text-xs text-white/30">Click để tải video lên</p>
                   <input ref={videoRef} type="file" accept="video/*" className="hidden"
                     onChange={e => handleVideoFile(e.target.files[0])} />
                 </div>
@@ -215,7 +402,7 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
           </div>
         )}
 
-        {/* Divider */}
+        {/* ── DIVIDER ── */}
         {block.type === "divider" && (
           <div className="flex items-center gap-3 py-2">
             <div className="flex-1 h-px bg-white/10" />
@@ -223,6 +410,12 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
             <div className="flex-1 h-px bg-white/10" />
           </div>
         )}
+
+        {/* ── TABLE OF CONTENTS ── */}
+        {block.type === "toc" && (
+          <TocEditorBlock block={block} onChange={upd} allBlocks={allBlocks} />
+        )}
+
       </div>
 
       {/* Delete */}
@@ -234,97 +427,181 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
   );
 }
 
-// ── Preview renderer (dùng cả ở InformationProduct) ─────────
-export function BlockRenderer({ blocks }) {
-  if (!blocks || blocks.length === 0) return null;
+// ─────────────────────────────────────────────────────────────
+//  TOC EDITOR (preview trong admin)
+// ─────────────────────────────────────────────────────────────
+function TocEditorBlock({ block, onChange, allBlocks }) {
+  const headings = extractHeadings(allBlocks);
   return (
-    <div className="flex flex-col gap-4">
-      {blocks.map((block, i) => {
-        switch (block.type) {
-          case "heading":
-            return <h2 key={i} style={{ textAlign: block.align || "left" }}
-              className="text-2xl font-bold text-white"
-              dangerouslySetInnerHTML={{ __html: block.text }} />;
-          case "subheading":
-            return <h3 key={i} style={{ textAlign: block.align || "left" }}
-              className="text-lg font-semibold text-white/90"
-              dangerouslySetInnerHTML={{ __html: block.text }} />;
-          case "paragraph":
-            return <p key={i} style={{ textAlign: block.align || "left" }}
-              className="text-sm leading-relaxed text-white/70"
-              dangerouslySetInnerHTML={{ __html: block.text }} />;
-          case "quote":
-            return <blockquote key={i}
-              className="border-l-4 border-orange-500 pl-4 italic text-white/50 text-sm"
-              dangerouslySetInnerHTML={{ __html: block.text }} />;
-          case "list":
-            return (
-              <ul key={i} className="flex flex-col gap-1.5 pl-2">
-                {(block.items || []).map((item, j) => (
-                  <li key={j} className="flex items-start gap-2 text-sm text-white/70">
-                    <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0 mt-1.5" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            );
-          case "image":
-            return (
-              <figure key={i}>
-                {block.url && <img src={block.url} alt={block.caption || ""} className="w-full rounded-xl object-cover" />}
-                {block.caption && <figcaption className="text-xs text-white/30 text-center mt-1.5">{block.caption}</figcaption>}
-              </figure>
-            );
-          case "video":
-            return block.url ? (
-              <div key={i} className="rounded-xl overflow-hidden">
-                {block.url.includes('youtube') || block.url.includes('youtu.be') ? (
-                  <iframe src={block.url.replace('watch?v=','embed/')} className="w-full aspect-video" allowFullScreen title="video" />
-                ) : (
-                  <video src={block.url} controls className="w-full max-h-96" />
-                )}
-              </div>
-            ) : null;
-          case "divider":
-            return (
-              <div key={i} className="flex items-center gap-3 py-1">
-                <div className="flex-1 h-px bg-white/10" />
-                <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                <div className="flex-1 h-px bg-white/10" />
-              </div>
-            );
-          default: return null;
-        }
-      })}
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <BookOpen size={13} className="text-orange-400 shrink-0" />
+        <input value={block.title || "Mục lục"}
+          onChange={e => onChange({ ...block, title: e.target.value })}
+          placeholder="Tiêu đề mục lục"
+          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-orange-500/50 transition" />
+      </div>
+      <div className="bg-white/[0.03] border border-white/8 rounded-xl p-3">
+        <p className="text-[9px] text-white/25 uppercase tracking-wider mb-2">Xem trước</p>
+        {headings.length === 0 ? (
+          <p className="text-xs text-white/20 italic">
+            Chưa có tiêu đề. Thêm block "Tiêu đề lớn" hoặc "Tiêu đề nhỏ" để tạo mục lục tự động.
+          </p>
+        ) : (
+          <ol className="flex flex-col gap-1">
+            {headings.map((h, i) => (
+              <li key={h.id} style={{ paddingLeft: `${(h.level - 2) * 14}px` }}
+                className="flex items-baseline gap-1.5">
+                <span className="text-orange-400/50 text-[10px] shrink-0">{i + 1}.</span>
+                <span className="text-xs text-white/50">{h.text}</span>
+                <code className="text-[9px] text-white/20 ml-auto shrink-0">#{h.slug}</code>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Main Editor ──────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+//  BLOCK RENDERER – dùng ở InformationProduct / Blog frontend
+// ─────────────────────────────────────────────────────────────
+export function BlockRenderer({ blocks }) {
+  if (!blocks || blocks.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-5">
+      <style>{`
+        html { scroll-behavior: smooth; }
+        .bk-link a { color: #ff9500; text-decoration: underline; }
+      `}</style>
+      {blocks.map((block, i) => (
+        <BlockRenderItem key={block.id || i} block={block} allBlocks={blocks} />
+      ))}
+    </div>
+  );
+}
+
+function BlockRenderItem({ block, allBlocks }) {
+  switch (block.type) {
+
+    case "heading": {
+      const slug = block.slug || slugify(stripHtml(block.text || ""));
+      return (
+        <h2 id={slug}
+          style={{ textAlign: block.align || "left" }}
+          className="text-2xl font-bold text-white scroll-mt-24 group"
+          dangerouslySetInnerHTML={{ __html: block.text }} />
+      );
+    }
+
+    case "subheading": {
+      const slug = block.slug || slugify(stripHtml(block.text || ""));
+      return (
+        <h3 id={slug}
+          style={{ textAlign: block.align || "left" }}
+          className="text-lg font-semibold text-white/90 scroll-mt-24"
+          dangerouslySetInnerHTML={{ __html: block.text }} />
+      );
+    }
+
+    case "paragraph":
+      return (
+        <div style={{ textAlign: block.align || "left" }}
+          className="bk-link text-sm leading-relaxed text-white/70"
+          dangerouslySetInnerHTML={{ __html: block.text }} />
+      );
+
+    case "quote":
+      return (
+        <blockquote className="bk-link border-l-4 border-orange-500 pl-4 italic text-white/50 text-sm"
+          dangerouslySetInnerHTML={{ __html: block.text }} />
+      );
+
+    case "list":
+      return (
+        <ul className="flex flex-col gap-1.5 pl-2">
+          {(block.items || []).map((item, j) => (
+            <li key={j} className="flex items-start gap-2 text-sm text-white/70">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0 mt-1.5" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      );
+
+    case "image":
+      return block.url ? (
+        <figure>
+          <img src={block.url} alt={block.caption || ""} className="w-full rounded-xl object-cover" />
+          {block.caption && <figcaption className="text-xs text-white/30 text-center mt-1.5">{block.caption}</figcaption>}
+        </figure>
+      ) : null;
+
+    case "video":
+      return block.url ? (
+        <div className="rounded-xl overflow-hidden">
+          {block.url.includes("youtube") || block.url.includes("youtu.be") ? (
+            <iframe src={block.url.replace("watch?v=","embed/")} className="w-full aspect-video" allowFullScreen title="video" />
+          ) : (
+            <video src={block.url} controls className="w-full max-h-96" />
+          )}
+        </div>
+      ) : null;
+
+    case "divider":
+      return (
+        <div className="flex items-center gap-3 py-1">
+          <div className="flex-1 h-px bg-white/10" />
+          <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
+      );
+
+    case "toc": {
+      const headings = extractHeadings(allBlocks || []);
+      if (headings.length === 0) return null;
+      return (
+        <nav className="bg-white/[0.04] border border-white/10 rounded-2xl p-5 my-2">
+          <div className="flex items-center gap-2 mb-3">
+            <BookOpen size={14} className="text-orange-400" />
+            <span className="text-sm font-semibold text-white/80">{block.title || "Mục lục"}</span>
+          </div>
+          <ol className="flex flex-col gap-1.5">
+            {headings.map((h, i) => (
+              <li key={h.id} style={{ paddingLeft: `${(h.level - 2) * 16}px` }}
+                className="flex items-baseline gap-2">
+                <span className="text-orange-400/60 text-xs shrink-0">{i + 1}.</span>
+                <a href={`#${h.slug}`}
+                  className="text-sm text-white/60 hover:text-orange-400 transition underline-offset-2 hover:underline">
+                  {h.text}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      );
+    }
+
+    default: return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  MAIN EDITOR
+// ─────────────────────────────────────────────────────────────
 export default function BlockEditor({ blocks, onChange, mediaFiles = {}, onMediaChange }) {
   const [showTypeMenu, setShowTypeMenu] = useState(false);
-  const [preview, setPreview] = useState(false);
+  const [preview,      setPreview]      = useState(false);
 
-  const addBlock = (type) => {
-    onChange([...blocks, newBlock(type)]);
-    setShowTypeMenu(false);
-  };
-
-  const updateBlock = (i, updated) => {
-    const arr = [...blocks]; arr[i] = updated; onChange(arr);
-  };
-
-  const moveBlock = (i, dir) => {
-    const arr = [...blocks];
-    const j   = i + dir;
+  const addBlock    = (type) => { onChange([...blocks, newBlock(type)]); setShowTypeMenu(false); };
+  const updateBlock = (i, updated) => { const arr = [...blocks]; arr[i] = updated; onChange(arr); };
+  const moveBlock   = (i, dir) => {
+    const arr = [...blocks]; const j = i + dir;
     if (j < 0 || j >= arr.length) return;
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-    onChange(arr);
+    [arr[i], arr[j]] = [arr[j], arr[i]]; onChange(arr);
   };
-
-  const deleteBlock = (i) => {
-    onChange(blocks.filter((_, idx) => idx !== i));
-  };
+  const deleteBlock = (i) => onChange(blocks.filter((_, idx) => idx !== i));
 
   if (preview) return (
     <div>
@@ -351,7 +628,7 @@ export default function BlockEditor({ blocks, onChange, mediaFiles = {}, onMedia
         </button>
       </div>
 
-      {/* Blocks */}
+      {/* Block list */}
       <div className="flex flex-col gap-1 mb-4 min-h-[60px] border border-white/5 rounded-2xl p-3"
         style={{ background: "#111" }}>
         {blocks.length === 0 && (
@@ -360,12 +637,16 @@ export default function BlockEditor({ blocks, onChange, mediaFiles = {}, onMedia
           </div>
         )}
         {blocks.map((block, i) => (
-          <BlockItem key={block.id || i} block={block} index={i} total={blocks.length}
+          <BlockItem
+            key={block.id || i}
+            block={block} index={i} total={blocks.length}
             onChange={updated => updateBlock(i, updated)}
             onMove={(idx, dir) => moveBlock(idx, dir)}
             onDelete={deleteBlock}
             mediaFiles={mediaFiles}
-            onMediaChange={onMediaChange} />
+            onMediaChange={onMediaChange}
+            allBlocks={blocks}
+          />
         ))}
       </div>
 
@@ -375,6 +656,7 @@ export default function BlockEditor({ blocks, onChange, mediaFiles = {}, onMedia
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-orange-500/30 hover:border-orange-500/60 text-orange-400/70 hover:text-orange-400 text-sm transition w-full justify-center">
           <Plus size={14} /> Thêm block
         </button>
+
         {showTypeMenu && (
           <div className="absolute bottom-full left-0 right-0 mb-2 rounded-2xl border border-white/10 overflow-hidden shadow-2xl z-50"
             style={{ background: "#1a1a1a" }}>

@@ -1124,15 +1124,25 @@ def list_products(request):
     products = Product.objects.select_related('CategoryID').all().order_by('-CreatedAt')
     data = []
     for p in products:
-        variants      = ProductVariant.objects.filter(ProductID=p)
-        variant_count = variants.count()
-        min_v         = variants.order_by('Price').first()
+        variants_qs   = ProductVariant.objects.filter(ProductID=p)
+        variant_count = variants_qs.count()
+        min_v         = variants_qs.order_by('Price').first()
         primary_img   = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first()
         if not primary_img:
             primary_img = ProductImage.objects.filter(ProductID=p).first()
 
-        rams     = list(set(v.Ram     for v in variants if v.Ram))
-        storages = list(set(v.Storage for v in variants if v.Storage))
+        # ── Trả đầy đủ variants để frontend group theo RAM+Storage ──
+        variants_data = []
+        for v in variants_qs:
+            variants_data.append({
+                "id":      v.VariantID,
+                "color":   v.Color   or "",
+                "ram":     v.Ram     or "",
+                "storage": v.Storage or "",
+                "price":   str(v.Price),
+                "stock":   v.StockQuantity,
+                "image":   v.Image or "" if hasattr(v, "Image") else "",
+            })
 
         data.append({
             "id":            p.ProductID,
@@ -1144,11 +1154,9 @@ def list_products(request):
             "variant_count": variant_count,
             "min_price":     str(min_v.Price) if min_v else "0",
             "image":         primary_img.ImageUrl if primary_img else "",
-            "rams":          rams,
-            "storages":      storages,
+            "variants":      variants_data,   # ← KEY: trả full variants list
         })
     return Response({"products": data}, status=status.HTTP_200_OK)
-
 
 # ============================================
 # API 28: THÊM BIẾN THỂ VÀO SẢN PHẨM CÓ SẴN

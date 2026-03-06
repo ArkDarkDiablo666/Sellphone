@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useCart } from "./Cart";
 import bgImage from "./Image/image-177.png";
 import {
   User, LogOut, Settings, AlertTriangle,
@@ -8,6 +9,7 @@ import {
 
 export default function Home() {
   const navigate = useNavigate();
+  const { totalCount } = useCart();
   const [user, setUser] = React.useState(() => JSON.parse(localStorage.getItem("user")));
 
   React.useEffect(() => {
@@ -90,8 +92,13 @@ export default function Home() {
 
           {/* RIGHT ACTIONS */}
           <div className="flex gap-5 items-center text-gray-300">
-            <button onClick={() => navigate(user ? "/cart" : "/login")}>
+            <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
               <ShoppingCart className="hover:text-white transition" size={22} />
+              {totalCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                  {totalCount > 9 ? "9+" : totalCount}
+                </span>
+              )}
             </button>
 
             {user ? (
@@ -99,8 +106,8 @@ export default function Home() {
                 <button onClick={() => setDropdownOpen(!dropdownOpen)}
                   className="flex items-center gap-2 hover:text-white transition">
                   {user.avatar ? (
-                    <img src={user.avatar} alt="avatar"
-                      className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" />
+                    <img src={user.avatar} alt=""
+                      className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e)=>{e.currentTarget.style.display="none"}} />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
                       <User size={16} />
@@ -116,8 +123,8 @@ export default function Home() {
                     {/* User info */}
                     <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
                       {user.avatar ? (
-                        <img src={user.avatar} alt="avatar"
-                          className="w-9 h-9 rounded-full object-cover" />
+                        <img src={user.avatar} alt=""
+                          className="w-9 h-9 rounded-full object-cover" onError={(e)=>{e.currentTarget.style.display="none"}} />
                       ) : (
                         <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
                           <User size={16} />
@@ -128,13 +135,6 @@ export default function Home() {
                         <p className="text-xs text-white/40 truncate">{user.email}</p>
                       </div>
                     </div>
-
-                    {/* Đơn hàng */}
-                    <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70
-                        hover:bg-white/5 hover:text-white transition">
-                      <ShoppingBag size={15} className="text-orange-400" /> Đơn hàng của tôi
-                    </button>
 
                     {/* Tài khoản */}
                     <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
