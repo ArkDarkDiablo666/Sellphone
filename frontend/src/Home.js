@@ -79,88 +79,61 @@ export default function Home() {
       <div className="relative z-10 pt-24">
 
         {/* NAVBAR */}
-        <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-5
-          backdrop-blur-md bg-black/70 border-b border-white/10">
-          <div className="text-2xl font-bold tracking-wide">PHONEZONE</div>
-
-          {/* NAV LINKS */}
-          <div className="flex gap-8 text-gray-300">
-            <Link to="/"       className="text-white font-medium transition">Trang chủ</Link>
-            <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
-            <Link to="/blog"    className="hover:text-white transition">Bài viết</Link>
-          </div>
-
-          {/* RIGHT ACTIONS */}
-          <div className="flex gap-5 items-center text-gray-300">
-            <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
-              <ShoppingCart className="hover:text-white transition" size={22} />
-              {totalCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                  {totalCount > 9 ? "9+" : totalCount}
-                </span>
-              )}
-            </button>
-
-            {user ? (
-              <div className="relative" ref={dropdownRef}>
-                <button onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="flex items-center gap-2 hover:text-white transition">
-                  {user.avatar ? (
-                    <img src={user.avatar} alt=""
-                      className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e)=>{e.currentTarget.style.display="none"}} />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                      <User size={16} />
-                    </div>
-                  )}
-                  <ChevronDown size={14}
-                    className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {dropdownOpen && (
-                  <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10
-                    rounded-2xl shadow-xl overflow-hidden z-50">
-                    {/* User info */}
-                    <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
-                      {user.avatar ? (
-                        <img src={user.avatar} alt=""
-                          className="w-9 h-9 rounded-full object-cover" onError={(e)=>{e.currentTarget.style.display="none"}} />
-                      ) : (
-                        <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
-                          <User size={16} />
-                        </div>
-                      )}
-                      <div className="overflow-hidden">
-                        <p className="text-sm font-medium truncate">{user.fullName}</p>
-                        <p className="text-xs text-white/40 truncate">{user.email}</p>
-                      </div>
-                    </div>
-
-                    {/* Tài khoản */}
-                    <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300
-                        hover:bg-white/5 hover:text-white transition">
-                      <Settings size={15} /> Tài khoản
-                    </button>
-
-                    <div className="h-px bg-white/5 mx-3" />
-
-                    {/* Đăng xuất */}
-                    <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400
-                        hover:bg-red-500/10 transition">
-                      <LogOut size={15} /> Đăng xuất
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button onClick={() => navigate("/login")}>
-                <User className="hover:text-white transition" size={22} />
-              </button>
+        <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
+        <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
+        <div className="flex gap-8 items-center text-gray-300">
+          <Link to="/" className="hover:text-white transition">Trang chủ</Link>
+          <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
+          <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
+        </div>
+        <div className="flex gap-5 items-center text-gray-300">
+          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
+            <ShoppingCart className="hover:text-white transition" size={22} />
+            {totalCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {totalCount > 9 ? "9+" : totalCount}
+              </span>
             )}
-          </div>
-        </nav>
+          </button>
+          {user ? (
+            <div className="relative" ref={dropdownRef}>
+              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition">
+                {user.avatar
+                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>
+                }
+                <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+              {dropdownOpen && (
+                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
+                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
+                    {user.avatar
+                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                      : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>
+                    }
+                    <div className="overflow-hidden">
+                      <p className="text-sm font-medium truncate">{user.fullName}</p>
+                      <p className="text-xs text-white/40 truncate">{user.email}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition">
+                    <ShoppingBag size={15} className="text-orange-400" /> Đơn hàng của tôi
+                  </button>
+                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
+                    <Settings size={15} /> Tài khoản
+                  </button>
+                  <div className="h-px bg-white/5 mx-3" />
+                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition">
+                    <LogOut size={15} /> Đăng xuất
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button onClick={() => navigate("/login")}><User className="hover:text-white transition" size={22} /></button>
+          )}
+        </div>
+      </nav>
 
         {/* HERO */}
         <section className="flex flex-col items-center justify-center text-center py-40 px-6">

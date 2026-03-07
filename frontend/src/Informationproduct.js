@@ -19,28 +19,164 @@ const applyVoucherDiscount = (price, voucher) => {
   return Math.max(0, price - disc);
 };
 
+const parseGB = (s) => {
+  if (!s) return 0;
+  const m = String(s).match(/([\d.]+)\s*(TB|GB|MB)?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  const u = (m[2] || "GB").toUpperCase();
+  if (u === "TB") return n * 1024;
+  if (u === "MB") return n / 1024;
+  return n;
+};
+
+// ── Kiểm tra voucher có áp dụng cho variant cụ thể không ──
+const voucherAppliesToVariant = (voucher, product, variant) => {
+  if (!voucher) return false;
+  const scope = voucher.scope || "all";
+
+  if (scope === "all") return true;
+
+  if (scope === "category") {
+    return String(product?.category_id) === String(voucher.category_id);
+  }
+
+  if (scope === "product") {
+    // Phải đúng product
+    if (String(product?.id) !== String(voucher.product_id)) return false;
+    // Nếu voucher có variant_id → phải đúng variant
+    if (voucher.variant_id) {
+      return variant && String(variant.id) === String(voucher.variant_id);
+    }
+    // Không có variant_id → áp dụng toàn sản phẩm
+    return true;
+  }
+
+  return false;
+};
+
 export default function InformationProduct() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const [addToast, setAddToast] = useState(false);
   const navigate = useNavigate();
-  const { addItem, setShow, voucher, totalCount } = useCart();
+  const { addItem, setShow, voucher, fetchBestVoucherForProduct, totalCount } = useCart();
 
-  // ── Auth / navbar ──────────────────────────────────────────
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
+  const [productBestVoucher, setProductBestVoucher] = useState(null);
   const [dropdownOpen,  setDropdownOpen]  = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const dropdownRef = useRef(null);
 
+  const [product,        setProduct]        = useState(null);
+  const [variants,       setVariants]       = useState([]);
+  const [images,         setImages]         = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [notFound,       setNotFound]       = useState(false);
+  const [selectedVariant,setSelectedVariant]= useState(null);
+  const [activeImg,      setActiveImg]      = useState(0);
+  const [activeTab,      setActiveTab]      = useState("info");
+  const [productContent, setProductContent] = useState([]);
+  const [qty,            setQty]            = useState(1);
+  const [related,        setRelated]        = useState([]);
+
+  const [selColor,   setSelColor]   = useState(null);
+  const [selCombo,   setSelCombo]   = useState(null);
+
+  const allColors = [...new Set(variants.map(v => v.color).filter(Boolean))];
+
+  const allComboMap = {};
+  for (const v of variants) {
+    if (!v.price) continue;
+    const key = `${v.ram || ""}|${v.storage || ""}`;
+    if (!allComboMap[key] || parseFloat(v.price) < parseFloat(allComboMap[key].price)) {
+      allComboMap[key] = v;
+    }
+  }
+  const allCombos = Object.values(allComboMap).sort((a, b) => {
+    const sd = parseGB(a.storage) - parseGB(b.storage);
+    return sd !== 0 ? sd : parseGB(a.ram) - parseGB(b.ram);
+  });
+
+  const availableColors = selCombo
+    ? allColors.filter(col => variants.some(v => v.color === col && `${v.ram || ""}|${v.storage || ""}` === selCombo))
+    : allColors;
+
+  const availableCombos = selColor
+    ? allCombos.filter(c => variants.some(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === `${c.ram || ""}|${c.storage || ""}`))
+    : allCombos;
+
   useEffect(() => {
-    const syncUser = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
-    window.addEventListener("storage",     syncUser);
-    window.addEventListener("focus",       syncUser);
-    window.addEventListener("userUpdated", syncUser);
-    return () => {
-      window.removeEventListener("storage",     syncUser);
-      window.removeEventListener("focus",       syncUser);
-      window.removeEventListener("userUpdated", syncUser);
-    };
+    if (!variants.length) return;
+    let match = null;
+    if (selColor && selCombo) {
+      match = variants.find(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === selCombo);
+    } else if (selCombo) {
+      const candidates = variants.filter(v => `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      match = candidates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
+    } else if (selColor) {
+      const candidates = variants.filter(v => v.color === selColor);
+      match = candidates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
+    } else {
+      match = [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0];
+    }
+    if (match) {
+      setSelectedVariant(match);
+      if (match.image) setActiveImg(-1);
+    }
+  }, [selColor, selCombo, variants]);
+
+  const handleColorClick = (col) => {
+    if (selColor === col) { setSelColor(null); return; }
+    setSelColor(col);
+    if (selCombo) {
+      const ok = variants.some(v => v.color === col && `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      if (!ok) setSelCombo(null);
+    }
+  };
+
+  const handleComboClick = (comboKey) => {
+    if (selCombo === comboKey) { setSelCombo(null); return; }
+    setSelCombo(comboKey);
+    if (selColor) {
+      const ok = variants.some(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === comboKey);
+      if (!ok) setSelColor(null);
+    }
+  };
+
+  const currentPrice = selectedVariant ? parseInt(selectedVariant.price) : 0;
+  const currentStock = selectedVariant ? selectedVariant.stock : 0;
+
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    Promise.all([
+      fetch(`${API}/api/product/${id}/detail/`).then(r => r.json()),
+      fetch(`${API}/api/product/${id}/content/`).then(r => r.json()),
+    ]).then(([detail, content]) => {
+      if (!detail.product) { setNotFound(true); return; }
+      setProduct(detail.product);
+      setVariants(detail.variants || []);
+      setImages(detail.images || []);
+      setRelated(detail.related || []);
+      setProductContent(content?.content?.blocks || []);
+    }).catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    if (!product?.id || !currentPrice) return;
+    fetchBestVoucherForProduct(product.id, product.category_id, currentPrice, 1)
+      .then(data => setProductBestVoucher(data))
+      .catch(() => {});
+  }, [product?.id, currentPrice]);
+
+  useEffect(() => {
+    const sync = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
+    window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("userUpdated", sync);
+    return () => { window.removeEventListener("storage", sync); window.removeEventListener("focus", sync); window.removeEventListener("userUpdated", sync); };
   }, []);
 
   useEffect(() => {
@@ -51,187 +187,59 @@ export default function InformationProduct() {
 
   const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
 
-  // ── Product data ───────────────────────────────────────────
-  const [product,         setProduct]         = useState(null);
-  const [variants,        setVariants]         = useState([]);
-  const [images,          setImages]           = useState([]);
-  const [related,         setRelated]          = useState([]);
-  const [productContent,  setProductContent]   = useState([]);
-  const [loading,         setLoading]          = useState(true);
-  const [notFound,        setNotFound]         = useState(false);
-
-  // ── UI state ───────────────────────────────────────────────
-  const [selectedVariant, setSelectedVariant] = useState(null);
-  const [activeImg,       setActiveImg]       = useState(0);
-  const [activeTab,       setActiveTab]       = useState("info");
-  const [qty,             setQty]             = useState(1);
-  const [addToast,        setAddToast]        = useState(false);
-
   useEffect(() => {
-    setLoading(true);
-    fetch(`${API}/api/product/${id}/detail/`)
-      .then(r => { if (!r.ok) { setNotFound(true); return null; } return r.json(); })
-      .then(data => {
-        if (!data) return;
-        setProduct(data.product || data);
-        setVariants(data.variants || []);
-        setImages(data.images || []);
-        setRelated(data.related || []);
-        setProductContent(data.blocks || []);
-      })
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
-  }, [id]);
+    if (!variants.length) return;
+    const qColor   = searchParams.get("color")   || null;
+    const qRam     = searchParams.get("ram")      || null;
+    const qStorage = searchParams.get("storage")  || null;
+    if (qColor) setSelColor(qColor);
+    if (qRam || qStorage) setSelCombo(`${qRam || ""}|${qStorage || ""}`);
+  }, [variants]);
 
-  // ── Variant helpers ────────────────────────────────────────
-  const parseSize = (s) => {
-    if (!s) return 0;
-    const m = String(s).match(/([\d.]+)\s*(GB|TB|MB)?/i);
-    if (!m) return 0;
-    const n = parseFloat(m[1]);
-    const u = (m[2] || "GB").toUpperCase();
-    if (u === "TB") return n * 1024;
-    if (u === "MB") return n / 1024;
-    return n;
-  };
-  const parseRam = parseSize;
+  // ── activeVoucher: kiểm tra đúng variant ──
+  const activeVoucher = (() => {
+    if (!currentPrice || !selectedVariant) return null;
 
-  const colors   = [...new Set(variants.map(v => v.color).filter(Boolean))];
-  const storages = [...new Set(variants.map(v => v.storage).filter(Boolean))].sort((a, b) => parseSize(a) - parseSize(b));
-  const rams     = [...new Set(variants.map(v => v.ram).filter(Boolean))].sort((a, b) => parseRam(a) - parseRam(b));
-
-  const [selColor,   setSelColor]   = useState(null);
-  const [selStorage, setSelStorage] = useState(null);
-  const [selRam,     setSelRam]     = useState(null);
-
-  // ── Init selections: từ URL param ram/storage hoặc mặc định ──
-  useEffect(() => {
-    if (variants.length === 0) return;
-
-    const paramRam     = searchParams.get("ram");
-    const paramStorage = searchParams.get("storage");
-
-    if (paramRam || paramStorage) {
-      // Tìm biến thể khớp với ram/storage từ URL
-      const target = variants.find(v =>
-        (!paramRam     || v.ram     === paramRam) &&
-        (!paramStorage || v.storage === paramStorage)
-      ) || variants.find(v =>
-        (!paramStorage || v.storage === paramStorage)
-      );
-
-      if (target) {
-        setSelColor(target.color   || null);
-        setSelStorage(target.storage || null);
-        setSelRam(target.ram || null);
-        return;
-      }
+    // Voucher từ giỏ hàng
+    if (voucher && voucherAppliesToVariant(voucher, product, selectedVariant)) {
+      return voucher;
     }
-    // Mặc định: biến thể đầu tiên
-    setSelColor(variants[0].color   || null);
-    setSelStorage(variants[0].storage || null);
-    setSelRam(variants[0].ram || null);
-  }, [variants, searchParams]);
 
-  // ── Sync selectedVariant từ selColor/selStorage/selRam ────
-  useEffect(() => {
-    if (variants.length === 0) return;
-    const match =
-      variants.find(v =>
-        (!selColor   || v.color   === selColor) &&
-        (!selStorage || v.storage === selStorage) &&
-        (!selRam     || v.ram     === selRam)
-      ) ||
-      variants.find(v =>
-        (!selColor   || v.color   === selColor) &&
-        (!selStorage || v.storage === selStorage)
-      ) ||
-      variants.find(v =>
-        (!selColor || v.color === selColor)
-      ) ||
-      variants[0];
-
-    if (match) {
-      setSelectedVariant(match);
-      if (match.image) setActiveImg(-1);
+    // Voucher tốt nhất riêng sản phẩm
+    if (productBestVoucher?.voucher && voucherAppliesToVariant(productBestVoucher.voucher, product, selectedVariant)) {
+      return productBestVoucher.voucher;
     }
-  }, [selColor, selStorage, selRam, variants]);
 
-  // ── Kiểm tra biến thể khả dụng với combo hiện tại ─────────
-  // Trả về true nếu có biến thể thoả mãn field=value + các field khác đang chọn
-  const hasVariantWith = (field, value) => variants.some(v => {
-    if (v[field] !== value) return false;
-    // Không ràng buộc field đang xét
-    if (field !== "color"   && selColor   && v.color   !== selColor)   return false;
-    if (field !== "storage" && selStorage && v.storage !== selStorage) return false;
-    if (field !== "ram"     && selRam     && v.ram     !== selRam)     return false;
-    return true;
-  });
-
-  // ── Xử lý chọn màu: reset storage/ram nếu combo không tồn tại ──
-  const handleSelectColor = (col) => {
-    setSelColor(col);
-    // Kiểm tra xem combo hiện tại (col + selStorage + selRam) có tồn tại không
-    const comboExists = variants.some(v =>
-      v.color === col &&
-      (!selStorage || v.storage === selStorage) &&
-      (!selRam     || v.ram     === selRam)
-    );
-    if (!comboExists) {
-      // Tìm biến thể đầu tiên có màu này và lấy storage/ram của nó
-      const firstOfColor = variants.find(v => v.color === col);
-      if (firstOfColor) {
-        setSelStorage(firstOfColor.storage || null);
-        setSelRam(firstOfColor.ram || null);
-      }
-    }
-  };
-
-  const handleSelectStorage = (s) => {
-    setSelStorage(s);
-    const comboExists = variants.some(v =>
-      (!selColor || v.color === selColor) &&
-      v.storage === s &&
-      (!selRam || v.ram === selRam)
-    );
-    if (!comboExists) {
-      const fm = variants.find(v => (!selColor || v.color === selColor) && v.storage === s);
-      if (fm) setSelRam(fm.ram || null);
-    }
-  };
-
-  const handleSelectRam = (r) => {
-    setSelRam(r);
-    const comboExists = variants.some(v =>
-      (!selColor   || v.color   === selColor) &&
-      (!selStorage || v.storage === selStorage) &&
-      v.ram === r
-    );
-    if (!comboExists) {
-      const fm = variants.find(v => (!selColor || v.color === selColor) && v.ram === r);
-      if (fm) setSelStorage(fm.storage || null);
-    }
-  };
-
-  const currentPrice = selectedVariant ? parseInt(selectedVariant.price) : 0;
-
-  const discountedPrice = (() => {
-    if (!currentPrice || !voucher || !selectedVariant) return currentPrice;
-    const vApply =
-      !voucher.scope || voucher.scope === "all" ||
-      (voucher.scope === "category" && String(product?.category_id) === String(voucher.category_id)) ||
-      (voucher.scope === "product"  && String(product?.id)          === String(voucher.product_id));
-    if (!vApply) return currentPrice;
-    return applyVoucherDiscount(currentPrice, voucher);
+    return null;
   })();
 
-  const hasDiscount  = discountedPrice < currentPrice;
-  const currentStock = selectedVariant ? selectedVariant.stock : 0;
+  const discountedPrice = (activeVoucher && currentPrice) ? applyVoucherDiscount(currentPrice, activeVoucher) : currentPrice;
+  const hasDiscount = discountedPrice < currentPrice;
+
+  // ── Tính giá hiển thị trong combo button (có check variant_id) ──
+  const getComboDisplayPrice = (comboVariant) => {
+    const price = parseFloat(comboVariant.price);
+    if (!price) return { price, disc: price, hasD: false, appliedVoucher: null };
+
+    // Thử voucher giỏ hàng
+    if (voucher && voucherAppliesToVariant(voucher, product, comboVariant)) {
+      const disc = applyVoucherDiscount(price, voucher);
+      if (disc < price) return { price, disc, hasD: true, appliedVoucher: voucher };
+    }
+
+    // Thử voucher riêng SP
+    if (productBestVoucher?.voucher && voucherAppliesToVariant(productBestVoucher.voucher, product, comboVariant)) {
+      const disc = applyVoucherDiscount(price, productBestVoucher.voucher);
+      if (disc < price) return { price, disc, hasD: true, appliedVoucher: productBestVoucher.voucher };
+    }
+
+    return { price, disc: price, hasD: false, appliedVoucher: null };
+  };
 
   const handleAddToCart = (buyNow = false) => {
     if (!selectedVariant || currentStock === 0) return;
     addItem(
-      { id: product.id, name: product.name, image: images[0]?.url || images[0] || "", categoryId: product.category_id },
+      { id: product.id, name: product.name, image: images[0]?.url || "", categoryId: product.category_id },
       {
         id:      selectedVariant.id,
         color:   selectedVariant.color,
@@ -248,15 +256,14 @@ export default function InformationProduct() {
   };
 
   const specsGroups = selectedVariant ? [
-    { label: "Bộ xử lý",          color: "text-blue-400",   rows: [["CPU", selectedVariant.cpu], ["Hệ điều hành", selectedVariant.os]].filter(([, v]) => v) },
-    { label: "Bộ nhớ & Lưu trữ",  color: "text-green-400",  rows: [["RAM", selectedVariant.ram], ["Bộ nhớ", selectedVariant.storage]].filter(([, v]) => v) },
-    { label: "Màn hình",           color: "text-purple-400", rows: [["Kích thước", selectedVariant.screen_size], ["Công nghệ", selectedVariant.screen_tech], ["Tần số quét", selectedVariant.refresh_rate]].filter(([, v]) => v) },
-    { label: "Camera",             color: "text-yellow-400", rows: [["Camera trước", selectedVariant.front_camera], ["Camera sau", selectedVariant.rear_camera]].filter(([, v]) => v) },
-    { label: "Pin & Sạc",          color: "text-orange-400", rows: [["Dung lượng pin", selectedVariant.battery], ["Tốc độ sạc", selectedVariant.charging_speed]].filter(([, v]) => v) },
-    { label: "Khác",               color: "text-gray-400",   rows: [["Màu sắc", selectedVariant.color], ["Trọng lượng", selectedVariant.weights], ["Cập nhật OS", selectedVariant.updates]].filter(([, v]) => v) },
+    { label: "Bộ xử lý",          color: "text-blue-400",   rows: [["CPU", selectedVariant.cpu], ["Hệ điều hành", selectedVariant.os]].filter(([,v]) => v) },
+    { label: "Bộ nhớ & Lưu trữ", color: "text-green-400",  rows: [["RAM", selectedVariant.ram], ["Bộ nhớ", selectedVariant.storage]].filter(([,v]) => v) },
+    { label: "Màn hình",           color: "text-purple-400", rows: [["Kích thước", selectedVariant.screen_size], ["Công nghệ", selectedVariant.screen_tech], ["Tần số quét", selectedVariant.refresh_rate]].filter(([,v]) => v) },
+    { label: "Camera",             color: "text-yellow-400", rows: [["Camera trước", selectedVariant.front_camera], ["Camera sau", selectedVariant.rear_camera]].filter(([,v]) => v) },
+    { label: "Pin & Sạc",          color: "text-orange-400", rows: [["Dung lượng pin", selectedVariant.battery], ["Tốc độ sạc", selectedVariant.charging_speed]].filter(([,v]) => v) },
+    { label: "Khác",               color: "text-gray-400",   rows: [["Màu sắc", selectedVariant.color], ["Trọng lượng", selectedVariant.weights], ["Cập nhật OS", selectedVariant.updates]].filter(([,v]) => v) },
   ].filter(g => g.rows.length > 0) : [];
 
-  // ── Render guards ──────────────────────────────────────────
   if (loading) return (
     <div className="min-h-screen bg-[#1C1C1E] flex items-center justify-center">
       <div className="w-10 h-10 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
@@ -274,16 +281,14 @@ export default function InformationProduct() {
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
 
-      {/* TOAST */}
       {addToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[10000] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-medium bg-green-500/20 border border-green-500/40 text-green-300 backdrop-blur-md">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           Đã thêm vào giỏ hàng thành công!
-          <button onClick={() => navigate("/cart")} className="ml-2 text-xs text-white/60 hover:text-white underline transition">Xem giỏ</button>
+          <button onClick={() => navigate("/cart")} className="ml-2 text-xs text-white/60 hover:text-white underline">Xem giỏ</button>
         </div>
       )}
 
-      {/* LOGOUT DIALOG */}
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
@@ -296,19 +301,18 @@ export default function InformationProduct() {
             </div>
             <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10">Hủy</button>
-              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Đăng xuất</button>
+              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10">Hủy</button>
+              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium">Đăng xuất</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* NAVBAR */}
       <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
         <div className="flex gap-8 items-center text-gray-300">
           <Link to="/" className="hover:text-white transition">Trang chủ</Link>
-          <Link to="/product" className="text-white font-medium transition">Sản phẩm</Link>
+          <Link to="/product" className="text-white font-medium">Sản phẩm</Link>
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
@@ -324,23 +328,24 @@ export default function InformationProduct() {
             <div className="relative" ref={dropdownRef}>
               <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition">
                 {user.avatar
-                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e)=>{e.currentTarget.style.display="none"}} />
-                  : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>
-                }
-                <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
+                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={e => e.currentTarget.style.display="none"} />
+                  : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
+                <ChevronDown size={14} className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
               {dropdownOpen && (
                 <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
                   <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
                     {user.avatar
-                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" onError={(e)=>{e.currentTarget.style.display="none"}} />
-                      : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>
-                    }
+                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" onError={e => e.currentTarget.style.display="none"} />
+                      : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
                     <div className="overflow-hidden">
                       <p className="text-sm font-medium truncate">{user.fullName}</p>
                       <p className="text-xs text-white/40 truncate">{user.email}</p>
                     </div>
                   </div>
+                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition">
+                    <ShoppingBag size={15} className="text-orange-400" /> Đơn hàng của tôi
+                  </button>
                   <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
                     <Settings size={15} /> Tài khoản
                   </button>
@@ -358,7 +363,6 @@ export default function InformationProduct() {
       </nav>
 
       <div className="pt-[64px]">
-        {/* BREADCRUMB */}
         <div className="px-10 py-4 flex items-center gap-2 text-xs text-white/30 border-b border-white/5">
           <button onClick={() => navigate("/")} className="hover:text-white transition">Trang chủ</button>
           <ChevronRight size={12} />
@@ -367,10 +371,9 @@ export default function InformationProduct() {
           <span className="text-white/60 truncate max-w-xs">{product.name}</span>
         </div>
 
-        {/* PRODUCT DETAIL */}
         <div className="px-10 py-8 flex gap-10">
 
-          {/* LEFT: ẢNH */}
+          {/* ===== ẢNH ===== */}
           <div className="w-[420px] shrink-0 flex flex-col gap-3">
             <div className="w-full h-[380px] rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden flex items-center justify-center border border-white/5 relative">
               {activeImg === -1 && selectedVariant?.image ? (
@@ -380,20 +383,18 @@ export default function InformationProduct() {
                   <img src={images[Math.max(0, activeImg)]?.url || images[Math.max(0, activeImg)]} alt={product.name} className="w-full h-full object-contain p-6" />
                   {images.length > 1 && (
                     <>
-                      <button onClick={() => setActiveImg(i => { const idx = i < 0 ? 0 : i; return (idx - 1 + images.length) % images.length; })}
+                      <button onClick={() => setActiveImg(i => { const x = i < 0 ? 0 : i; return (x - 1 + images.length) % images.length; })}
                         className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition">
                         <ChevronLeft size={16} />
                       </button>
-                      <button onClick={() => setActiveImg(i => { const idx = i < 0 ? 0 : i; return (idx + 1) % images.length; })}
+                      <button onClick={() => setActiveImg(i => { const x = i < 0 ? 0 : i; return (x + 1) % images.length; })}
                         className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition">
                         <ChevronRight size={16} />
                       </button>
                     </>
                   )}
                 </>
-              ) : (
-                <Package size={64} className="text-white/10" />
-              )}
+              ) : <Package size={64} className="text-white/10" />}
             </div>
             {(images.length > 0 || selectedVariant?.image) && (
               <div className="flex gap-2 overflow-x-auto pb-1">
@@ -414,7 +415,7 @@ export default function InformationProduct() {
             )}
           </div>
 
-          {/* RIGHT: INFO */}
+          {/* ===== INFO ===== */}
           <div className="flex-1 flex flex-col gap-5">
             <div>
               {product.brand && <p className="text-xs text-orange-400 uppercase tracking-widest mb-1">{product.brand}</p>}
@@ -424,44 +425,52 @@ export default function InformationProduct() {
               )}
             </div>
 
+            {/* Giá */}
             <div className="flex flex-col gap-1">
               <div className="flex items-baseline gap-3 flex-wrap">
-                {hasDiscount && <span className="text-xl text-white/30 line-through">{currentPrice.toLocaleString("vi-VN")}đ</span>}
-                <span className={`text-3xl font-bold ${hasDiscount ? "text-orange-400" : "text-[#ff3b30]"}`}>
+                {hasDiscount && <span className="text-xl text-[#ff3b30]/40 line-through">{currentPrice.toLocaleString("vi-VN")}đ</span>}
+                <span className="text-3xl font-bold text-[#ff3b30]">
                   {discountedPrice ? discountedPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
                 </span>
                 {currentStock > 0
                   ? <span className="text-xs text-green-400">Còn hàng ({currentStock})</span>
                   : <span className="text-xs text-red-400">Hết hàng</span>}
               </div>
-              {hasDiscount && voucher && (
-                <div className="flex items-center gap-2">
+              {hasDiscount && activeVoucher && (
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs bg-orange-500/15 border border-orange-500/30 text-orange-400 px-2 py-0.5 rounded-full font-medium">
-                    🏷 {voucher.code} -{voucher.type === "percent" ? `${voucher.value}%` : `${parseInt(voucher.value).toLocaleString("vi-VN")}đ`}
+                    🏷 {activeVoucher.code} -{activeVoucher.type === "percent" ? `${activeVoucher.value}%` : `${parseInt(activeVoucher.value).toLocaleString("vi-VN")}đ`}
                   </span>
                   <span className="text-xs text-green-400">Tiết kiệm {(currentPrice - discountedPrice).toLocaleString("vi-VN")}đ</span>
+                  {activeVoucher.id !== voucher?.id && (
+                    <span className="text-[10px] text-white/30 bg-white/5 px-1.5 py-0.5 rounded-full">Voucher riêng SP</span>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Màu sắc */}
-            {colors.length > 0 && (
+            {/* Màu */}
+            {allColors.length > 0 && (
               <div>
-                <p className="text-xs text-white/40 mb-2">Màu sắc: <span className="text-white/70">{selColor || "—"}</span></p>
+                <p className="text-xs text-white/40 mb-2">
+                  Màu sắc:
+                  {selColor
+                    ? <span className="text-white/80 font-medium ml-1">{selColor}</span>
+                    : <span className="text-white/30 ml-1 italic text-[11px]">chưa chọn</span>}
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {colors.map(col => {
-                    // Kiểm tra màu này có biến thể khả dụng không (không ràng buộc storage/ram)
-                    const avail = variants.some(v => v.color === col);
+                  {allColors.map(col => {
+                    const isAvailable = availableColors.includes(col);
+                    const isSelected  = selColor === col;
+                    const hasStock    = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
                     return (
-                      <button key={col}
-                        onClick={() => avail && handleSelectColor(col)}
-                        disabled={!avail}
-                        className={`px-3 py-1.5 rounded-xl text-sm border transition
-                          ${selColor === col
-                            ? "bg-white text-black border-white font-medium"
-                            : avail
-                              ? "bg-white/5 border-white/15 text-white/60 hover:border-white/40"
-                              : "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed line-through"}`}>
+                      <button key={col} onClick={() => hasStock && handleColorClick(col)} disabled={!hasStock}
+                        className={`px-3 py-1.5 rounded-xl text-sm border transition font-medium
+                          ${isSelected
+                            ? "bg-white text-black border-white"
+                            : !isAvailable || !hasStock
+                              ? "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed" + (!hasStock ? " line-through" : " opacity-40")
+                              : "bg-white/5 border-white/15 text-white/60 hover:border-white/40 hover:text-white"}`}>
                         {col}
                       </button>
                     );
@@ -470,53 +479,40 @@ export default function InformationProduct() {
               </div>
             )}
 
-            {/* RAM */}
-            {rams.length > 0 && (
+            {/* Cấu hình — dùng getComboDisplayPrice để check đúng variant_id */}
+            {allCombos.length > 0 && (
               <div>
-                <p className="text-xs text-white/40 mb-2">RAM: <span className="text-white/70">{selRam || "—"}</span></p>
+                <p className="text-xs text-white/40 mb-2">
+                  Cấu hình:
+                  {selCombo
+                    ? <span className="text-white/80 font-medium ml-1">{selCombo.replace("|", " · ").replace(/^\|/, "").replace(/\|$/, "")}</span>
+                    : <span className="text-white/30 ml-1 italic text-[11px]">chưa chọn</span>}
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {rams.map(r => {
-                    const avail = variants.some(v => (!selColor || v.color === selColor) && v.ram === r);
-                    return (
-                      <button key={r}
-                        onClick={() => avail && handleSelectRam(r)}
-                        disabled={!avail}
-                        className={`px-3 py-1.5 rounded-xl text-sm border transition
-                          ${selRam === r
-                            ? "bg-blue-500/20 border-blue-500 text-blue-300 font-medium"
-                            : avail
-                              ? "bg-white/5 border-white/15 text-white/60 hover:border-white/40"
-                              : "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed line-through"}`}>
-                        {r}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                  {allCombos.map(v => {
+                    const comboKey    = `${v.ram || ""}|${v.storage || ""}`;
+                    const isSelected  = selCombo === comboKey;
+                    const isAvailable = availableCombos.some(c => `${c.ram || ""}|${c.storage || ""}` === comboKey);
+                    const label       = [v.ram, v.storage].filter(Boolean).join(" · ");
+                    const { price, disc, hasD } = getComboDisplayPrice(v);
 
-            {/* Bộ nhớ */}
-            {storages.length > 0 && (
-              <div>
-                <p className="text-xs text-white/40 mb-2">Bộ nhớ: <span className="text-white/70">{selStorage || "—"}</span></p>
-                <div className="flex flex-wrap gap-2">
-                  {storages.map(s => {
-                    const avail = variants.some(v =>
-                      (!selColor || v.color === selColor) &&
-                      (!selRam   || v.ram   === selRam) &&
-                      v.storage === s
-                    );
                     return (
-                      <button key={s}
-                        onClick={() => avail && handleSelectStorage(s)}
-                        disabled={!avail}
-                        className={`px-3 py-1.5 rounded-xl text-sm border transition
-                          ${selStorage === s
-                            ? "bg-orange-500/20 border-orange-500 text-orange-300 font-medium"
-                            : avail
-                              ? "bg-white/5 border-white/15 text-white/60 hover:border-white/40"
-                              : "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed line-through"}`}>
-                        {s}
+                      <button key={comboKey} onClick={() => isAvailable && handleComboClick(comboKey)} disabled={!isAvailable}
+                        className={`flex flex-col items-start px-3 py-2 rounded-xl border transition
+                          ${isSelected
+                            ? "bg-orange-500/20 border-orange-500 text-orange-300"
+                            : !isAvailable
+                              ? "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed opacity-40"
+                              : "bg-white/5 border-white/15 text-white/60 hover:border-white/40 hover:text-white"}`}>
+                        <span className="text-sm font-semibold">{label || "Mặc định"}</span>
+                        <span className={`text-xs mt-0.5 ${hasD ? "text-orange-400" : "text-white/40"}`}>
+                          {hasD ? (
+                            <>
+                              <span className="line-through text-white/25 mr-1 text-[10px]">{price.toLocaleString("vi-VN")}đ</span>
+                              {disc.toLocaleString("vi-VN")}đ
+                            </>
+                          ) : price.toLocaleString("vi-VN") + "đ"}
+                        </span>
                       </button>
                     );
                   })}
@@ -550,19 +546,25 @@ export default function InformationProduct() {
                 { icon: ZapIcon,   text: "Hỗ trợ 24/7" },
               ].map(({ icon: Icon, text }) => (
                 <div key={text} className="flex items-center gap-2 text-xs text-white/40">
-                  <Icon size={14} className="text-orange-400 shrink-0" />{text}
+                  <Icon size={14} className="text-orange-400 shrink-0" />
+                  {text}
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* TABS */}
+        {/* ===== TABS ===== */}
         <div className="px-10 pb-10">
           <div className="flex gap-1 border-b border-white/10 mb-6">
-            {[{ key: "info", label: "Mô tả sản phẩm" }, { key: "specs", label: "Thông tin sản phẩm" }, { key: "review", label: "Đánh giá" }].map(({ key, label }) => (
+            {[
+              { key: "info",   label: "Mô tả sản phẩm" },
+              { key: "specs",  label: "Thông tin sản phẩm" },
+              { key: "review", label: "Đánh giá" },
+            ].map(({ key, label }) => (
               <button key={key} onClick={() => setActiveTab(key)}
-                className={`px-5 py-3 text-sm font-medium transition border-b-2 -mb-px ${activeTab === key ? "text-orange-400 border-orange-500" : "text-white/40 border-transparent hover:text-white"}`}>
+                className={`px-5 py-3 text-sm font-medium transition border-b-2 -mb-px
+                  ${activeTab === key ? "text-orange-400 border-orange-500" : "text-white/40 border-transparent hover:text-white"}`}>
                 {label}
               </button>
             ))}
@@ -573,7 +575,7 @@ export default function InformationProduct() {
               {productContent.length > 0
                 ? <BlockRenderer blocks={productContent} />
                 : product.description
-                  ? <div className="prose-custom text-white/70 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: product.description }} />
+                  ? <div className="text-white/70 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: product.description }} />
                   : <p className="text-white/20 text-sm italic">Chưa có mô tả sản phẩm</p>}
             </div>
           )}
@@ -596,9 +598,6 @@ export default function InformationProduct() {
                   </div>
                 ))
               }
-              {specsGroups.length > 0 && variants.length > 1 && (
-                <p className="text-xs text-white/20 italic">* Thông số hiển thị cho biến thể: {[selColor, selStorage].filter(Boolean).join(" / ")}</p>
-              )}
             </div>
           )}
 
@@ -610,33 +609,23 @@ export default function InformationProduct() {
           )}
         </div>
 
-        {/* SẢN PHẨM LIÊN QUAN */}
+        {/* ===== SẢN PHẨM LIÊN QUAN ===== */}
         {related.length > 0 && (
           <div className="px-10 pb-12 border-t border-white/5 pt-8">
             <h2 className="text-lg font-semibold mb-5">Sản phẩm tương tự</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
               {related.map(p => (
                 <article key={p.id} onClick={() => navigate(`/product/${p.id}`)}
-                  className="flex flex-col gap-3 p-3 rounded-[20px] cursor-pointer overflow-hidden transition-all duration-300 hover:-translate-y-1 bg-[#00000001] backdrop-blur-[2px] shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]">
+                  className="flex flex-col gap-3 p-3 rounded-[20px] cursor-pointer hover:-translate-y-1 transition-all duration-300
+                    shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]">
                   <div className="w-full h-36 rounded-xl overflow-hidden bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
                     {p.image ? <img src={p.image} alt={p.name} className="w-full h-full object-contain p-2" /> : <Package size={28} className="text-white/10" />}
                   </div>
                   <div>
                     <h3 className="font-semibold text-sm line-clamp-2 leading-snug mb-1">{p.name}</h3>
-                    {(() => {
-                      const op = parseFloat(p.min_price || 0);
-                      let dp = op, hasDis = false;
-                      if (voucher && op && voucher.scope === "all") {
-                        dp = voucher.type === "percent" ? Math.round(op * (1 - Math.min(voucher.value,100)/100)) : Math.max(0, op - voucher.value);
-                        hasDis = dp < op;
-                      }
-                      return (
-                        <div className="text-right">
-                          {hasDis && <p className="text-white/30 text-xs line-through leading-none">{op.toLocaleString("vi-VN")}đ</p>}
-                          <p className={`font-semibold text-sm ${hasDis ? "text-orange-400" : "text-[#ff3b30]"}`}>{dp ? dp.toLocaleString("vi-VN") + "đ" : "Liên hệ"}</p>
-                        </div>
-                      );
-                    })()}
+                    <p className="text-[#ff3b30] font-semibold text-sm text-right">
+                      {parseFloat(p.min_price) ? parseFloat(p.min_price).toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+                    </p>
                   </div>
                 </article>
               ))}

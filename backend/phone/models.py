@@ -243,9 +243,20 @@ class Voucher(models.Model):
     Code        = models.CharField(max_length=50, unique=True)
     Type        = models.CharField(max_length=10)       # 'percent' | 'fixed'
     Value       = models.DecimalField(max_digits=12, decimal_places=2)
-    Scope       = models.CharField(max_length=20, default='all')  # 'all'|'category'|'product'
+    Scope       = models.CharField(max_length=20, default='all')  # 'all'|'category'|'product'|'variant'
+
     CategoryID  = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, db_column='CategoryID')
     ProductID   = models.ForeignKey('Product',  on_delete=models.SET_NULL, null=True, blank=True, db_column='ProductID')
+
+    VariantID = models.ForeignKey(
+        'ProductVariant',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_column='VariantID',
+        related_name='vouchers'
+    )
+
     MinOrder    = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     MaxDiscount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     StartDate   = models.DateField(null=True, blank=True)
