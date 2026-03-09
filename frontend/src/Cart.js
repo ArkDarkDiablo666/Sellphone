@@ -4,9 +4,10 @@ import {
   ShoppingCart, X, Trash2, Plus, Minus, Tag,
   ChevronRight, Package, ArrowLeft, Check, ShoppingBag,
   User, LogOut, Settings, ChevronDown, AlertTriangle,
-  Ticket, Info, Sparkles, ChevronUp, BadgePercent, Zap
+  Ticket, Info, Sparkles, ChevronUp, BadgePercent, Zap, Search
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { SearchModal } from "./Searchbar";
 
 const API = "http://localhost:8000";
 
@@ -304,7 +305,7 @@ function CartPopup() {
                       return (
                         <div>
                           {hasDis && <p className="text-white/30 text-[10px] line-through leading-none">{(item.price * item.qty).toLocaleString("vi-VN")}đ</p>}
-                          <p className="font-semibold text-xs mt-0.5 text-orange-400">{(dp * item.qty).toLocaleString("vi-VN")}đ</p>
+                          <p className="font-semibold text-xs mt-0.5 text-[#ff3b30]">{(dp * item.qty).toLocaleString("vi-VN")}đ</p>
                         </div>
                       );
                     })()}
@@ -391,7 +392,6 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-[420px] shadow-2xl max-h-[80vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-start gap-3 mb-5">
           <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
             <AlertTriangle size={18} className="text-amber-400" />
@@ -404,8 +404,6 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
           </div>
           <button onClick={onClose} className="ml-auto text-white/30 hover:text-white shrink-0"><X size={16} /></button>
         </div>
-
-        {/* Voucher info */}
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-500/5 border border-orange-500/20 mb-4">
           <BadgePercent size={16} className="text-orange-400 shrink-0" />
           <div>
@@ -416,8 +414,6 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
             </p>
           </div>
         </div>
-
-        {/* Not applicable items */}
         {notApplicable.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-semibold text-red-400/80 mb-2 flex items-center gap-1.5">
@@ -439,8 +435,6 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
             </div>
           </div>
         )}
-
-        {/* Applicable items */}
         {applicable.length > 0 && (
           <div className="mb-5">
             <p className="text-xs font-semibold text-green-400/80 mb-2 flex items-center gap-1.5">
@@ -449,7 +443,6 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
             <div className="flex flex-col gap-1.5">
               {applicable.map(item => {
                 const disc = calcVoucherDiscount(voucher, [item]);
-                const discPerUnit = Math.round(disc / item.qty);
                 return (
                   <div key={item.key} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-green-500/5 border border-green-500/10">
                     <div className="w-8 h-8 rounded-lg bg-gray-800 shrink-0 overflow-hidden">
@@ -466,8 +459,6 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
             </div>
           </div>
         )}
-
-        {/* Actions */}
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">
             Chọn voucher khác
@@ -494,7 +485,6 @@ function ItemVoucherPanel({ item, voucherList, activeVoucher, onSelectVoucher, o
     <div className="fixed inset-0 z-[150] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-[#161616] border border-white/10 rounded-2xl w-[380px] shadow-2xl overflow-hidden">
-        {/* Header */}
         <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -505,7 +495,6 @@ function ItemVoucherPanel({ item, voucherList, activeVoucher, onSelectVoucher, o
           </div>
           <button onClick={onClose} className="text-white/30 hover:text-white"><X size={16} /></button>
         </div>
-
         <div className="max-h-[60vh] overflow-y-auto p-4 flex flex-col gap-2">
           {applicable.length === 0 && (
             <div className="text-center py-8">
@@ -514,7 +503,6 @@ function ItemVoucherPanel({ item, voucherList, activeVoucher, onSelectVoucher, o
               <p className="text-xs text-white/20 mt-1">cho sản phẩm này</p>
             </div>
           )}
-
           {applicable.length > 0 && (
             <div className="mb-1">
               <p className="text-[10px] font-semibold text-green-400/70 uppercase tracking-wider mb-2">Khả dụng</p>
@@ -527,7 +515,6 @@ function ItemVoucherPanel({ item, voucherList, activeVoucher, onSelectVoucher, o
                       ${isActive
                         ? "bg-orange-500/15 border border-orange-500/40"
                         : "bg-white/5 hover:bg-white/8 border border-white/10 hover:border-white/20"}`}>
-                    {/* Voucher icon */}
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isActive ? "bg-orange-500/20" : "bg-white/5"}`}>
                       {v.type === "percent" ? <BadgePercent size={15} className={isActive ? "text-orange-400" : "text-white/40"} /> : <Zap size={15} className={isActive ? "text-orange-400" : "text-white/40"} />}
                     </div>
@@ -552,7 +539,6 @@ function ItemVoucherPanel({ item, voucherList, activeVoucher, onSelectVoucher, o
               })}
             </div>
           )}
-
           {notApplicable.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold text-white/20 uppercase tracking-wider mb-2">Không khả dụng</p>
@@ -593,6 +579,7 @@ export default function CartPage() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const dropdownRef = useRef(null);
 
   // Voucher states
@@ -604,10 +591,10 @@ export default function CartPage() {
   const [showVList, setShowVList] = useState(false);
 
   // Not applicable popup
-  const [notApplicablePopup, setNotApplicablePopup] = useState(null); // { voucher }
+  const [notApplicablePopup, setNotApplicablePopup] = useState(null);
 
   // Per-item voucher panel
-  const [itemVoucherPanel, setItemVoucherPanel] = useState(null); // item
+  const [itemVoucherPanel, setItemVoucherPanel] = useState(null);
 
   // Best voucher suggestion
   const [bestSuggestion, setBestSuggestion] = useState(null);
@@ -629,7 +616,6 @@ export default function CartPage() {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  // Fetch vouchers whenever selected items change
   useEffect(() => {
     if (selectedItems.length === 0) { setVoucherList([]); setBestSuggestion(null); return; }
     fetch(`${API}/api/voucher/active/`)
@@ -639,7 +625,6 @@ export default function CartPage() {
           .map(v => ({ ...v, discountAmt: calcVoucherDiscount(v, selectedItems) }))
           .sort((a, b) => b.discountAmt - a.discountAmt);
         setVoucherList(withDisc);
-        // Best suggestion: find best voucher that's not currently applied
         const best = withDisc.find(v => v.discountAmt > 0 && (!voucher || v.id !== voucher?.id));
         if (best && (!voucher || best.discountAmt > calcVoucherDiscount(voucher, selectedItems))) {
           setBestSuggestion(best);
@@ -649,7 +634,6 @@ export default function CartPage() {
       }).catch(() => {});
   }, [selectedItems.length, voucher]);
 
-  // Sync vInput with voucher
   useEffect(() => { setVInput(voucher?.code || ""); }, [voucher]);
 
   const showToast = (type, msg) => {
@@ -661,15 +645,12 @@ export default function CartPage() {
 
   const applyVoucherObj = (v, force = false) => {
     if (!force) {
-      // Check if voucher applies to ALL selected items
       const notApplicable = selectedItems.filter(i => !voucherAppliesToItem(v, i));
       if (notApplicable.length > 0 && selectedItems.filter(i => voucherAppliesToItem(v, i)).length > 0) {
-        // Partial - show popup
         setNotApplicablePopup({ voucher: v });
         return;
       }
       if (notApplicable.length === selectedItems.length) {
-        // None apply
         showToast("error", `Voucher "${v.code}" không áp dụng cho sản phẩm đã chọn`);
         return;
       }
@@ -695,7 +676,6 @@ export default function CartPage() {
       const data = await res.json();
       if (res.ok) {
         const v = data.voucher;
-        // Check applicability
         const notApplicable = selectedItems.filter(i => !voucherAppliesToItem(v, i));
         const applicable = selectedItems.filter(i => voucherAppliesToItem(v, i));
         if (applicable.length === 0) {
@@ -745,11 +725,7 @@ export default function CartPage() {
           voucherList={voucherList}
           activeVoucher={voucher}
           onSelectVoucher={(v) => {
-            if (v) {
-              applyVoucherObj(v, false);
-            } else {
-              removeVoucher();
-            }
+            if (v) { applyVoucherObj(v, false); } else { removeVoucher(); }
             setItemVoucherPanel(null);
           }}
           onClose={() => setItemVoucherPanel(null)}
@@ -774,6 +750,8 @@ export default function CartPage() {
         </div>
       )}
 
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
       {/* NAVBAR */}
       <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
@@ -783,6 +761,11 @@ export default function CartPage() {
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
+          {/* SEARCH BUTTON */}
+          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
+            <Search size={20} />
+          </button>
+
           <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
@@ -810,9 +793,6 @@ export default function CartPage() {
                       <p className="text-xs text-white/40 truncate">{user.email}</p>
                     </div>
                   </div>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition">
-                    <ShoppingBag size={15} className="text-orange-400" /> Đơn hàng của tôi
-                  </button>
                   <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
                     <Settings size={15} /> Tài khoản
                   </button>
@@ -860,7 +840,6 @@ export default function CartPage() {
           <div className="flex gap-6 items-start">
             {/* LEFT */}
             <div className="flex-1 flex flex-col gap-3">
-              {/* Select all */}
               <div className="flex items-center justify-between px-5 py-3 rounded-2xl border border-white/5" style={{ background: "#161616" }}>
                 <label className="flex items-center gap-2.5 cursor-pointer">
                   <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} className="accent-orange-500 w-4 h-4" />
@@ -872,12 +851,10 @@ export default function CartPage() {
                 </button>
               </div>
 
-              {/* Item list */}
               <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: "#161616" }}>
                 {items.map((item, idx) => {
                   const dp = getDiscountedPrice(item);
                   const hasDis = dp < item.price;
-                  // Vouchers applicable to this item
                   const itemApplicableVouchers = voucherList.filter(v => {
                     const d = calcVoucherDiscount(v, [item]);
                     return d > 0;
@@ -897,11 +874,9 @@ export default function CartPage() {
                             <p className="text-xs text-white/40 mt-1">{[item.color && `Màu: ${item.color}`, item.storage, item.ram].filter(Boolean).join(" · ")}</p>
                           )}
                           <div className="mt-2">
-                            {hasDis && <p className="text-white/30 text-xs line-through leading-none">{item.price.toLocaleString("vi-VN")}đ</p>}
-                            <p className="text-orange-400 font-bold text-sm">{dp.toLocaleString("vi-VN")}đ</p>
+                            {hasDis && <p className="text-[#ff3b30]/40 text-xs line-through leading-none">{item.price.toLocaleString("vi-VN")}đ</p>}
+                            <p className="text-[#ff3b30] font-bold text-sm">{dp.toLocaleString("vi-VN")}đ</p>
                           </div>
-
-                          {/* Voucher badge for this item */}
                           {isVoucherAppliedToItem && voucher && (
                             <div className="flex items-center gap-1.5 mt-1.5">
                               <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-green-500/10 border border-green-500/20">
@@ -918,23 +893,20 @@ export default function CartPage() {
                           )}
                         </div>
 
-                        {/* Qty */}
                         <div className="flex items-center border border-white/10 rounded-xl overflow-hidden shrink-0">
                           <button onClick={() => updateQty(item.key, item.qty - 1)} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 transition"><Minus size={13} /></button>
                           <span className="w-10 text-center text-sm font-medium">{parseInt(item.qty) || 1}</span>
                           <button onClick={() => updateQty(item.key, item.qty + 1)} disabled={item.qty >= item.stock} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 transition disabled:opacity-30"><Plus size={13} /></button>
                         </div>
 
-                        {/* Total price */}
                         <div className="w-32 text-right shrink-0">
-                          {hasDis && <p className="text-white/30 text-xs line-through">{(item.price * item.qty).toLocaleString("vi-VN")}đ</p>}
-                          <p className="text-orange-400 font-bold text-sm">{(dp * item.qty).toLocaleString("vi-VN")}đ</p>
+                          {hasDis && <p className="text-[#ff3b30]/40 text-xs line-through">{(item.price * item.qty).toLocaleString("vi-VN")}đ</p>}
+                          <p className="text-[#ff3b30] font-bold text-sm">{(dp * item.qty).toLocaleString("vi-VN")}đ</p>
                         </div>
 
                         <button onClick={() => removeItem(item.key)} className="w-9 h-9 rounded-xl hover:bg-red-500/10 text-white/20 hover:text-red-400 flex items-center justify-center transition shrink-0"><Trash2 size={15} /></button>
                       </div>
 
-                      {/* Voucher hints for this item */}
                       {itemApplicableVouchers.length > 0 && (
                         <div className="ml-[68px] mt-2.5 flex items-center gap-2 flex-wrap">
                           <button
@@ -945,7 +917,6 @@ export default function CartPage() {
                             <span>{itemApplicableVouchers.length} voucher khả dụng</span>
                             <ChevronRight size={9} />
                           </button>
-                          {/* Show best voucher hint */}
                           {itemApplicableVouchers[0] && !isVoucherAppliedToItem && (
                             <span className="text-[10px] text-white/25">
                               Tốt nhất: <span className="font-mono text-orange-400/50">{itemApplicableVouchers[0].code}</span>
@@ -969,8 +940,6 @@ export default function CartPage() {
 
             {/* RIGHT SIDEBAR */}
             <div className="w-80 shrink-0 flex flex-col gap-3 sticky top-24">
-
-              {/* Best voucher suggestion banner */}
               {bestSuggestion && !voucher && (
                 <div className="rounded-2xl border border-orange-500/20 p-4 bg-orange-500/5">
                   <div className="flex items-start gap-3">
@@ -995,7 +964,6 @@ export default function CartPage() {
                 </div>
               )}
 
-              {/* Voucher section */}
               <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#161616" }}>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-semibold flex items-center gap-2">
@@ -1033,7 +1001,6 @@ export default function CartPage() {
                 )}
                 {vErr && <p className="text-red-400 text-xs mt-1.5">{vErr}</p>}
 
-                {/* Voucher list */}
                 {showVList && (
                   <div className="mt-3 flex flex-col gap-1.5 max-h-60 overflow-y-auto">
                     <p className="text-xs text-white/30 mb-1">Chọn voucher phù hợp nhất:</p>
@@ -1088,7 +1055,7 @@ export default function CartPage() {
                   )}
                   <div className="border-t border-white/10 pt-2.5 flex justify-between font-bold">
                     <span>Cần thanh toán</span>
-                    <span className="text-orange-400 text-base">{total.toLocaleString("vi-VN")}đ</span>
+                    <span className="text-[#ff3b30] text-base">{total.toLocaleString("vi-VN")}đ</span>
                   </div>
                 </div>
                 <button

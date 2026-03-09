@@ -13,7 +13,8 @@ import Staff from "./Staff";
 import { CartProvider } from "./Cart";
 import Cartpage from "./Cart";
 import Orders from "./Orders";
-import Blog, { BlogDetail } from "./Blog"; 
+import Blog, { BlogDetail } from "./Blog";
+import Searchage from "./Searchpage";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
 function App() {
@@ -37,6 +38,7 @@ function App() {
           <Route path="/admin/login" element={<Loginmanage />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/staff" element={<Staff />} />
+          <Route path="/search" element={<Searchage />} />
           <Route path="*" element={<Login />} />
         </Routes>
       </CartProvider>

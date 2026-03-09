@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { BlockRenderer } from "./Blockeditor";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useCart } from "./Cart";
 import {
   User, LogOut, Settings, ShoppingCart, ChevronDown,
   AlertTriangle, ShoppingBag, ChevronLeft, ChevronRight, Package,
-  Shield, Truck, RotateCcw, ZapIcon
+  Shield, Truck, RotateCcw, ZapIcon, Star, Heart, MessageCircle,
+  Send, Image as ImageIcon, X, ChevronUp, Edit2, CornerDownRight,
+  Camera, Loader2, Search
 } from "lucide-react";
+import { SearchModal } from "./Searchbar";
 
 const API = "http://localhost:8000";
 
@@ -30,31 +33,538 @@ const parseGB = (s) => {
   return n;
 };
 
-// ── Kiểm tra voucher có áp dụng cho variant cụ thể không ──
 const voucherAppliesToVariant = (voucher, product, variant) => {
   if (!voucher) return false;
   const scope = voucher.scope || "all";
-
   if (scope === "all") return true;
-
   if (scope === "category") {
     return String(product?.category_id) === String(voucher.category_id);
   }
-
   if (scope === "product") {
-    // Phải đúng product
     if (String(product?.id) !== String(voucher.product_id)) return false;
-    // Nếu voucher có variant_id → phải đúng variant
     if (voucher.variant_id) {
       return variant && String(variant.id) === String(voucher.variant_id);
     }
-    // Không có variant_id → áp dụng toàn sản phẩm
     return true;
   }
-
   return false;
 };
 
+// ═══════════════════════════════════════════════════════
+//  REVIEW & COMMENT SECTION
+// ═══════════════════════════════════════════════════════
+
+const STAR_LABELS = ["", "Rất tệ", "Tệ", "Bình thường", "Tốt", "Xuất sắc"];
+const STAR_COLORS = ["", "text-red-400", "text-orange-400", "text-yellow-400", "text-lime-400", "text-green-400"];
+
+function StarRow({ value, onChange, size = 28, readonly = false }) {
+  const [hover, setHover] = useState(0);
+  const active = hover || value;
+  return (
+    <div className="flex items-center gap-1">
+      {[1,2,3,4,5].map(n => (
+        <button key={n} type="button"
+          onClick={() => !readonly && onChange && onChange(n)}
+          onMouseEnter={() => !readonly && setHover(n)}
+          onMouseLeave={() => !readonly && setHover(0)}
+          className={`transition-transform ${!readonly && "hover:scale-110 cursor-pointer"}`}
+          style={{ background: "none", border: "none", padding: 0 }}>
+          <Star
+            size={size}
+            fill={n <= active ? "#f59e0b" : "none"}
+            stroke={n <= active ? "#f59e0b" : "#ffffff30"}
+            strokeWidth={1.5}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MediaThumb({ url, type, onRemove }) {
+  return (
+    <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10 group">
+      {type === "video"
+        ? <video src={url} className="w-full h-full object-cover" muted />
+        : <img src={url} alt="" className="w-full h-full object-cover" />
+      }
+      {onRemove && (
+        <button onClick={onRemove}
+          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 flex items-center justify-center
+            opacity-0 group-hover:opacity-100 transition">
+          <X size={10} className="text-white" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function WriteReviewModal({ productId, user, onClose, onSubmit, existing }) {
+  const [rating, setRating] = useState(existing?.rating || 0);
+  const [content, setContent] = useState(existing?.content || "");
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [previewUrls, setPreviewUrls] = useState(existing?.media || []);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const fileRef = useRef();
+
+  const handleFiles = (files) => {
+    const arr = Array.from(files).slice(0, 5 - previewUrls.length);
+    const urls = arr.map(f => ({ url: URL.createObjectURL(f), type: f.type.startsWith("video") ? "video" : "image", file: f }));
+    setMediaFiles(p => [...p, ...arr]);
+    setPreviewUrls(p => [...p, ...urls]);
+  };
+
+  const removeMedia = (i) => {
+    setPreviewUrls(p => p.filter((_, idx) => idx !== i));
+    setMediaFiles(p => p.filter((_, idx) => idx !== i));
+  };
+
+  const handleSubmit = async () => {
+    if (!rating) return setError("Vui lòng chọn số sao");
+    setUploading(true); setError("");
+    try {
+      const uploadedMedia = [...(existing?.media || []).filter(m => typeof m.url === "string" && !m.url.startsWith("blob"))];
+      for (const file of mediaFiles) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("customer_id", user.id);
+        const res = await fetch(`${API}/api/review/upload-media/`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (data.url) uploadedMedia.push({ url: data.url, type: data.media_type });
+      }
+      const body = { customer_id: user.id, product_id: productId, rating, content, media: uploadedMedia };
+      const endpoint = existing ? `${API}/api/review/update/` : `${API}/api/review/create/`;
+      if (existing) body.review_id = existing.id;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Lỗi");
+      onSubmit(data.review);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-lg bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 flex flex-col gap-5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">{existing ? "Chỉnh sửa đánh giá" : "Viết đánh giá"}</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10"><X size={16} /></button>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <StarRow value={rating} onChange={setRating} size={36} />
+          {rating > 0 && <span className={`text-sm font-medium ${STAR_COLORS[rating]}`}>{STAR_LABELS[rating]}</span>}
+        </div>
+        <textarea
+          value={content} onChange={e => setContent(e.target.value)}
+          placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm này..."
+          rows={4}
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30
+            resize-none focus:outline-none focus:border-orange-500/50 transition"
+        />
+        <div>
+          <div className="flex flex-wrap gap-2">
+            {previewUrls.map((m, i) => (
+              <MediaThumb key={i} url={m.url || m} type={m.type || "image"} onRemove={() => removeMedia(i)} />
+            ))}
+            {previewUrls.length < 5 && (
+              <button onClick={() => fileRef.current?.click()}
+                className="w-20 h-20 rounded-xl border border-dashed border-white/20 flex flex-col items-center justify-center gap-1
+                  hover:border-orange-500/50 hover:bg-orange-500/5 transition cursor-pointer">
+                <ImageIcon size={18} className="text-white/30" />
+                <span className="text-[10px] text-white/30">Thêm ảnh</span>
+              </button>
+            )}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
+            onChange={e => handleFiles(e.target.files)} />
+        </div>
+        {error && <p className="text-red-400 text-xs">{error}</p>}
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="px-5 py-2 rounded-xl border border-white/10 text-sm hover:bg-white/5 transition">Hủy</button>
+          <button onClick={handleSubmit} disabled={uploading || !rating}
+            className="px-6 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-sm font-medium transition flex items-center gap-2">
+            {uploading && <Loader2 size={14} className="animate-spin" />}
+            {existing ? "Cập nhật" : "Gửi đánh giá"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewCard({ review, user, onLike, onAdminReply }) {
+  const [showReply, setShowReply] = useState(false);
+  const isOwn = user && String(user.id) === String(review.customer_id);
+
+  return (
+    <div className="flex flex-col gap-3 py-5 border-b border-white/5 last:border-0">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-xs font-bold shrink-0">
+          {review.customer_avatar
+            ? <img src={review.customer_avatar} className="w-full h-full object-cover rounded-full" alt="" />
+            : (review.customer_name?.[0] || "U").toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium">{review.customer_name}</span>
+            {review.variant && (
+              <span className="text-xs text-white/30 bg-white/5 px-2 py-0.5 rounded-full">{review.variant}</span>
+            )}
+            <span className="text-xs text-white/20 ml-auto">{new Date(review.created_at).toLocaleDateString("vi-VN")}</span>
+          </div>
+          <div className="mt-1">
+            <StarRow value={review.rating} readonly size={14} />
+          </div>
+          {review.content && <p className="mt-2 text-sm text-white/80 leading-relaxed">{review.content}</p>}
+        </div>
+      </div>
+      {review.media?.length > 0 && (
+        <div className="flex flex-wrap gap-2 pl-12">
+          {review.media.map((m, i) => <MediaThumb key={i} url={m.url} type={m.type} />)}
+        </div>
+      )}
+      {review.admin_reply && (
+        <div className="ml-12 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex gap-3">
+          <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
+            <span className="text-[9px] font-bold text-white">PZ</span>
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-orange-400">PHONEZONE</span>
+            <p className="text-sm text-white/70 mt-0.5">{review.admin_reply.content}</p>
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-4 pl-12">
+        <button onClick={() => onLike("review", review.id)}
+          className={`flex items-center gap-1.5 text-xs transition ${review.liked ? "text-red-400" : "text-white/30 hover:text-red-400"}`}>
+          <Heart size={13} fill={review.liked ? "currentColor" : "none"} />
+          {review.likes > 0 && review.likes}
+          <span>Thích</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CommentCard({ comment, user, onLike, depth = 0 }) {
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [replies, setReplies] = useState(comment.replies || []);
+
+  const submitReply = async () => {
+    if (!replyText.trim() || !user) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API}/api/comment/create/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: user.id, product_id: comment.product_id, content: replyText, parent_id: comment.id })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setReplies(p => [...p, data.comment]);
+        setReplyText("");
+        setReplyOpen(false);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className={`${depth > 0 ? "pl-10 border-l border-white/5 ml-4" : ""}`}>
+      <div className="flex gap-3 py-3">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+          {comment.customer_avatar
+            ? <img src={comment.customer_avatar} className="w-full h-full object-cover rounded-full" alt="" />
+            : (comment.customer_name?.[0] || "U").toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{comment.customer_name}</span>
+            <span className="text-xs text-white/20">{new Date(comment.created_at).toLocaleDateString("vi-VN")}</span>
+          </div>
+          <p className="mt-1 text-sm text-white/75 leading-relaxed">{comment.content}</p>
+          {comment.admin_reply && (
+            <div className="mt-2 bg-orange-500/10 border border-orange-500/20 rounded-xl p-2.5 flex gap-2">
+              <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
+                <span className="text-[8px] font-bold text-white">PZ</span>
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-orange-400">PHONEZONE</span>
+                <p className="text-xs text-white/70 mt-0.5">{comment.admin_reply.content}</p>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-4 mt-2">
+            <button onClick={() => onLike("comment", comment.id)}
+              className={`flex items-center gap-1 text-xs transition ${comment.liked ? "text-red-400" : "text-white/30 hover:text-red-400"}`}>
+              <Heart size={12} fill={comment.liked ? "currentColor" : "none"} />
+              {comment.likes > 0 && <span>{comment.likes}</span>}
+              <span>Thích</span>
+            </button>
+            {depth === 0 && (
+              <button onClick={() => setReplyOpen(r => !r)}
+                className="flex items-center gap-1 text-xs text-white/30 hover:text-white/60 transition">
+                <CornerDownRight size={12} />
+                Trả lời
+              </button>
+            )}
+          </div>
+          {replyOpen && (
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                value={replyText} onChange={e => setReplyText(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitReply()}
+                placeholder="Viết trả lời..."
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-white/30
+                  focus:outline-none focus:border-orange-500/40 transition"
+              />
+              <button onClick={submitReply} disabled={submitting || !replyText.trim()}
+                className="w-9 h-9 flex items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition">
+                {submitting ? <Loader2 size={14} className="animate-spin text-white" /> : <Send size={14} className="text-white" />}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      {replies.map(r => (
+        <CommentCard key={r.id} comment={{ ...r, product_id: comment.product_id }} user={user} onLike={onLike} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+function ReviewCommentSection({ productId, user, navigate }) {
+  const [reviews, setReviews] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showWriteModal, setShowWriteModal] = useState(false);
+  const [editingReview, setEditingReview] = useState(null);
+  const [commentText, setCommentText] = useState("");
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [activeSection, setActiveSection] = useState("reviews");
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [rRes, cRes] = await Promise.all([
+        fetch(`${API}/api/review/list/?product_id=${productId}${user ? `&customer_id=${user.id}` : ""}`),
+        fetch(`${API}/api/comment/list/?product_id=${productId}${user ? `&customer_id=${user.id}` : ""}`),
+      ]);
+      const [rData, cData] = await Promise.all([rRes.json(), cRes.json()]);
+      setReviews(rData.reviews || []);
+      setStats(rData.stats || null);
+      setComments(cData.comments || []);
+    } finally {
+      setLoading(false);
+    }
+  }, [productId, user?.id]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleLike = async (type, id) => {
+    if (!user) return navigate("/login");
+    const res = await fetch(`${API}/api/like/toggle/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_id: user.id, type, target_id: id })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (type === "review") {
+        setReviews(prev => prev.map(r => r.id === id ? { ...r, liked: data.liked, likes: data.count } : r));
+      } else {
+        setComments(prev => prev.map(c => c.id === id ? { ...c, liked: data.liked, likes: data.count } : c));
+      }
+    }
+  };
+
+  const handleReviewSubmit = (review) => {
+    setReviews(prev => {
+      const exists = prev.find(r => r.id === review.id);
+      return exists ? prev.map(r => r.id === review.id ? review : r) : [review, ...prev];
+    });
+    setShowWriteModal(false);
+    setEditingReview(null);
+    fetchData();
+  };
+
+  const submitComment = async () => {
+    if (!commentText.trim()) return;
+    if (!user) return navigate("/login");
+    setSubmittingComment(true);
+    try {
+      const res = await fetch(`${API}/api/comment/create/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: user.id, product_id: productId, content: commentText })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setComments(p => [data.comment, ...p]);
+        setCommentText("");
+      }
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const userReview = user ? reviews.find(r => String(r.customer_id) === String(user.id)) : null;
+  const avgRating = stats?.average || 0;
+  const dist = stats?.distribution || {};
+  const totalReviews = stats?.total || 0;
+
+  return (
+    <div className="max-w-3xl">
+      {totalReviews > 0 && (
+        <div className="flex items-center gap-8 p-6 bg-white/[0.03] border border-white/[0.08] rounded-2xl mb-6">
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <span className="text-5xl font-bold text-amber-400">{avgRating.toFixed(1)}</span>
+            <StarRow value={Math.round(avgRating)} readonly size={16} />
+            <span className="text-xs text-white/30 mt-0.5">{totalReviews} đánh giá</span>
+          </div>
+          <div className="flex-1 flex flex-col gap-1.5">
+            {[5,4,3,2,1].map(n => {
+              const count = dist[n] || 0;
+              const pct = totalReviews > 0 ? Math.round(count / totalReviews * 100) : 0;
+              return (
+                <div key={n} className="flex items-center gap-2 text-xs">
+                  <span className="w-3 text-white/40 text-right">{n}</span>
+                  <Star size={10} fill="#f59e0b" stroke="#f59e0b" />
+                  <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="w-6 text-white/30">{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-1 border-b border-white/10 mb-5">
+        {[
+          { key: "reviews", label: `Đánh giá${totalReviews > 0 ? ` (${totalReviews})` : ""}` },
+          { key: "comments", label: `Bình luận${comments.length > 0 ? ` (${comments.length})` : ""}` },
+        ].map(({ key, label }) => (
+          <button key={key} onClick={() => setActiveSection(key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition
+              ${activeSection === key ? "text-orange-400 border-orange-500" : "text-white/30 border-transparent hover:text-white/60"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSection === "reviews" && (
+        <div>
+          {!userReview && user && (
+            <button onClick={() => setShowWriteModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 mb-5 rounded-xl border border-dashed border-orange-500/40
+                hover:border-orange-500 hover:bg-orange-500/5 text-orange-400 text-sm font-medium transition">
+              <Star size={16} />
+              Viết đánh giá của bạn
+            </button>
+          )}
+          {!user && (
+            <button onClick={() => navigate("/login")}
+              className="w-full flex items-center justify-center gap-2 py-3 mb-5 rounded-xl border border-dashed border-white/10
+                hover:border-white/20 text-white/30 text-sm transition">
+              Đăng nhập để đánh giá
+            </button>
+          )}
+          {userReview && (
+            <div className="mb-4 border border-orange-500/20 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-orange-500/10">
+                <span className="text-xs text-orange-400 font-medium">Đánh giá của bạn</span>
+                <button onClick={() => { setEditingReview(userReview); setShowWriteModal(true); }}
+                  className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition">
+                  <Edit2 size={11} /> Chỉnh sửa
+                </button>
+              </div>
+              <div className="px-4">
+                <ReviewCard review={userReview} user={user} onLike={handleLike} />
+              </div>
+            </div>
+          )}
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 size={24} className="animate-spin text-white/20" />
+            </div>
+          ) : reviews.filter(r => !user || String(r.customer_id) !== String(user?.id)).length === 0 ? (
+            <div className="flex flex-col items-center py-12 text-white/20 gap-3">
+              <Star size={40} strokeWidth={1} />
+              <p className="text-sm">Chưa có đánh giá nào</p>
+            </div>
+          ) : (
+            reviews.filter(r => !user || String(r.customer_id) !== String(user?.id))
+              .map(r => <ReviewCard key={r.id} review={r} user={user} onLike={handleLike} />)
+          )}
+        </div>
+      )}
+
+      {activeSection === "comments" && (
+        <div>
+          <div className="flex gap-3 mb-6">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-xs font-bold shrink-0 mt-1">
+              {user?.full_name?.[0]?.toUpperCase() || <User size={14} />}
+            </div>
+            <div className="flex-1 flex items-center gap-2">
+              <input
+                value={commentText} onChange={e => setCommentText(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitComment()}
+                placeholder={user ? "Viết bình luận..." : "Đăng nhập để bình luận..."}
+                onFocus={() => !user && navigate("/login")}
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white
+                  placeholder-white/30 focus:outline-none focus:border-orange-500/40 transition"
+              />
+              <button onClick={submitComment} disabled={submittingComment || !commentText.trim()}
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition shrink-0">
+                {submittingComment ? <Loader2 size={15} className="animate-spin text-white" /> : <Send size={15} className="text-white" />}
+              </button>
+            </div>
+          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 size={24} className="animate-spin text-white/20" />
+            </div>
+          ) : comments.length === 0 ? (
+            <div className="flex flex-col items-center py-12 text-white/20 gap-3">
+              <MessageCircle size={40} strokeWidth={1} />
+              <p className="text-sm">Chưa có bình luận nào</p>
+            </div>
+          ) : (
+            comments.map(c => (
+              <CommentCard key={c.id} comment={{ ...c, product_id: productId }} user={user} onLike={handleLike} />
+            ))
+          )}
+        </div>
+      )}
+
+      {showWriteModal && (
+        <WriteReviewModal
+          productId={productId}
+          user={user}
+          existing={editingReview}
+          onClose={() => { setShowWriteModal(false); setEditingReview(null); }}
+          onSubmit={handleReviewSubmit}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 export default function InformationProduct() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -66,6 +576,7 @@ export default function InformationProduct() {
   const [productBestVoucher, setProductBestVoucher] = useState(null);
   const [dropdownOpen,  setDropdownOpen]  = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [searchOpen,    setSearchOpen]    = useState(false);
   const dropdownRef = useRef(null);
 
   const [product,        setProduct]        = useState(null);
@@ -196,43 +707,27 @@ export default function InformationProduct() {
     if (qRam || qStorage) setSelCombo(`${qRam || ""}|${qStorage || ""}`);
   }, [variants]);
 
-  // ── activeVoucher: kiểm tra đúng variant ──
   const activeVoucher = (() => {
     if (!currentPrice || !selectedVariant) return null;
-
-    // Voucher từ giỏ hàng
-    if (voucher && voucherAppliesToVariant(voucher, product, selectedVariant)) {
-      return voucher;
-    }
-
-    // Voucher tốt nhất riêng sản phẩm
-    if (productBestVoucher?.voucher && voucherAppliesToVariant(productBestVoucher.voucher, product, selectedVariant)) {
-      return productBestVoucher.voucher;
-    }
-
+    if (voucher && voucherAppliesToVariant(voucher, product, selectedVariant)) return voucher;
+    if (productBestVoucher?.voucher && voucherAppliesToVariant(productBestVoucher.voucher, product, selectedVariant)) return productBestVoucher.voucher;
     return null;
   })();
 
   const discountedPrice = (activeVoucher && currentPrice) ? applyVoucherDiscount(currentPrice, activeVoucher) : currentPrice;
   const hasDiscount = discountedPrice < currentPrice;
 
-  // ── Tính giá hiển thị trong combo button (có check variant_id) ──
   const getComboDisplayPrice = (comboVariant) => {
     const price = parseFloat(comboVariant.price);
     if (!price) return { price, disc: price, hasD: false, appliedVoucher: null };
-
-    // Thử voucher giỏ hàng
     if (voucher && voucherAppliesToVariant(voucher, product, comboVariant)) {
       const disc = applyVoucherDiscount(price, voucher);
       if (disc < price) return { price, disc, hasD: true, appliedVoucher: voucher };
     }
-
-    // Thử voucher riêng SP
     if (productBestVoucher?.voucher && voucherAppliesToVariant(productBestVoucher.voucher, product, comboVariant)) {
       const disc = applyVoucherDiscount(price, productBestVoucher.voucher);
       if (disc < price) return { price, disc, hasD: true, appliedVoucher: productBestVoucher.voucher };
     }
-
     return { price, disc: price, hasD: false, appliedVoucher: null };
   };
 
@@ -308,6 +803,8 @@ export default function InformationProduct() {
         </div>
       )}
 
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
       <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
         <div className="flex gap-8 items-center text-gray-300">
@@ -316,6 +813,12 @@ export default function InformationProduct() {
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
+          {/* SEARCH BUTTON */}
+          <button onClick={() => setSearchOpen(true)}
+            className="text-gray-300 hover:text-white transition">
+            <Search size={20} />
+          </button>
+
           <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
@@ -425,10 +928,13 @@ export default function InformationProduct() {
               )}
             </div>
 
-            {/* Giá */}
             <div className="flex flex-col gap-1">
               <div className="flex items-baseline gap-3 flex-wrap">
-                {hasDiscount && <span className="text-xl text-[#ff3b30]/40 line-through">{currentPrice.toLocaleString("vi-VN")}đ</span>}
+                {hasDiscount && (
+                  <span className="text-xl text-[#ff3b30]/40 line-through">
+                    {currentPrice.toLocaleString("vi-VN")}đ
+                  </span>
+                )}
                 <span className="text-3xl font-bold text-[#ff3b30]">
                   {discountedPrice ? discountedPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
                 </span>
@@ -449,7 +955,6 @@ export default function InformationProduct() {
               )}
             </div>
 
-            {/* Màu */}
             {allColors.length > 0 && (
               <div>
                 <p className="text-xs text-white/40 mb-2">
@@ -479,7 +984,6 @@ export default function InformationProduct() {
               </div>
             )}
 
-            {/* Cấu hình — dùng getComboDisplayPrice để check đúng variant_id */}
             {allCombos.length > 0 && (
               <div>
                 <p className="text-xs text-white/40 mb-2">
@@ -505,10 +1009,10 @@ export default function InformationProduct() {
                               ? "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed opacity-40"
                               : "bg-white/5 border-white/15 text-white/60 hover:border-white/40 hover:text-white"}`}>
                         <span className="text-sm font-semibold">{label || "Mặc định"}</span>
-                        <span className={`text-xs mt-0.5 ${hasD ? "text-orange-400" : "text-white/40"}`}>
+                        <span className={`text-xs mt-0.5 ${hasD ? "text-[#ff3b30]" : "text-white/40"}`}>
                           {hasD ? (
                             <>
-                              <span className="line-through text-white/25 mr-1 text-[10px]">{price.toLocaleString("vi-VN")}đ</span>
+                              <span className="line-through text-[#ff3b30]/30 mr-1 text-[10px]">{price.toLocaleString("vi-VN")}đ</span>
                               {disc.toLocaleString("vi-VN")}đ
                             </>
                           ) : price.toLocaleString("vi-VN") + "đ"}
@@ -520,7 +1024,6 @@ export default function InformationProduct() {
               </div>
             )}
 
-            {/* Số lượng + Nút mua */}
             <div className="flex items-center gap-3">
               <div className="flex items-center border border-white/10 rounded-xl overflow-hidden">
                 <button onClick={() => setQty(q => Math.max(1, q - 1))} className="w-10 h-10 flex items-center justify-center hover:bg-white/10 transition text-lg">−</button>
@@ -532,12 +1035,11 @@ export default function InformationProduct() {
                 Thêm vào giỏ hàng
               </button>
               <button onClick={() => handleAddToCart(true)} disabled={currentStock === 0}
-                className="flex-1 h-11 rounded-xl bg-[#ff3b30] hover:bg-[#e0352a] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition">
+                className="flex-1 h-11 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition">
                 Mua ngay
               </button>
             </div>
 
-            {/* Cam kết */}
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
               {[
                 { icon: Shield,    text: "Bảo hành 12 tháng" },
@@ -601,11 +1103,8 @@ export default function InformationProduct() {
             </div>
           )}
 
-          {activeTab === "review" && (
-            <div className="max-w-3xl flex flex-col items-center py-12 text-white/20 gap-3">
-              <span className="text-4xl">⭐</span>
-              <p className="text-sm">Chưa có đánh giá nào</p>
-            </div>
+          {activeTab === "review" && product && (
+            <ReviewCommentSection productId={product.id} user={user} navigate={navigate} />
           )}
         </div>
 

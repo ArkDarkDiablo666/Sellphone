@@ -3,10 +3,10 @@ import { useCart } from "./Cart";
 import { Link, useNavigate } from "react-router-dom";
 import {
   User, LogOut, Settings, Search, ShoppingCart, ChevronDown,
-  AlertTriangle, SlidersHorizontal, X, ChevronRight, Package,
-  ShoppingBag, Tag, Ticket
+  AlertTriangle, SlidersHorizontal, X, ChevronRight, Package, Tag, Ticket
 } from "lucide-react";
 import bgImage from "./Image/image-177.png";
+import { SearchModal } from "./Searchbar";
 
 const API = "http://localhost:8000";
 
@@ -71,6 +71,7 @@ export default function Product() {
   const [user,         setUser]         = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [confirmLogout,setConfirmLogout]= useState(false);
+  const [searchOpen,   setSearchOpen]   = useState(false);
   const dropdownRef = useRef(null);
 
   const [products,    setProducts]    = useState([]);
@@ -88,7 +89,6 @@ export default function Product() {
 
   const toggleItem = (setter, val) => setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
 
-  // Sync user từ localStorage
   useEffect(() => {
     const sync = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
     window.addEventListener("storage",     sync);
@@ -101,7 +101,6 @@ export default function Product() {
     };
   }, []);
 
-  // Đóng dropdown khi click ngoài
   useEffect(() => {
     const fn = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false); };
     document.addEventListener("mousedown", fn);
@@ -110,7 +109,6 @@ export default function Product() {
 
   const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
 
-  // Load data
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -125,11 +123,10 @@ export default function Product() {
   useEffect(() => {
     fetch(`${API}/api/voucher/active/`)
       .then(r => r.json())
-      .then(d => { console.log("[Vouchers from API]", JSON.stringify(d.vouchers || [], null, 2)); setVoucherList(d.vouchers || []); })
+      .then(d => { setVoucherList(d.vouchers || []); })
       .catch(() => {});
   }, []);
 
-  // Filter
   useEffect(() => {
     let result = [...products];
     if (searchQ.trim()) {
@@ -224,7 +221,9 @@ export default function Product() {
         </div>
       )}
 
-      {/* ===== NAVBAR (giống Home.jsx) ===== */}
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* NAVBAR */}
       <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
         <div className="flex gap-8 items-center text-gray-300">
@@ -233,6 +232,12 @@ export default function Product() {
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
+          {/* SEARCH BUTTON */}
+          <button onClick={() => setSearchOpen(true)}
+            className="text-gray-300 hover:text-white transition">
+            <Search size={20} />
+          </button>
+
           <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
@@ -261,10 +266,6 @@ export default function Product() {
                     </div>
                   </div>
                   <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition">
-                    <ShoppingBag size={15} className="text-orange-400" /> Đơn hàng của tôi
-                  </button>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
                     <Settings size={15} /> Tài khoản
                   </button>
@@ -283,13 +284,9 @@ export default function Product() {
       </nav>
 
       {/* HERO BANNER */}
-      <div className="relative h-52 flex items-center justify-center overflow-hidden mt-[72px]">
+      <div className="relative h-52 flex items-center justify-center overflow-hidden mt-[0px]">
         <img src={bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#1C1C1E]" />
-        <div className="relative text-center">
-          <h1 className="text-4xl font-bold tracking-tight">Sản phẩm</h1>
-          <p className="text-white/40 text-sm mt-1">{filtered.length} sản phẩm</p>
-        </div>
       </div>
 
       {/* CONTENT */}
@@ -337,7 +334,6 @@ export default function Product() {
           </FilterBox>
 
           <FilterBox title="Mức giá">
-            {voucherList.length > 0 && <p className="text-[10px] text-orange-400/60 mb-1 px-1">Áp dụng theo giá đã giảm</p>}
             {PRICE_RANGES.map(r => (
               <FilterRow key={r.label} label={r.label}
                 active={selectedPrices.includes(r.label)}
@@ -377,7 +373,7 @@ export default function Product() {
               {activeCount > 0 && <button onClick={clearAll} className="text-orange-400 text-xs hover:underline">Xóa bộ lọc</button>}
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
               {filtered.flatMap(p => {
                 const variants = p.variants || [];
                 const comboMap = {};

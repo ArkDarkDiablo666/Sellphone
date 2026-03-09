@@ -76,4 +76,47 @@ urlpatterns = [
     path('customer/address/delete/',     views.delete_customer_address),
     path('customer/<str:customer_id>/addresses/', views.get_customer_addresses),
     path('customer/<str:customer_id>/',  views.get_customer),
+
+    # ── Review ──────────────────────────────────────────────────
+    path('review/list/',          views.list_reviews),          # GET  ?product_id=&customer_id=
+    path('review/create/',        views.create_review),         # POST
+    path('review/update/',        views.update_review),         # POST
+    path('review/delete/',        views.delete_review),         # POST
+    path('review/upload-media/',  views.upload_review_media),   # POST multipart
+
+    # ── Comment ─────────────────────────────────────────────────
+    path('comment/list/',         views.list_comments),         # GET  ?product_id=&customer_id=
+    path('comment/create/',       views.create_comment),        # POST
+    path('comment/delete/',       views.delete_comment),        # POST
+
+    # ── Like ────────────────────────────────────────────────────
+    path('like/toggle/',          views.toggle_like),           # POST { customer_id, type, target_id }
+
+    # ── Admin: review & comment management ──────────────────────
+    path('admin/reviews/',        views.admin_list_reviews),    # GET  ?count_only=1
+    path('admin/reply/',          views.admin_reply),           # POST { type, target_id, content }
+    path('admin/reply/delete/',   views.admin_delete_reply),    # POST { type, target_id }
+
+    path('search/text/',          views.search_text),
+    path('search/image/',         views.search_image),
+    path('search/suggestions/',   views.search_suggestions),
+    path('search/rebuild-index/', views.rebuild_search_index),
+    path('search/model-info/',    views.search_model_info),
+
+    path("payment/momo/create/",   views.momo_create,    name="momo_create"),
+    path("payment/momo/ipn/",      views.momo_ipn,       name="momo_ipn"),
+    path("payment/momo/return/",   views.momo_return,    name="momo_return"),
+
+    # ── VNPay ─────────────────────────────────────────────────
+    path("payment/vnpay/create/",  views.vnpay_create,   name="vnpay_create"),
+    path("payment/vnpay/return/",  views.vnpay_return,   name="vnpay_return"),
+
+    # ── Dashboard doanh thu ───────────────────────────────────
+    path("admin/dashboard/overview/",           views.dashboard_overview,           name="dashboard_overview"),
+    path("admin/dashboard/revenue/day/",        views.dashboard_revenue_by_day,     name="dashboard_revenue_day"),
+    path("admin/dashboard/revenue/month/",      views.dashboard_revenue_by_month,   name="dashboard_revenue_month"),
+    path("admin/dashboard/revenue/year/",       views.dashboard_revenue_by_year,    name="dashboard_revenue_year"),
+    path("admin/dashboard/revenue/product/",    views.dashboard_revenue_by_product, name="dashboard_revenue_product"),
+    path("admin/dashboard/revenue/brand/",      views.dashboard_revenue_by_brand,   name="dashboard_revenue_brand"),
+    path("admin/dashboard/revenue/compare/",    views.dashboard_revenue_compare,    name="dashboard_revenue_compare"),
 ]

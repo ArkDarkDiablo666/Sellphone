@@ -10,13 +10,169 @@ cloudinary.config(
 import random
 from django.core.mail import send_mail
 from django.conf import settings
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, parser_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia
+import logging
+from django.db.models import Avg, Count, Sum, F, FloatField, ExpressionWrapper
+
+logger = logging.getLogger(__name__)
 
 otp_storage = {}
 
+
+# ──────────────────────────────────────────────────────────
+# SEARCH HELPERS (dùng nội bộ + search endpoints)
+# ──────────────────────────────────────────────────────────
+
+def _serialize_product(p) -> dict:
+    variants = list(
+        ProductVariant.objects.filter(ProductID=p).values("Price", "Image")
+    )
+    prices = [float(v["Price"]) for v in variants if v.get("Price")]
+
+    image_url = ""
+    primary = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first()
+    if primary:
+        image_url = primary.ImageUrl or ""
+    if not image_url:
+        first_img = ProductImage.objects.filter(ProductID=p).first()
+        if first_img:
+            image_url = first_img.ImageUrl or ""
+    if not image_url and variants:
+        image_url = variants[0].get("Image") or ""
+
+    return {
+        "id":           p.ProductID,
+        "name":         p.ProductName or "",
+        "brand":        p.Brand or "",
+        "category":     getattr(p.CategoryID, "CategoryName", "") if getattr(p, "CategoryID", None) else "",
+        "image":        image_url,
+        "min_price":    min(prices) if prices else None,
+        "max_price":    max(prices) if prices else None,
+        "rating_avg":   0,
+        "rating_count": 0,
+        "sold":         0,
+        "views":        0,
+    }
+
+
+def _serialize_with_ratings(products: list) -> list:
+    from .models import Review
+    ids = [p.ProductID for p in products]
+    ratings = {
+        r["product_id"]: r
+        for r in Review.objects.filter(product_id__in=ids)
+        .values("product_id")
+        .annotate(avg=Avg("rating"), cnt=Count("id"))
+        .order_by()   # FIX: reset Meta.ordering để tránh lỗi MSSQL GROUP BY
+    }
+    result = []
+    for p in products:
+        d = _serialize_product(p)
+        r = ratings.get(p.ProductID, {})
+        d["rating_avg"]   = round(float(r.get("avg") or 0), 1)
+        d["rating_count"] = int(r.get("cnt") or 0)
+        result.append(d)
+    return result
+
+
+def _get_fallback_products(exclude_ids=None, max_total=4) -> list:
+    done   = list(exclude_ids or [])
+    result = []
+
+    def add(p):
+        if p and p.ProductID not in done:
+            done.append(p.ProductID)
+            result.append(p)
+            return True
+        return False
+
+    def first_new(qs):
+        for p in qs:
+            if p.ProductID not in done:
+                return p
+        return None
+
+    # Slot 1: Bán nhiều nhất
+    try:
+        sold_pids = (
+            OrderDetail.objects
+            .values("VariantID__ProductID__ProductID")
+            .annotate(tot=Sum("Quantity"))
+            .filter(VariantID__ProductID__isnull=False)
+            .order_by("-tot")
+            .values_list("VariantID__ProductID__ProductID", flat=True)[:30]
+        )
+        order_map   = {pid: i for i, pid in enumerate(sold_pids)}
+        qs          = Product.objects.filter(ProductID__in=sold_pids)
+        sorted_list = sorted(qs, key=lambda p: order_map.get(p.ProductID, 999))
+        add(first_new(sorted_list))
+    except Exception as e:
+        logger.debug(f"Fallback slot1: {e}")
+
+    # Slot 2: Đánh giá cao nhất
+    try:
+        qs = (
+            Product.objects.all()
+            .annotate(avg_r=Avg("reviews__rating"), cnt_r=Count("reviews__id"))
+            .filter(cnt_r__gte=1)
+            .order_by("-avg_r", "-cnt_r")
+        )
+        add(first_new(qs.iterator()))
+    except Exception as e:
+        logger.debug(f"Fallback slot2: {e}")
+
+    # Slot 3: Mới nhất
+    try:
+        qs = (
+            Product.objects
+            .select_related("CategoryID")
+            .exclude(ProductID__in=done)
+            .order_by("-CreatedAt")
+        )
+        add(first_new(qs))
+    except Exception as e:
+        logger.debug(f"Fallback slot3: {e}")
+
+    # Slot 4: Mới nhất (bổ sung)
+    try:
+        qs = Product.objects.all().order_by("-CreatedAt")
+        add(first_new(qs.iterator()))
+    except Exception as e:
+        logger.debug(f"Fallback slot4: {e}")
+
+    # Bổ sung nếu chưa đủ
+    if len(result) < max_total:
+        extra = (
+            Product.objects
+            .exclude(ProductID__in=done)
+            .order_by("-CreatedAt")[: max_total - len(result)]
+        )
+        for p in extra:
+            add(p)
+
+    return result[:max_total]
+
+
+def on_product_saved(product_id):
+    try:
+        from .search_engine import rebuild_index
+        rebuild_index()
+    except Exception as e:
+        logger.error(f"[Search] rebuild: {e}")
+    try:
+        from .yolo_search import train_product_async
+        train_product_async(product_id)
+    except Exception as e:
+        logger.error(f"[Search] yolo train: {e}")
+
+
+# ──────────────────────────────────────────────────────────
+# AUTH HELPERS
+# ──────────────────────────────────────────────────────────
 
 def hash_password(password):
     return make_password(password)
@@ -46,6 +202,10 @@ def email_exists_message(existing_login_type):
     else:
         return "Email này đã được đăng ký, vui lòng đăng nhập bằng email và mật khẩu"
 
+
+# ──────────────────────────────────────────────────────────
+# CUSTOMER AUTH
+# ──────────────────────────────────────────────────────────
 
 @api_view(['POST'])
 def check_email(request):
@@ -240,9 +400,9 @@ def forgot_password(request):
 
     try:
         send_mail(
-            subject    = "Mã OTP đặt lại mật khẩu - Sellphone",
-            message    = f"Mã OTP của bạn là: {otp_code}\nMã có hiệu lực trong 5 phút.",
-            from_email = settings.EMAIL_HOST_USER,
+            subject        = "Mã OTP đặt lại mật khẩu - Sellphone",
+            message        = f"Mã OTP của bạn là: {otp_code}\nMã có hiệu lực trong 5 phút.",
+            from_email     = settings.EMAIL_HOST_USER,
             recipient_list = [email],
             fail_silently  = False,
         )
@@ -292,6 +452,10 @@ def reset_password(request):
 
     return Response({"message": "Đặt lại mật khẩu thành công"}, status=status.HTTP_200_OK)
 
+
+# ──────────────────────────────────────────────────────────
+# CUSTOMER PROFILE
+# ──────────────────────────────────────────────────────────
 
 @api_view(['GET'])
 def get_customer(request, customer_id):
@@ -388,6 +552,10 @@ def upload_avatar(request):
     except Exception as e:
         return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+# ──────────────────────────────────────────────────────────
+# STAFF / ADMIN
+# ──────────────────────────────────────────────────────────
 
 @api_view(['POST'])
 def admin_login(request):
@@ -538,6 +706,10 @@ def upload_staff_avatar(request):
         return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# ──────────────────────────────────────────────────────────
+# CATEGORY
+# ──────────────────────────────────────────────────────────
+
 @api_view(['GET'])
 def list_categories(request):
     cats = Category.objects.all().order_by('CategoryID')
@@ -550,12 +722,72 @@ def list_categories(request):
     }, status=status.HTTP_200_OK)
 
 
+@api_view(['POST'])
+def create_category(request):
+    name       = request.data.get('name', '').strip()
+    image_file = request.FILES.get('image')
+
+    if not name:
+        return Response({"message": "Vui lòng nhập tên danh mục"}, status=status.HTTP_400_BAD_REQUEST)
+    if Category.objects.filter(CategoryName=name).exists():
+        return Response({"message": "Danh mục đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+
+    image_url = ""
+    if image_file:
+        try:
+            result = cloudinary.uploader.upload(
+                image_file, folder="sellphone/categories",
+                public_id=f"category_{name.lower().replace(' ', '_')}",
+                overwrite=True, resource_type="image",
+                transformation=[{"width": 400, "height": 400, "crop": "fill"}],
+            )
+            image_url = result["secure_url"]
+        except Exception as e:
+            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    cat = Category.objects.create(CategoryName=name, Image=image_url)
+    return Response({"message": "Tạo danh mục thành công", "id": cat.CategoryID, "name": cat.CategoryName, "image": image_url}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+def update_category(request):
+    cat_id     = request.data.get('id')
+    name       = request.data.get('name', '').strip()
+    image_file = request.FILES.get('image')
+
+    if not cat_id or not name:
+        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    cat = Category.objects.filter(CategoryID=cat_id).first()
+    if not cat:
+        return Response({"message": "Không tìm thấy danh mục"}, status=status.HTTP_404_NOT_FOUND)
+
+    cat.CategoryName = name
+    if image_file:
+        try:
+            result = cloudinary.uploader.upload(
+                image_file, folder="sellphone/categories", public_id=f"category_{cat_id}",
+                overwrite=True, resource_type="image",
+                transformation=[{"width": 400, "height": 400, "crop": "fill"}],
+            )
+            cat.Image = result["secure_url"]
+        except Exception as e:
+            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    cat.save()
+    return Response({"message": "Cập nhật danh mục thành công"}, status=status.HTTP_200_OK)
+
+
+# ──────────────────────────────────────────────────────────
+# PRODUCT
+# ──────────────────────────────────────────────────────────
+
 import re as _re
 
 def _validate_variants(variants):
     errors = []
     for idx, v in enumerate(variants):
-        ve = {}
+        ve    = {}
         label = f"Biến thể #{idx + 1}"
 
         price_raw = v.get('price', '')
@@ -568,7 +800,7 @@ def _validate_variants(variants):
         stock_raw = v.get('stock', '')
         try:
             stock = int(stock_raw)
-            if stock <= 0:   ve['stock'] = f"{label}: Số lượng phải lớn hơn 0"
+            if stock <= 0:      ve['stock'] = f"{label}: Số lượng phải lớn hơn 0"
             elif stock > 10000: ve['stock'] = f"{label}: Số lượng tối đa 10.000"
         except (ValueError, TypeError):
             ve['stock'] = f"{label}: Số lượng không hợp lệ"
@@ -578,8 +810,8 @@ def _validate_variants(variants):
             ve['ram'] = f"{label}: Vui lòng nhập RAM"
         else:
             m = _re.match(r'^(\d+(?:\.\d+)?)\s*GB$', ram, _re.IGNORECASE)
-            if not m: ve['ram'] = f"{label}: RAM phải có dạng số + GB (VD: 8GB)"
-            elif float(m.group(1)) < 4: ve['ram'] = f"{label}: RAM tối thiểu là 4GB"
+            if not m:                        ve['ram'] = f"{label}: RAM phải có dạng số + GB (VD: 8GB)"
+            elif float(m.group(1)) < 4:      ve['ram'] = f"{label}: RAM tối thiểu là 4GB"
 
         storage = (v.get('storage') or '').strip()
         if storage:
@@ -666,6 +898,7 @@ def create_product(request):
             ProductImage.objects.create(ProductID=product, ImageUrl=result["secure_url"], IsPrimary=(idx == 0))
         except Exception: pass
 
+    on_product_saved(product.ProductID)
     return Response({"message": "Tạo sản phẩm thành công", "product_id": product.ProductID}, status=status.HTTP_201_CREATED)
 
 
@@ -707,70 +940,14 @@ def import_stock(request):
     return Response({"message": f"Đã nhập hàng cho {len(updated)} biến thể", "updated": updated}, status=status.HTTP_200_OK)
 
 
-@api_view(['POST'])
-def create_category(request):
-    name       = request.data.get('name', '').strip()
-    image_file = request.FILES.get('image')
-
-    if not name:
-        return Response({"message": "Vui lòng nhập tên danh mục"}, status=status.HTTP_400_BAD_REQUEST)
-    if Category.objects.filter(CategoryName=name).exists():
-        return Response({"message": "Danh mục đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
-
-    image_url = ""
-    if image_file:
-        try:
-            result = cloudinary.uploader.upload(
-                image_file, folder="sellphone/categories",
-                public_id=f"category_{name.lower().replace(' ', '_')}",
-                overwrite=True, resource_type="image",
-                transformation=[{"width": 400, "height": 400, "crop": "fill"}],
-            )
-            image_url = result["secure_url"]
-        except Exception as e:
-            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    cat = Category.objects.create(CategoryName=name, Image=image_url)
-    return Response({"message": "Tạo danh mục thành công", "id": cat.CategoryID, "name": cat.CategoryName, "image": image_url}, status=status.HTTP_201_CREATED)
-
-
-@api_view(['POST'])
-def update_category(request):
-    cat_id     = request.data.get('id')
-    name       = request.data.get('name', '').strip()
-    image_file = request.FILES.get('image')
-
-    if not cat_id or not name:
-        return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
-
-    cat = Category.objects.filter(CategoryID=cat_id).first()
-    if not cat:
-        return Response({"message": "Không tìm thấy danh mục"}, status=status.HTTP_404_NOT_FOUND)
-
-    cat.CategoryName = name
-    if image_file:
-        try:
-            result = cloudinary.uploader.upload(
-                image_file, folder="sellphone/categories", public_id=f"category_{cat_id}",
-                overwrite=True, resource_type="image",
-                transformation=[{"width": 400, "height": 400, "crop": "fill"}],
-            )
-            cat.Image = result["secure_url"]
-        except Exception as e:
-            return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    cat.save()
-    return Response({"message": "Cập nhật danh mục thành công"}, status=status.HTTP_200_OK)
-
-
 @api_view(['GET'])
 def get_product_detail(request, product_id):
     product = Product.objects.select_related('CategoryID').filter(ProductID=product_id).first()
     if not product:
         return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
 
-    variants = ProductVariant.objects.filter(ProductID=product)
-    images   = ProductImage.objects.filter(ProductID=product)
+    variants         = ProductVariant.objects.filter(ProductID=product)
+    images           = ProductImage.objects.filter(ProductID=product)
     related_products = Product.objects.filter(CategoryID=product.CategoryID).exclude(ProductID=product_id).order_by('-CreatedAt')[:5]
 
     def variant_data(v):
@@ -796,7 +973,6 @@ def get_product_detail(request, product_id):
         }
 
     images_sorted = list(images.filter(IsPrimary=True)) + list(images.filter(IsPrimary=False))
-    min_variant = variants.order_by('Price').first()
 
     return Response({
         "product": {
@@ -896,12 +1072,16 @@ def add_variants(request):
             except Exception: pass
         created.append(variant_obj.VariantID)
 
+    on_product_saved(product.ProductID)
     return Response({"message": f"Đã thêm {len(created)} biến thể thành công", "variant_ids": created}, status=status.HTTP_201_CREATED)
 
 
+# ──────────────────────────────────────────────────────────
+# VOUCHER
+# ──────────────────────────────────────────────────────────
+
 from datetime import date as _date
 
-# ── HELPER: format voucher object (dùng chung) ──
 def _fmt_voucher(v):
     return {
         "id":           v.VoucherID,
@@ -911,7 +1091,7 @@ def _fmt_voucher(v):
         "scope":        v.Scope,
         "category_id":  v.CategoryID.CategoryID if v.CategoryID else None,
         "product_id":   v.ProductID.ProductID   if v.ProductID  else None,
-        "variant_id":   v.VariantID.VariantID   if getattr(v, 'VariantID', None) else None,  # ← KEY FIX
+        "variant_id":   v.VariantID.VariantID   if getattr(v, 'VariantID', None) else None,
         "min_order":    float(v.MinOrder or 0),
         "max_discount": float(v.MaxDiscount) if v.MaxDiscount else None,
     }
@@ -920,12 +1100,12 @@ def _fmt_voucher(v):
 @api_view(['GET'])
 def list_vouchers(request):
     from .models import Voucher
-    today = _date.today()
+    today    = _date.today()
     vouchers = Voucher.objects.all().order_by('-VoucherID')
     data = []
     for v in vouchers:
         is_active = v.IsActive
-        if v.EndDate and v.EndDate < today: is_active = False
+        if v.EndDate and v.EndDate < today:              is_active = False
         if v.UsageLimit and v.UsedCount >= v.UsageLimit: is_active = False
         d = _fmt_voucher(v)
         d.update({
@@ -961,11 +1141,11 @@ def create_voucher(request):
 
     cat_id     = request.data.get('category_id')
     prod_id    = request.data.get('product_id')
-    variant_id = request.data.get('variant_id')  # ← THÊM
+    variant_id = request.data.get('variant_id')
 
-    cat_obj     = Category.objects.filter(CategoryID=cat_id).first()           if cat_id     else None
-    prod_obj    = Product.objects.filter(ProductID=prod_id).first()             if prod_id    else None
-    variant_obj = ProductVariant.objects.filter(VariantID=variant_id).first()  if variant_id else None  # ← THÊM
+    cat_obj     = Category.objects.filter(CategoryID=cat_id).first()          if cat_id     else None
+    prod_obj    = Product.objects.filter(ProductID=prod_id).first()            if prod_id    else None
+    variant_obj = ProductVariant.objects.filter(VariantID=variant_id).first() if variant_id else None
 
     start_raw   = request.data.get('start_date')
     end_raw     = request.data.get('end_date')
@@ -976,19 +1156,12 @@ def create_voucher(request):
     usage_limit = request.data.get('usage_limit')
 
     v = Voucher.objects.create(
-        Code        = code,
-        Type        = vtype,
-        Value       = float(value),
-        Scope       = scope,
-        CategoryID  = cat_obj,
-        ProductID   = prod_obj,
-        VariantID   = variant_obj,  # ← THÊM
-        MinOrder    = min_order,
-        MaxDiscount = float(max_disc) if max_disc else None,
-        StartDate   = start_date,
-        EndDate     = end_date,
-        UsageLimit  = int(usage_limit) if usage_limit else None,
-        IsActive    = True,
+        Code=code, Type=vtype, Value=float(value), Scope=scope,
+        CategoryID=cat_obj, ProductID=prod_obj, VariantID=variant_obj,
+        MinOrder=min_order, MaxDiscount=float(max_disc) if max_disc else None,
+        StartDate=start_date, EndDate=end_date,
+        UsageLimit=int(usage_limit) if usage_limit else None,
+        IsActive=True,
     )
     return Response({"message": "Tạo voucher thành công", "id": v.VoucherID}, status=status.HTTP_201_CREATED)
 
@@ -1029,7 +1202,6 @@ def apply_voucher(request):
     return Response({"message": "Áp dụng voucher thành công", "voucher": _fmt_voucher(v)}, status=status.HTTP_200_OK)
 
 
-# ── HELPER: kiểm tra voucher có áp dụng cho item không (check cả variant_id) ──
 def _voucher_applies(v, item):
     scope = v.Scope
     if scope == 'all': return True
@@ -1037,7 +1209,6 @@ def _voucher_applies(v, item):
         return str(item.get('category_id')) == str(v.CategoryID.CategoryID)
     if scope == 'product' and v.ProductID:
         if str(item.get('product_id')) != str(v.ProductID.ProductID): return False
-        # Nếu có variant_id → phải khớp
         if getattr(v, 'VariantID', None):
             return str(item.get('variant_id')) == str(v.VariantID.VariantID)
         return True
@@ -1058,7 +1229,7 @@ def _calc_discount_for_items(v, item_list):
 
 def _active_vouchers():
     from .models import Voucher
-    today = _date.today()
+    today  = _date.today()
     result = []
     for v in Voucher.objects.filter(IsActive=True):
         if v.StartDate and v.StartDate > today: continue
@@ -1103,7 +1274,7 @@ def get_best_voucher_for_cart(request):
 def get_best_voucher_for_product(request):
     product_id  = request.query_params.get('product_id')
     category_id = request.query_params.get('category_id')
-    variant_id  = request.query_params.get('variant_id')  # ← THÊM (optional)
+    variant_id  = request.query_params.get('variant_id')
     try:
         price = float(request.query_params.get('price', 0))
         qty   = int(request.query_params.get('qty', 1))
@@ -1114,8 +1285,7 @@ def get_best_voucher_for_product(request):
         return Response({"voucher": None}, status=status.HTTP_200_OK)
 
     item_list = [{"product_id": product_id, "category_id": category_id, "variant_id": variant_id, "price": price, "qty": qty}]
-
-    active = _active_vouchers()
+    active    = _active_vouchers()
     if not active:
         return Response({"voucher": None}, status=status.HTTP_200_OK)
 
@@ -1150,6 +1320,10 @@ def get_best_voucher(request):
     return Response({"voucher": _fmt_voucher(best)}, status=status.HTTP_200_OK)
 
 
+# ──────────────────────────────────────────────────────────
+# ORDER
+# ──────────────────────────────────────────────────────────
+
 @api_view(['POST'])
 def create_order(request):
     from .models import Voucher
@@ -1167,11 +1341,11 @@ def create_order(request):
     receiver_address = request.data.get('receiver_address', '').strip()
     note             = request.data.get('note', '').strip()
 
-    if not customer_id:   return Response({"message": "Thiếu thông tin tài khoản"}, status=status.HTTP_400_BAD_REQUEST)
-    if not items:         return Response({"message": "Giỏ hàng trống"}, status=status.HTTP_400_BAD_REQUEST)
-    if not receiver_name: return Response({"message": "Vui lòng nhập tên người nhận"}, status=status.HTTP_400_BAD_REQUEST)
-    if not receiver_phone:    return Response({"message": "Vui lòng nhập số điện thoại"}, status=status.HTTP_400_BAD_REQUEST)
-    if not receiver_address:  return Response({"message": "Vui lòng nhập địa chỉ nhận hàng"}, status=status.HTTP_400_BAD_REQUEST)
+    if not customer_id:      return Response({"message": "Thiếu thông tin tài khoản"}, status=status.HTTP_400_BAD_REQUEST)
+    if not items:            return Response({"message": "Giỏ hàng trống"}, status=status.HTTP_400_BAD_REQUEST)
+    if not receiver_name:    return Response({"message": "Vui lòng nhập tên người nhận"}, status=status.HTTP_400_BAD_REQUEST)
+    if not receiver_phone:   return Response({"message": "Vui lòng nhập số điện thoại"}, status=status.HTTP_400_BAD_REQUEST)
+    if not receiver_address: return Response({"message": "Vui lòng nhập địa chỉ nhận hàng"}, status=status.HTTP_400_BAD_REQUEST)
 
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer:
@@ -1240,9 +1414,9 @@ def get_customer_addresses(request, customer_id):
 def create_customer_address(request):
     from .models import CustomerAddress
     customer_id = request.data.get('customer_id')
-    name    = request.data.get('name', '').strip()
-    phone   = request.data.get('phone', '').strip()
-    address = request.data.get('address', '').strip()
+    name        = request.data.get('name', '').strip()
+    phone       = request.data.get('phone', '').strip()
+    address     = request.data.get('address', '').strip()
     if not all([customer_id, name, phone, address]):
         return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
     customer = Customer.objects.filter(CustomerID=customer_id).first()
@@ -1397,6 +1571,10 @@ def update_order_status(request):
     return Response({"message": f"Cập nhật thành công: {label}"}, status=status.HTTP_200_OK)
 
 
+# ──────────────────────────────────────────────────────────
+# RETURN REQUEST
+# ──────────────────────────────────────────────────────────
+
 @api_view(['POST'])
 def create_return_request(request):
     from django.db import transaction
@@ -1429,7 +1607,7 @@ def create_return_request(request):
 
     MAX_SIZE = 500 * 1024 * 1024
     if sum(f.size for f in files) > MAX_SIZE:
-        return Response({"message": f"Tổng dung lượng file vượt quá 500MB"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "Tổng dung lượng file vượt quá 500MB"}, status=status.HTTP_400_BAD_REQUEST)
 
     ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
     ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm']
@@ -1439,7 +1617,7 @@ def create_return_request(request):
 
     try:
         with transaction.atomic():
-            rr = ReturnRequest.objects.create(OrderID=o, Reason=reason, Status='Pending')
+            rr         = ReturnRequest.objects.create(OrderID=o, Reason=reason, Status='Pending')
             media_urls = []
             for f in files:
                 try:
@@ -1463,7 +1641,7 @@ def list_return_requests(request):
     returns = ReturnRequest.objects.all().select_related('OrderID').order_by('-CreatedAt')
     result  = []
     for rr in returns:
-        o = rr.OrderID
+        o     = rr.OrderID
         media = ReturnMedia.objects.filter(ReturnID=rr)
         result.append({
             "return_id": rr.ReturnID, "order_id": o.OrderID,
@@ -1485,7 +1663,7 @@ def process_return_request(request):
 
     VALID_ACTIONS = ('approve', 'reject', 'complete', 'returning')
     if action not in VALID_ACTIONS:
-        return Response({"message": f"Hành động không hợp lệ."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "Hành động không hợp lệ."}, status=status.HTTP_400_BAD_REQUEST)
 
     rr = ReturnRequest.objects.select_related('OrderID').filter(ReturnID=return_id).first()
     if not rr:
@@ -1535,12 +1713,16 @@ def get_return_request(request, order_id):
     }, status=status.HTTP_200_OK)
 
 
+# ──────────────────────────────────────────────────────────
+# POST / BLOG
+# ──────────────────────────────────────────────────────────
+
 @api_view(['GET'])
 def list_posts(request):
     category = request.query_params.get('category', 'all')
     posts    = Post.objects.all()
     if category and category != 'all': posts = posts.filter(Category=category)
-    posts = posts.order_by('-CreatedAt')
+    posts  = posts.order_by('-CreatedAt')
     result = []
     for p in posts:
         import json as _json
@@ -1646,6 +1828,10 @@ def delete_post(request):
     return Response({"message": "Đã xóa bài viết"}, status=status.HTTP_200_OK)
 
 
+# ──────────────────────────────────────────────────────────
+# PRODUCT CONTENT
+# ──────────────────────────────────────────────────────────
+
 @api_view(['GET'])
 def get_product_content(request, product_id):
     import json as _json
@@ -1688,3 +1874,1058 @@ def save_product_content(request):
 
     ProductContent.objects.update_or_create(ProductID_id=product_id, defaults={"Blocks": _json.dumps(blocks_parsed, ensure_ascii=False)})
     return Response({"message": "Lưu mô tả sản phẩm thành công"}, status=status.HTTP_200_OK)
+
+
+# ──────────────────────────────────────────────────────────
+# REVIEW & COMMENT HELPERS
+# ──────────────────────────────────────────────────────────
+
+def _serialize_review(review, customer_id=None):
+    from .models import AdminReply, Like, ReviewMedia
+
+    media = [{"url": m.url, "type": m.media_type} for m in ReviewMedia.objects.filter(review=review)]
+    admin_reply = AdminReply.objects.filter(target_type="review", target_id=review.id).first()
+
+    liked = False
+    likes = Like.objects.filter(target_type="review", target_id=review.id).count()
+    if customer_id:
+        liked = Like.objects.filter(customer_id=customer_id, target_type="review", target_id=review.id).exists()
+
+    variant_label = ""
+    if review.variant:
+        v = review.variant
+        parts = [v.Color, v.Ram, v.Storage]
+        variant_label = " · ".join(p for p in parts if p)
+
+    return {
+        "id":              review.id,
+        "type":            "review",
+        "customer_id":     str(review.customer_id),
+        "customer_name":   review.customer.FullName,
+        "customer_avatar": review.customer.Avatar or "",
+        "product_id":      review.product_id,
+        "product_name":    review.product.ProductName,
+        "variant":         variant_label,
+        "rating":          review.rating,
+        "content":         review.content,
+        "media":           media,
+        "admin_reply":     {"content": admin_reply.content} if admin_reply else None,
+        "liked":           liked,
+        "likes":           likes,
+        "created_at":      review.created_at.isoformat(),
+        "updated_at":      review.updated_at.isoformat(),
+    }
+
+
+def _serialize_comment(comment, customer_id=None):
+    from .models import AdminReply, Like, Comment
+
+    admin_reply = AdminReply.objects.filter(target_type="comment", target_id=comment.id).first()
+
+    liked = False
+    likes = Like.objects.filter(target_type="comment", target_id=comment.id).count()
+    if customer_id:
+        liked = Like.objects.filter(customer_id=customer_id, target_type="comment", target_id=comment.id).exists()
+
+    replies_qs = Comment.objects.filter(parent=comment).order_by("created_at")
+    replies    = [_serialize_comment(r, customer_id) for r in replies_qs]
+
+    return {
+        "id":              comment.id,
+        "type":            "comment",
+        "customer_id":     str(comment.customer_id),
+        "customer_name":   comment.customer.FullName,
+        "customer_avatar": comment.customer.Avatar or "",
+        "product_id":      comment.product_id,
+        "product_name":    comment.product.ProductName,
+        "parent_id":       comment.parent_id,
+        "content":         comment.content,
+        "admin_reply":     {"content": admin_reply.content} if admin_reply else None,
+        "liked":           liked,
+        "likes":           likes,
+        "replies":         replies,
+        "created_at":      comment.created_at.isoformat(),
+        "updated_at":      comment.updated_at.isoformat(),
+    }
+
+
+# ──────────────────────────────────────────────────────────
+# REVIEW ENDPOINTS
+# ──────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+def list_reviews(request):
+    from .models import Review
+
+    product_id  = request.query_params.get("product_id")
+    customer_id = request.query_params.get("customer_id")
+
+    if not product_id:
+        return Response({"message": "Thiếu product_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+    reviews_qs = Review.objects.filter(product_id=product_id).select_related("customer", "product", "variant").order_by("-created_at")
+    reviews    = [_serialize_review(r, customer_id) for r in reviews_qs]
+
+    total       = reviews_qs.count()
+    dist        = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    total_score = 0
+    for r in reviews_qs:
+        dist[r.rating] = dist.get(r.rating, 0) + 1
+        total_score += r.rating
+    average = round(total_score / total, 1) if total else 0
+
+    return Response({
+        "reviews": reviews,
+        "stats":   {"total": total, "average": average, "distribution": dist},
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def create_review(request):
+    from .models import Review, ReviewMedia
+
+    customer_id = request.data.get("customer_id")
+    product_id  = request.data.get("product_id")
+    rating      = request.data.get("rating")
+    content     = request.data.get("content", "").strip()
+    media_list  = request.data.get("media", [])
+    variant_id  = request.data.get("variant_id")
+
+    if not customer_id or not product_id:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        rating = int(rating)
+        if not (1 <= rating <= 5): raise ValueError
+    except (TypeError, ValueError):
+        return Response({"ok": False, "error": "Rating phải từ 1–5"}, status=status.HTTP_400_BAD_REQUEST)
+
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"ok": False, "error": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    product = Product.objects.filter(ProductID=product_id).first()
+    if not product:
+        return Response({"ok": False, "error": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+
+    if Review.objects.filter(customer=customer, product=product).exists():
+        return Response({"ok": False, "error": "Bạn đã đánh giá sản phẩm này rồi"}, status=status.HTTP_400_BAD_REQUEST)
+
+    variant = None
+    if variant_id:
+        variant = ProductVariant.objects.filter(VariantID=variant_id).first()
+
+    review = Review.objects.create(customer=customer, product=product, variant=variant, rating=rating, content=content)
+
+    for m in media_list:
+        url   = m.get("url", "")
+        mtype = m.get("type", "image")
+        if url:
+            ReviewMedia.objects.create(review=review, url=url, media_type=mtype)
+
+    return Response({"ok": True, "review": _serialize_review(review, customer_id)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+def update_review(request):
+    from .models import Review, ReviewMedia
+
+    review_id   = request.data.get("review_id")
+    customer_id = request.data.get("customer_id")
+    rating      = request.data.get("rating")
+    content     = request.data.get("content", "").strip()
+    media_list  = request.data.get("media", [])
+
+    review = Review.objects.filter(id=review_id, customer_id=customer_id).first()
+    if not review:
+        return Response({"ok": False, "error": "Không tìm thấy đánh giá"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        rating = int(rating)
+        if not (1 <= rating <= 5): raise ValueError
+    except (TypeError, ValueError):
+        return Response({"ok": False, "error": "Rating phải từ 1–5"}, status=status.HTTP_400_BAD_REQUEST)
+
+    review.rating  = rating
+    review.content = content
+    review.save()
+
+    ReviewMedia.objects.filter(review=review).delete()
+    for m in media_list:
+        url   = m.get("url", "")
+        mtype = m.get("type", "image")
+        if url:
+            ReviewMedia.objects.create(review=review, url=url, media_type=mtype)
+
+    return Response({"ok": True, "review": _serialize_review(review, customer_id)}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def delete_review(request):
+    from .models import Review
+
+    review_id   = request.data.get("review_id")
+    customer_id = request.data.get("customer_id")
+
+    review = Review.objects.filter(id=review_id, customer_id=customer_id).first()
+    if not review:
+        return Response({"ok": False, "error": "Không tìm thấy đánh giá"}, status=status.HTTP_404_NOT_FOUND)
+
+    review.delete()
+    return Response({"ok": True, "message": "Đã xóa đánh giá"}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def upload_review_media(request):
+    customer_id = request.data.get("customer_id")
+    media_file  = request.FILES.get("file")
+
+    if not customer_id or not media_file:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    ALLOWED_IMAGE = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    ALLOWED_VIDEO = ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"]
+
+    if media_file.content_type not in ALLOWED_IMAGE + ALLOWED_VIDEO:
+        return Response({"ok": False, "error": f"Định dạng '{media_file.content_type}' không được hỗ trợ"}, status=status.HTTP_400_BAD_REQUEST)
+    if media_file.size > 200 * 1024 * 1024:
+        return Response({"ok": False, "error": "File quá lớn (tối đa 200MB)"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        resource_type = "video" if media_file.content_type.startswith("video") else "image"
+        result = cloudinary.uploader.upload(media_file, folder=f"sellphone/reviews/{customer_id}", resource_type=resource_type)
+        return Response({"ok": True, "url": result["secure_url"], "media_type": resource_type}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"ok": False, "error": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ──────────────────────────────────────────────────────────
+# COMMENT ENDPOINTS
+# ──────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+def list_comments(request):
+    from .models import Comment
+
+    product_id  = request.query_params.get("product_id")
+    customer_id = request.query_params.get("customer_id")
+
+    if not product_id:
+        return Response({"message": "Thiếu product_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+    comments_qs = Comment.objects.filter(product_id=product_id, parent__isnull=True).select_related("customer", "product").order_by("-created_at")
+    comments    = [_serialize_comment(c, customer_id) for c in comments_qs]
+    return Response({"comments": comments}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def create_comment(request):
+    from .models import Comment
+
+    customer_id = request.data.get("customer_id")
+    product_id  = request.data.get("product_id")
+    content     = request.data.get("content", "").strip()
+    parent_id   = request.data.get("parent_id")
+
+    if not customer_id or not product_id:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if not content:
+        return Response({"ok": False, "error": "Nội dung bình luận không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
+
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"ok": False, "error": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    product = Product.objects.filter(ProductID=product_id).first()
+    if not product:
+        return Response({"ok": False, "error": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+
+    parent = None
+    if parent_id:
+        parent = Comment.objects.filter(id=parent_id).first()
+        if not parent:
+            return Response({"ok": False, "error": "Bình luận gốc không tồn tại"}, status=status.HTTP_404_NOT_FOUND)
+
+    comment = Comment.objects.create(customer=customer, product=product, parent=parent, content=content)
+    return Response({"ok": True, "comment": _serialize_comment(comment, customer_id)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+def delete_comment(request):
+    from .models import Comment
+
+    comment_id  = request.data.get("comment_id")
+    customer_id = request.data.get("customer_id")
+
+    comment = Comment.objects.filter(id=comment_id, customer_id=customer_id).first()
+    if not comment:
+        return Response({"ok": False, "error": "Không tìm thấy bình luận"}, status=status.HTTP_404_NOT_FOUND)
+
+    comment.delete()
+    return Response({"ok": True, "message": "Đã xóa bình luận"}, status=status.HTTP_200_OK)
+
+
+# ──────────────────────────────────────────────────────────
+# LIKE
+# ──────────────────────────────────────────────────────────
+
+@api_view(["POST"])
+def toggle_like(request):
+    from .models import Like
+
+    customer_id = request.data.get("customer_id")
+    target_type = request.data.get("type")
+    target_id   = request.data.get("target_id")
+
+    if not customer_id or not target_type or not target_id:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if target_type not in ("review", "comment"):
+        return Response({"ok": False, "error": "type phải là 'review' hoặc 'comment'"}, status=status.HTTP_400_BAD_REQUEST)
+
+    customer = Customer.objects.filter(CustomerID=customer_id).first()
+    if not customer:
+        return Response({"ok": False, "error": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    like_obj = Like.objects.filter(customer=customer, target_type=target_type, target_id=target_id).first()
+    if like_obj:
+        like_obj.delete(); liked = False
+    else:
+        Like.objects.create(customer=customer, target_type=target_type, target_id=target_id); liked = True
+
+    count = Like.objects.filter(target_type=target_type, target_id=target_id).count()
+    return Response({"ok": True, "liked": liked, "count": count}, status=status.HTTP_200_OK)
+
+
+# ──────────────────────────────────────────────────────────
+# ADMIN REVIEW/COMMENT MANAGEMENT
+# ──────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+def admin_list_reviews(request):
+    from .models import Review, Comment, AdminReply, ReviewMedia
+
+    count_only = request.query_params.get("count_only")
+
+    all_review_ids  = list(Review.objects.values_list("id", flat=True))
+    all_comment_ids = list(Comment.objects.filter(parent__isnull=True).values_list("id", flat=True))
+
+    replied_review_ids  = set(AdminReply.objects.filter(target_type="review").values_list("target_id", flat=True))
+    replied_comment_ids = set(AdminReply.objects.filter(target_type="comment").values_list("target_id", flat=True))
+
+    unanswered = (
+        sum(1 for rid in all_review_ids  if rid not in replied_review_ids) +
+        sum(1 for cid in all_comment_ids if cid not in replied_comment_ids)
+    )
+
+    if count_only:
+        return Response({"unanswered_count": unanswered}, status=status.HTTP_200_OK)
+
+    review_items = []
+    for r in Review.objects.select_related("customer", "product", "variant").order_by("-created_at"):
+        media       = [{"url": m.url, "type": m.media_type} for m in ReviewMedia.objects.filter(review=r)]
+        admin_reply = AdminReply.objects.filter(target_type="review", target_id=r.id).first()
+        variant_label = ""
+        if r.variant:
+            parts = [r.variant.Color, r.variant.Ram, r.variant.Storage]
+            variant_label = " · ".join(p for p in parts if p)
+        review_items.append({
+            "id": r.id, "type": "review",
+            "customer_id": str(r.customer_id), "customer_name": r.customer.FullName,
+            "customer_avatar": r.customer.Avatar or "",
+            "product_id": r.product_id, "product_name": r.product.ProductName,
+            "variant": variant_label, "rating": r.rating, "content": r.content,
+            "media": media,
+            "admin_reply": {"content": admin_reply.content} if admin_reply else None,
+            "created_at": r.created_at.isoformat(),
+        })
+
+    comment_items = []
+    for c in Comment.objects.filter(parent__isnull=True).select_related("customer", "product").order_by("-created_at"):
+        admin_reply = AdminReply.objects.filter(target_type="comment", target_id=c.id).first()
+        comment_items.append({
+            "id": c.id, "type": "comment",
+            "customer_id": str(c.customer_id), "customer_name": c.customer.FullName,
+            "customer_avatar": c.customer.Avatar or "",
+            "product_id": c.product_id, "product_name": c.product.ProductName,
+            "content": c.content, "media": [],
+            "admin_reply": {"content": admin_reply.content} if admin_reply else None,
+            "created_at": c.created_at.isoformat(),
+        })
+
+    all_items = sorted(review_items + comment_items, key=lambda x: x["created_at"], reverse=True)
+    return Response({"items": all_items, "unanswered_count": unanswered}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def admin_reply(request):
+    from .models import AdminReply
+
+    target_type = request.data.get("type")
+    target_id   = request.data.get("target_id")
+    content     = request.data.get("content", "").strip()
+
+    if not target_type or not target_id:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if target_type not in ("review", "comment"):
+        return Response({"ok": False, "error": "type không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+    if not content:
+        return Response({"ok": False, "error": "Nội dung phản hồi không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
+
+    obj, created = AdminReply.objects.update_or_create(
+        target_type=target_type, target_id=int(target_id),
+        defaults={"content": content},
+    )
+    return Response({"ok": True, "message": "Đã phản hồi thành công", "reply": {"id": obj.id, "content": obj.content}}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def admin_delete_reply(request):
+    from .models import AdminReply
+
+    target_type = request.data.get("type")
+    target_id   = request.data.get("target_id")
+
+    reply = AdminReply.objects.filter(target_type=target_type, target_id=target_id).first()
+    if not reply:
+        return Response({"ok": False, "error": "Không tìm thấy phản hồi"}, status=status.HTTP_404_NOT_FOUND)
+
+    reply.delete()
+    return Response({"ok": True, "message": "Đã xóa phản hồi"}, status=status.HTTP_200_OK)
+
+
+# ──────────────────────────────────────────────────────────
+# SEARCH ENDPOINTS
+# ──────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+def search_text(request):
+    """GET /api/search/text/?q=iphone+14&limit=20"""
+    from .search_engine import get_index, rebuild_index
+
+    q     = (request.query_params.get("q") or "").strip()
+    limit = min(int(request.query_params.get("limit", 20) or 20), 100)
+
+    if not q:
+        return Response({"query": "", "results": [], "total": 0, "fallback": False})
+
+    index = get_index()
+    if index.N == 0:
+        rebuild_index()
+        index = get_index()
+
+    ranked = index.score(q, top_k=limit)
+
+    if ranked:
+        products = [doc["product"] for _, doc in ranked]
+        return Response({
+            "query":    q,
+            "results":  _serialize_with_ratings(products),
+            "total":    len(products),
+            "fallback": False,
+        })
+
+    fallback = _get_fallback_products(max_total=4)
+    return Response({
+        "query":       q,
+        "results":     [],
+        "total":       0,
+        "fallback":    True,
+        "suggestions": _serialize_with_ratings(fallback),
+    })
+
+
+@api_view(["POST"])
+@parser_classes([MultiPartParser])
+def search_image(request):
+    """POST /api/search/image/  —  form-data: file=<image>"""
+    from .yolo_search import search_by_image
+
+    img_file = request.FILES.get("file")
+    if not img_file:
+        return Response({"error": "Thiếu file ảnh"}, status=400)
+    if img_file.content_type not in {"image/jpeg", "image/jpg", "image/png", "image/webp"}:
+        return Response({"error": "Chỉ nhận JPG/PNG/WEBP"}, status=400)
+    if img_file.size > 10 * 1024 * 1024:
+        return Response({"error": "Ảnh tối đa 10MB"}, status=400)
+
+    pids = search_by_image(img_file.read(), top_k=20)
+    if pids:
+        products = [p for pid in pids for p in [Product.objects.filter(ProductID=pid).first()] if p]
+        if products:
+            return Response({"results": _serialize_with_ratings(products), "total": len(products), "fallback": False})
+
+    fallback = _get_fallback_products(max_total=4)
+    return Response({
+        "results": [], "total": 0, "fallback": True,
+        "suggestions": _serialize_with_ratings(fallback),
+        "message": "Không tìm thấy sản phẩm phù hợp với ảnh",
+    })
+
+
+@api_view(["GET"])
+def search_suggestions(request):
+    """GET /api/search/suggestions/?q=ip"""
+    from .search_engine import get_index
+
+    q = (request.query_params.get("q") or "").strip()
+    if len(q) < 2:
+        return Response({"suggestions": []})
+
+    ranked    = get_index().score(q, top_k=8)
+    seen, out = set(), []
+    for _, doc in ranked:
+        t = doc["title"]
+        if t and t not in seen:
+            seen.add(t)
+            out.append({"name": t, "id": doc["id"]})
+    return Response({"suggestions": out})
+
+
+@api_view(["POST"])
+def rebuild_search_index(request):
+    """POST /api/search/rebuild-index/"""
+    from .search_engine import rebuild_index, get_version
+    v = rebuild_index()
+    return Response({"ok": True, "version": v})
+
+
+@api_view(["GET"])
+def search_model_info(request):
+    """GET /api/search/model-info/"""
+    from .yolo_search   import get_model_info
+    from .search_engine import get_index, get_version
+    idx = get_index()
+    return Response({
+        "text_index": {"docs": idx.N, "version": get_version()},
+        "yolo_model": get_model_info(),
+    })
+
+
+# ══════════════════════════════════════════════════════════════
+# PAYMENT — MoMo & VNPay (sandbox/test)
+# ══════════════════════════════════════════════════════════════
+
+# ── Cấu hình sandbox ──────────────────────────────────────────
+MOMO_CONFIG = {
+    "partner_code": "MOMO",
+    "access_key":   "F8BBA842ECF85",
+    "secret_key":   "K951B6PE1waDMi640xX08PD3vg6EkVlz",
+    "endpoint":     "https://test-payment.momo.vn/v2/gateway/api/create",
+    "redirect_url": "http://localhost:3000/payment/momo-return",
+    "ipn_url":      "http://localhost:8000/api/payment/momo/ipn/",
+}
+
+VNPAY_CONFIG = {
+    "tmn_code":    "DEMO1234",
+    "hash_secret": "ABCDEFGHIJKLMNOP",
+    "url":         "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+    "return_url":  "http://localhost:3000/payment/vnpay-return",
+    "api_url":     "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction",
+}
+
+
+def _momo_create_payment(order_id, amount, order_info="Thanh toan don hang Phonezone"):
+    """Tạo link thanh toán MoMo sandbox. Trả về pay_url hoặc raise Exception."""
+    import hmac, hashlib, uuid, urllib.request
+
+    request_id = str(uuid.uuid4())
+    extra_data = ""
+    raw = (
+        f"accessKey={MOMO_CONFIG['access_key']}"
+        f"&amount={int(amount)}"
+        f"&extraData={extra_data}"
+        f"&ipnUrl={MOMO_CONFIG['ipn_url']}"
+        f"&orderId={order_id}"
+        f"&orderInfo={order_info}"
+        f"&partnerCode={MOMO_CONFIG['partner_code']}"
+        f"&redirectUrl={MOMO_CONFIG['redirect_url']}"
+        f"&requestId={request_id}"
+        "&requestType=payWithATM"
+    )
+    sig = hmac.new(
+        MOMO_CONFIG["secret_key"].encode("utf-8"),
+        raw.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    payload = json.dumps({
+        "partnerCode":  MOMO_CONFIG["partner_code"],
+        "accessKey":    MOMO_CONFIG["access_key"],
+        "requestId":    request_id,
+        "amount":       str(int(amount)),
+        "orderId":      str(order_id),
+        "orderInfo":    order_info,
+        "redirectUrl":  MOMO_CONFIG["redirect_url"],
+        "ipnUrl":       MOMO_CONFIG["ipn_url"],
+        "extraData":    extra_data,
+        "requestType":  "payWithATM",
+        "signature":    sig,
+        "lang":         "vi",
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        MOMO_CONFIG["endpoint"],
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    if data.get("resultCode") != 0:
+        raise Exception(data.get("message", "MoMo error"))
+    return data["payUrl"]
+
+
+def _vnpay_create_payment(order_id, amount, order_info="Thanh toan don hang Phonezone", client_ip="127.0.0.1"):
+    """Tạo redirect URL VNPay sandbox."""
+    import hmac, hashlib, urllib.parse
+    from datetime import datetime, timezone
+
+    now    = datetime.now(timezone.utc)
+    txn_ref = f"{order_id}-{int(now.timestamp())}"
+    params  = {
+        "vnp_Version":     "2.1.0",
+        "vnp_Command":     "pay",
+        "vnp_TmnCode":     VNPAY_CONFIG["tmn_code"],
+        "vnp_Amount":      str(int(amount) * 100),          # VNPay đơn vị: đồng × 100
+        "vnp_CurrCode":    "VND",
+        "vnp_TxnRef":      txn_ref,
+        "vnp_OrderInfo":   order_info,
+        "vnp_OrderType":   "other",
+        "vnp_Locale":      "vn",
+        "vnp_ReturnUrl":   VNPAY_CONFIG["return_url"],
+        "vnp_IpAddr":      client_ip,
+        "vnp_CreateDate":  now.strftime("%Y%m%d%H%M%S"),
+    }
+    sorted_params = sorted(params.items())
+    query_str     = urllib.parse.urlencode(sorted_params)
+    sig = hmac.new(
+        VNPAY_CONFIG["hash_secret"].encode("utf-8"),
+        query_str.encode("utf-8"),
+        hashlib.sha512,
+    ).hexdigest()
+    pay_url = f"{VNPAY_CONFIG['url']}?{query_str}&vnp_SecureHash={sig}"
+    return pay_url
+
+
+# ── Endpoint: tạo link thanh toán MoMo ───────────────────────
+@api_view(["POST"])
+def momo_create(request):
+    """
+    POST /api/payment/momo/create/
+    Body: { order_id, amount }
+    """
+    order_id = request.data.get("order_id")
+    amount   = request.data.get("amount")
+    if not order_id or not amount:
+        return Response({"message": "Thiếu order_id hoặc amount"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        pay_url = _momo_create_payment(order_id, amount)
+        return Response({"pay_url": pay_url}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"message": f"Lỗi MoMo: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ── Endpoint: IPN callback từ MoMo ───────────────────────────
+@api_view(["POST"])
+def momo_ipn(request):
+    """
+    POST /api/payment/momo/ipn/
+    MoMo gọi về sau khi thanh toán xong.
+    """
+    import hmac, hashlib
+    data       = request.data
+    result_code = data.get("resultCode", -1)
+    order_id   = data.get("orderId")
+    amount     = data.get("amount")
+    received_sig = data.get("signature", "")
+
+    raw = (
+        f"accessKey={MOMO_CONFIG['access_key']}"
+        f"&amount={amount}"
+        f"&extraData={data.get('extraData','')}"
+        f"&ipnUrl={MOMO_CONFIG['ipn_url']}"
+        f"&orderId={order_id}"
+        f"&orderInfo={data.get('orderInfo','')}"
+        f"&partnerCode={MOMO_CONFIG['partner_code']}"
+        f"&redirectUrl={MOMO_CONFIG['redirect_url']}"
+        f"&requestId={data.get('requestId','')}"
+        "&requestType=payWithATM"
+    )
+    expected_sig = hmac.new(
+        MOMO_CONFIG["secret_key"].encode("utf-8"),
+        raw.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if received_sig != expected_sig:
+        return Response({"message": "Chữ ký không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if result_code == 0:
+        # Cập nhật trạng thái đơn hàng
+        o = Order.objects.filter(OrderID=order_id).first()
+        if o:
+            try: o.PaymentStatus = "Paid"; o.save()
+            except Exception: pass
+        return Response({"message": "OK"}, status=status.HTTP_200_OK)
+    return Response({"message": "Payment failed"}, status=status.HTTP_200_OK)
+
+
+# ── Endpoint: return từ MoMo (frontend gọi để xác nhận) ──────
+@api_view(["GET"])
+def momo_return(request):
+    """
+    GET /api/payment/momo/return/?resultCode=0&orderId=...
+    """
+    result_code = request.query_params.get("resultCode", "-1")
+    order_id    = request.query_params.get("orderId")
+    if result_code == "0":
+        return Response({"success": True, "order_id": order_id, "message": "Thanh toán thành công"})
+    return Response({"success": False, "order_id": order_id, "message": "Thanh toán thất bại hoặc bị hủy"})
+
+
+# ── Endpoint: tạo link thanh toán VNPay ──────────────────────
+@api_view(["POST"])
+def vnpay_create(request):
+    """
+    POST /api/payment/vnpay/create/
+    Body: { order_id, amount }
+    """
+    order_id = request.data.get("order_id")
+    amount   = request.data.get("amount")
+    if not order_id or not amount:
+        return Response({"message": "Thiếu order_id hoặc amount"}, status=status.HTTP_400_BAD_REQUEST)
+    client_ip = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", "127.0.0.1")).split(",")[0].strip()
+    try:
+        pay_url = _vnpay_create_payment(order_id, amount, client_ip=client_ip)
+        return Response({"pay_url": pay_url}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"message": f"Lỗi VNPay: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ── Endpoint: return từ VNPay ─────────────────────────────────
+@api_view(["GET"])
+def vnpay_return(request):
+    """
+    GET /api/payment/vnpay/return/?vnp_ResponseCode=00&vnp_TxnRef=...&vnp_SecureHash=...
+    Frontend redirect về đây sau khi thanh toán.
+    """
+    import hmac, hashlib, urllib.parse
+    params   = dict(request.query_params)
+    vnp_hash = params.pop("vnp_SecureHash", [""])[0]
+    params.pop("vnp_SecureHashType", None)
+
+    flat     = {k: v[0] if isinstance(v, list) else v for k, v in params.items()}
+    sorted_p = sorted(flat.items())
+    query_str = urllib.parse.urlencode(sorted_p)
+    expected  = hmac.new(
+        VNPAY_CONFIG["hash_secret"].encode("utf-8"),
+        query_str.encode("utf-8"),
+        hashlib.sha512,
+    ).hexdigest()
+
+    if vnp_hash != expected:
+        return Response({"success": False, "message": "Chữ ký không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+    code     = flat.get("vnp_ResponseCode", "99")
+    txn_ref  = flat.get("vnp_TxnRef", "")
+    order_id = txn_ref.split("-")[0] if "-" in txn_ref else txn_ref
+
+    if code == "00":
+        o = Order.objects.filter(OrderID=order_id).first()
+        if o:
+            try: o.PaymentStatus = "Paid"; o.save()
+            except Exception: pass
+        return Response({"success": True, "order_id": order_id, "message": "Thanh toán thành công"})
+    return Response({"success": False, "order_id": order_id, "message": "Thanh toán thất bại"})
+
+
+# ══════════════════════════════════════════════════════════════
+# DASHBOARD — Thống kê doanh thu (Admin)
+# ══════════════════════════════════════════════════════════════
+
+from django.db.models.functions import TruncDay, TruncMonth, TruncYear, Coalesce
+from django.utils import timezone as tz
+import datetime
+
+
+def _revenue_qs():
+    """QuerySet đơn hàng đã giao (Delivered) — cơ sở tính doanh thu."""
+    return Order.objects.filter(Status="Delivered")
+
+
+@api_view(["GET"])
+def dashboard_overview(request):
+    """
+    GET /api/admin/dashboard/overview/
+    Tổng quan nhanh: doanh thu hôm nay / tháng này / năm này + số đơn + KH mới
+    """
+    today = tz.localdate()
+    qs    = _revenue_qs()
+
+    def rev(qs): return float(qs.aggregate(s=Coalesce(Sum("TotalAmount"), 0))["s"])
+
+    today_rev  = rev(qs.filter(OrderDate__date=today))
+    month_rev  = rev(qs.filter(OrderDate__year=today.year, OrderDate__month=today.month))
+    year_rev   = rev(qs.filter(OrderDate__year=today.year))
+    total_rev  = rev(qs)
+
+    today_orders = qs.filter(OrderDate__date=today).count()
+    month_orders = qs.filter(OrderDate__year=today.year, OrderDate__month=today.month).count()
+    total_orders = Order.objects.count()
+
+    new_customers = Customer.objects.filter(
+        CreatedAt__year=today.year, CreatedAt__month=today.month
+    ).count() if hasattr(Customer, 'CreatedAt') else 0
+
+    # So sánh với hôm qua / tháng trước
+    yesterday   = today - datetime.timedelta(days=1)
+    last_month  = (today.replace(day=1) - datetime.timedelta(days=1))
+    yesterday_rev   = rev(qs.filter(OrderDate__date=yesterday))
+    last_month_rev  = rev(qs.filter(OrderDate__year=last_month.year, OrderDate__month=last_month.month))
+    last_year_rev   = rev(qs.filter(OrderDate__year=today.year - 1))
+
+    def pct(current, previous):
+        if previous == 0: return None
+        return round((current - previous) / previous * 100, 1)
+
+    return Response({
+        "today":        {"revenue": today_rev,  "orders": today_orders,  "vs_yesterday":   pct(today_rev, yesterday_rev)},
+        "this_month":   {"revenue": month_rev,  "orders": month_orders,  "vs_last_month":  pct(month_rev, last_month_rev)},
+        "this_year":    {"revenue": year_rev,                             "vs_last_year":   pct(year_rev, last_year_rev)},
+        "all_time":     {"revenue": total_rev,  "orders": total_orders},
+        "new_customers_this_month": new_customers,
+    })
+
+
+@api_view(["GET"])
+def dashboard_revenue_by_day(request):
+    """
+    GET /api/admin/dashboard/revenue/day/?year=2024&month=6
+    Doanh thu từng ngày trong tháng (so sánh với tháng trước cùng ngày).
+    """
+    today = tz.localdate()
+    year  = int(request.query_params.get("year",  today.year))
+    month = int(request.query_params.get("month", today.month))
+
+    qs = _revenue_qs().filter(OrderDate__year=year, OrderDate__month=month)
+    rows = (
+        qs.annotate(day=TruncDay("OrderDate"))
+          .values("day")
+          .annotate(revenue=Sum("TotalAmount"), orders=Count("OrderID"))
+          .order_by("day")
+    )
+
+    # Tháng trước (để so sánh)
+    first_this = datetime.date(year, month, 1)
+    first_prev = (first_this - datetime.timedelta(days=1)).replace(day=1)
+    qs_prev = _revenue_qs().filter(OrderDate__year=first_prev.year, OrderDate__month=first_prev.month)
+    prev_rows = {
+        r["day"].day: float(r["revenue"])
+        for r in qs_prev.annotate(day=TruncDay("OrderDate"))
+                        .values("day")
+                        .annotate(revenue=Sum("TotalAmount"))
+    }
+
+    result = []
+    for r in rows:
+        d   = r["day"].day
+        rev = float(r["revenue"])
+        result.append({
+            "date":         r["day"].strftime("%Y-%m-%d"),
+            "day":          d,
+            "revenue":      rev,
+            "orders":       r["orders"],
+            "prev_revenue": prev_rows.get(d, 0),
+        })
+
+    return Response({"year": year, "month": month, "data": result})
+
+
+@api_view(["GET"])
+def dashboard_revenue_by_month(request):
+    """
+    GET /api/admin/dashboard/revenue/month/?year=2024
+    Doanh thu từng tháng trong năm (so sánh với năm trước).
+    """
+    today = tz.localdate()
+    year  = int(request.query_params.get("year", today.year))
+
+    qs = _revenue_qs().filter(OrderDate__year=year)
+    rows = (
+        qs.annotate(month=TruncMonth("OrderDate"))
+          .values("month")
+          .annotate(revenue=Sum("TotalAmount"), orders=Count("OrderID"))
+          .order_by("month")
+    )
+
+    qs_prev = _revenue_qs().filter(OrderDate__year=year - 1)
+    prev_rows = {
+        r["month"].month: float(r["revenue"])
+        for r in qs_prev.annotate(month=TruncMonth("OrderDate"))
+                        .values("month")
+                        .annotate(revenue=Sum("TotalAmount"))
+    }
+
+    result = []
+    for r in rows:
+        m   = r["month"].month
+        rev = float(r["revenue"])
+        result.append({
+            "month":        m,
+            "label":        f"T{m}/{year}",
+            "revenue":      rev,
+            "orders":       r["orders"],
+            "prev_revenue": prev_rows.get(m, 0),
+        })
+
+    return Response({"year": year, "data": result})
+
+
+@api_view(["GET"])
+def dashboard_revenue_by_year(request):
+    """
+    GET /api/admin/dashboard/revenue/year/
+    Doanh thu từng năm (toàn bộ lịch sử).
+    """
+    rows = (
+        _revenue_qs()
+          .annotate(year=TruncYear("OrderDate"))
+          .values("year")
+          .annotate(revenue=Sum("TotalAmount"), orders=Count("OrderID"))
+          .order_by("year")
+    )
+    result = [
+        {
+            "year":    r["year"].year,
+            "revenue": float(r["revenue"]),
+            "orders":  r["orders"],
+        }
+        for r in rows
+    ]
+    return Response({"data": result})
+
+
+@api_view(["GET"])
+def dashboard_revenue_by_product(request):
+    """
+    GET /api/admin/dashboard/revenue/product/?limit=20&year=&month=
+    Doanh thu từng sản phẩm, sắp xếp giảm dần.
+    """
+    today = tz.localdate()
+    limit = int(request.query_params.get("limit", 20))
+    year  = request.query_params.get("year")
+    month = request.query_params.get("month")
+
+    qs = OrderDetail.objects.filter(OrderID__Status="Delivered")
+    if year:  qs = qs.filter(OrderID__OrderDate__year=int(year))
+    if month: qs = qs.filter(OrderID__OrderDate__month=int(month))
+
+    rows = (
+        qs.values(
+            product_id=F("VariantID__ProductID__ProductID"),
+            product_name=F("VariantID__ProductID__ProductName"),
+        )
+        .annotate(
+            revenue=Sum(ExpressionWrapper(F("UnitPrice") * F("Quantity"), output_field=FloatField())),
+            qty_sold=Sum("Quantity"),
+            order_count=Count("OrderID", distinct=True),
+        )
+        .order_by("-revenue")[:limit]
+    )
+
+    result = []
+    for r in rows:
+        pid = r["product_id"]
+        img = ""
+        primary = ProductImage.objects.filter(ProductID=pid, IsPrimary=True).first()
+        if primary: img = primary.ImageUrl or ""
+        result.append({
+            "product_id":   pid,
+            "product_name": r["product_name"],
+            "revenue":      float(r["revenue"] or 0),
+            "qty_sold":     r["qty_sold"] or 0,
+            "order_count":  r["order_count"] or 0,
+            "image":        img,
+        })
+
+    return Response({"data": result})
+
+
+@api_view(["GET"])
+def dashboard_revenue_by_brand(request):
+    """
+    GET /api/admin/dashboard/revenue/brand/?year=&month=
+    Doanh thu theo từng hãng (Brand trên Product).
+    """
+    year  = request.query_params.get("year")
+    month = request.query_params.get("month")
+
+    qs = OrderDetail.objects.filter(OrderID__Status="Delivered")
+    if year:  qs = qs.filter(OrderID__OrderDate__year=int(year))
+    if month: qs = qs.filter(OrderID__OrderDate__month=int(month))
+
+    rows = (
+        qs.values(brand=F("VariantID__ProductID__Brand"))
+          .annotate(
+              revenue=Sum(ExpressionWrapper(F("UnitPrice") * F("Quantity"), output_field=FloatField())),
+              qty_sold=Sum("Quantity"),
+              order_count=Count("OrderID", distinct=True),
+              product_count=Count("VariantID__ProductID", distinct=True),
+          )
+          .order_by("-revenue")
+    )
+
+    total_rev = sum(float(r["revenue"] or 0) for r in rows)
+    result = []
+    for r in rows:
+        rev = float(r["revenue"] or 0)
+        result.append({
+            "brand":         r["brand"] or "Không rõ",
+            "revenue":       rev,
+            "qty_sold":      r["qty_sold"] or 0,
+            "order_count":   r["order_count"] or 0,
+            "product_count": r["product_count"] or 0,
+            "share_pct":     round(rev / total_rev * 100, 1) if total_rev else 0,
+        })
+
+    return Response({"data": result})
+
+
+@api_view(["GET"])
+def dashboard_revenue_compare(request):
+    """
+    GET /api/admin/dashboard/revenue/compare/?mode=day&values=2024-06-01,2024-06-15
+    GET /api/admin/dashboard/revenue/compare/?mode=month&values=2024-01,2024-06
+    GET /api/admin/dashboard/revenue/compare/?mode=year&values=2023,2024
+    So sánh doanh thu giữa các khoảng thời gian tùy chọn.
+    """
+    mode   = request.query_params.get("mode", "month")   # day | month | year
+    values = request.query_params.get("values", "")
+    items  = [v.strip() for v in values.split(",") if v.strip()]
+
+    result = []
+    for item in items:
+        qs = _revenue_qs()
+        label = item
+        try:
+            if mode == "day":
+                d  = datetime.date.fromisoformat(item)
+                qs = qs.filter(OrderDate__date=d)
+            elif mode == "month":
+                y, m = item.split("-")
+                qs   = qs.filter(OrderDate__year=int(y), OrderDate__month=int(m))
+                label = f"T{m}/{y}"
+            elif mode == "year":
+                qs = qs.filter(OrderDate__year=int(item))
+        except Exception:
+            continue
+
+        agg = qs.aggregate(revenue=Coalesce(Sum("TotalAmount"), 0), orders=Count("OrderID"))
+        result.append({
+            "label":   label,
+            "revenue": float(agg["revenue"]),
+            "orders":  agg["orders"],
+        })
+
+    return Response({"mode": mode, "data": result})

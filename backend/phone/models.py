@@ -334,3 +334,108 @@ class ProductContent(models.Model):
 
     class Meta:
         db_table = 'ProductContent'
+
+class Review(models.Model):
+    customer   = models.ForeignKey(
+        "Customer",
+        on_delete=models.CASCADE,
+        to_field="CustomerID",      # Customer PK là CharField
+        db_column="CustomerID",
+        related_name="reviews",
+    )
+    product    = models.ForeignKey("Product",  on_delete=models.CASCADE, related_name="reviews")
+    variant    = models.ForeignKey(
+        "ProductVariant",           # ← BUG FIX: "Variant" → "ProductVariant"
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="reviews",
+    )
+    rating     = models.PositiveSmallIntegerField(default=5)
+    content    = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("customer", "product")
+        ordering        = ["-created_at"]
+        db_table        = "Review"
+
+    def __str__(self):
+        return f"Review #{self.id} – {self.customer_id} – {self.product_id}"
+
+
+class ReviewMedia(models.Model):
+    MEDIA_TYPES = [("image", "Image"), ("video", "Video")]
+    review     = models.ForeignKey(Review, on_delete=models.CASCADE, related_name="media")
+    url        = models.URLField(max_length=500)
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPES, default="image")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ReviewMedia"
+
+    def __str__(self):
+        return f"{self.media_type} – Review #{self.review_id}"
+
+
+class Comment(models.Model):
+    customer   = models.ForeignKey(
+        "Customer",
+        on_delete=models.CASCADE,
+        to_field="CustomerID",
+        db_column="CustomerID",
+        related_name="comments",
+    )
+    product    = models.ForeignKey("Product", on_delete=models.CASCADE, related_name="comments")
+    parent     = models.ForeignKey(
+        "self", on_delete=models.CASCADE,
+        null=True, blank=True, related_name="replies"
+    )
+    content    = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        db_table = "Comment"
+
+    def __str__(self):
+        return f"Comment #{self.id} – {self.customer_id} – {self.product_id}"
+
+
+class AdminReply(models.Model):
+    TARGET_TYPES = [("review", "Review"), ("comment", "Comment")]
+    target_type  = models.CharField(max_length=10, choices=TARGET_TYPES)
+    target_id    = models.PositiveIntegerField()
+    content      = models.TextField()
+    created_at   = models.DateTimeField(auto_now_add=True)
+    updated_at   = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("target_type", "target_id")
+        ordering        = ["-created_at"]
+        db_table        = "AdminReply"
+
+    def __str__(self):
+        return f"AdminReply → {self.target_type} #{self.target_id}"
+
+
+class Like(models.Model):
+    TARGET_TYPES = [("review", "Review"), ("comment", "Comment")]
+    customer    = models.ForeignKey(
+        "Customer",
+        on_delete=models.CASCADE,
+        to_field="CustomerID",
+        db_column="CustomerID",
+        related_name="likes",
+    )
+    target_type = models.CharField(max_length=10, choices=TARGET_TYPES)
+    target_id   = models.PositiveIntegerField()
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("customer", "target_type", "target_id")
+        db_table        = "Like"
+
+    def __str__(self):
+        return f"Like – {self.customer_id} → {self.target_type} #{self.target_id}"

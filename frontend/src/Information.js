@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "./Cart";
 import { Search, ShoppingCart, User, ShoppingBag, Settings, Pencil, X, Check, Eye, EyeOff, LogOut, Camera, ChevronDown, AlertTriangle } from "lucide-react";
 import bgImage from "./Image/image-177.png";
+import { SearchModal } from "./Searchbar";
 
 const API = "http://localhost:8000";
 
@@ -15,6 +16,9 @@ export default function Information() {
   const [customer, setCustomer]   = useState(null);
   const [loading, setLoading]     = useState(true);
   const [activeTab, setActiveTab] = useState("profile");
+
+  // Search
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Edit states
   const [editPhone, setEditPhone]     = useState(false);
@@ -181,6 +185,8 @@ export default function Information() {
       <div className="absolute inset-0 bg-cover bg-center scale-105 opacity-20" style={{ backgroundImage: `url(${bgImage})` }}></div>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
 
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
       <div className="relative z-10 flex flex-col min-h-screen pt-[65px]">
 
         {/* NAVBAR */}
@@ -192,6 +198,11 @@ export default function Information() {
             <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
           </div>
           <div className="flex gap-5 items-center text-gray-300">
+            {/* SEARCH BUTTON */}
+            <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
+              <Search size={20} />
+            </button>
+
             <button onClick={() => navigate(userLocal.id ? "/cart" : "/login")} className="relative">
               <ShoppingCart className="hover:text-white transition" size={22} />
               {totalCount > 0 && (
