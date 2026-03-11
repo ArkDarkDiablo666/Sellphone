@@ -164,6 +164,8 @@ class Order(models.Model):
     StatusNote      = models.CharField(max_length=500, null=True, blank=True)
     Subtotal        = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     Discount        = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    EstimatedDelivery = models.DateField(null=True, blank=True)
+    ActualDelivery    = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'Order'

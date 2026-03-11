@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "phone",
-]
+    "rest_framework",]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  

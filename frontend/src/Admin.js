@@ -9,10 +9,413 @@ import {
   ShoppingBag, RefreshCw,
   RotateCcw, FileVideo, AlertCircle, FileText, Newspaper, Trash2,
   Table as TableIcon, Highlighter, Type, List, ListOrdered, Palette,
-  MessageCircle, Heart, Star, Bell, Search as SearchIcon, CornerDownRight, Loader2
+  MessageCircle, Heart, Star, Bell, Search as SearchIcon, CornerDownRight, Loader2,
+  BarChart2
+} from "lucide-react";
+
+// ── A) Import RevenueDashboard ────────────────────────────────
+import {
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
+import {
+  TrendingUp, Calendar, Award,
+  ArrowUpRight, ArrowDownRight, Minus, ChevronDown
 } from "lucide-react";
 
 const API = "http://localhost:8000";
+const DASH_API = "http://localhost:8000";
+
+// ── Revenue Dashboard helpers ─────────────────────────────────
+const ORANGE   = "#ff9500";
+const PURPLE   = "#bf5af2";
+const CYAN     = "#32d7d2";
+const GREEN    = "#34c759";
+const RED      = "#ff3b30";
+const PINK     = "#ff2d78";
+const BLUE     = "#0a84ff";
+const BRAND_COLORS = [ORANGE, PURPLE, CYAN, GREEN, PINK, BLUE, "#ffd60a", "#30d158", "#64d2ff", "#ff9f0a"];
+
+const fmt = (n) => {
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + " tỷ";
+  if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1) + " tr";
+  if (n >= 1_000)         return (n / 1_000).toFixed(0) + "k";
+  return n.toLocaleString("vi-VN");
+};
+const fmtFull = (n) => Math.round(n).toLocaleString("vi-VN") + "đ";
+
+function useDashFetch(url) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [tick,    setTick]    = useState(0);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!url) return;
+    setLoading(true);
+    fetch(`${DASH_API}${url}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [url, tick]);
+  return { data, loading, refresh };
+}
+
+function DashKpiCard({ label, value, sub, pct, icon: Icon, color = ORANGE }) {
+  const up   = pct > 0;
+  const same = pct === null || pct === undefined;
+  return (
+    <div className="rounded-2xl border border-white/5 p-5 flex flex-col gap-3" style={{ background: "#111" }}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-white/40 font-medium uppercase tracking-wider">{label}</span>
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+          style={{ background: `${color}18`, border: `1px solid ${color}30` }}>
+          <Icon size={15} style={{ color }} />
+        </div>
+      </div>
+      <div>
+        <p className="text-2xl font-bold tracking-tight">{value}</p>
+        {sub && <p className="text-xs text-white/40 mt-0.5">{sub}</p>}
+      </div>
+      {!same && (
+        <div className="flex items-center gap-1 text-xs font-medium" style={{ color: up ? GREEN : RED }}>
+          {up ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+          {Math.abs(pct)}% so với kỳ trước
+        </div>
+      )}
+      {same && <div className="flex items-center gap-1 text-xs text-white/30"><Minus size={11} /> Chưa có dữ liệu</div>}
+    </div>
+  );
+}
+
+function DashSelect({ value, onChange, options }) {
+  return (
+    <div className="relative">
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="appearance-none rounded-xl px-3 pr-7 py-1.5 text-xs border outline-none cursor-pointer"
+        style={{ background: "#222", borderColor: "rgba(255,255,255,0.1)", color: "white" }}>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/40" />
+    </div>
+  );
+}
+
+function DashTabs({ tabs, value, onChange }) {
+  return (
+    <div className="flex gap-1 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.05)" }}>
+      {tabs.map((t) => (
+        <button key={t.value} onClick={() => onChange(t.value)}
+          className="px-4 py-1.5 rounded-lg text-xs font-medium transition"
+          style={{ background: value === t.value ? ORANGE : "transparent", color: value === t.value ? "white" : "rgba(255,255,255,0.45)" }}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const DashTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl border border-white/10 px-4 py-3 text-xs shadow-2xl" style={{ background: "#1a1a1a", minWidth: 160 }}>
+      <p className="text-white/50 mb-2">{label}</p>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span className="text-white/70">{p.name}:</span>
+          <span className="text-white font-semibold ml-auto pl-3">{fmtFull(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+function DashOverview() {
+  const { data, loading, refresh } = useDashFetch("/api/admin/dashboard/overview/");
+  if (loading) return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {[...Array(4)].map((_, i) => <div key={i} className="rounded-2xl border border-white/5 p-5 h-28 animate-pulse" style={{ background: "#111" }} />)}
+    </div>
+  );
+  const d = data || {};
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">Tổng quan</h2>
+        <button onClick={refresh} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition">
+          <RefreshCw size={11} /> Làm mới
+        </button>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <DashKpiCard label="Hôm nay"   value={fmt(d.today?.revenue || 0) + "đ"}      sub={`${d.today?.orders || 0} đơn`}          pct={d.today?.vs_yesterday}   icon={TrendingUp}  color={ORANGE} />
+        <DashKpiCard label="Tháng này" value={fmt(d.this_month?.revenue || 0) + "đ"} sub={`${d.this_month?.orders || 0} đơn`}      pct={d.this_month?.vs_last_month} icon={Calendar} color={PURPLE} />
+        <DashKpiCard label="Năm nay"   value={fmt(d.this_year?.revenue || 0) + "đ"}  sub="doanh thu năm"                            pct={d.this_year?.vs_last_year}   icon={BarChart2} color={CYAN}   />
+        <DashKpiCard label="Tất cả"    value={fmt(d.all_time?.revenue || 0) + "đ"}   sub={`${d.all_time?.orders || 0} đơn tổng`}   pct={null}                       icon={ShoppingBag} color={GREEN} />
+      </div>
+    </div>
+  );
+}
+
+function DashRevenueChart() {
+  const today   = new Date();
+  const [mode,  setMode]  = useState("month");
+  const [year,  setYear]  = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
+
+  const url = mode === "day"
+    ? `/api/admin/dashboard/revenue/day/?year=${year}&month=${month}`
+    : mode === "month"
+    ? `/api/admin/dashboard/revenue/month/?year=${year}`
+    : `/api/admin/dashboard/revenue/year/`;
+
+  const { data, loading } = useDashFetch(url);
+  const rows = data?.data || [];
+  const chartData = rows.map((r) => ({
+    name: mode === "day" ? `${r.day}` : mode === "month" ? `T${r.month}` : `${r.year}`,
+    "Kỳ này":   r.revenue,
+    "Kỳ trước": r.prev_revenue ?? undefined,
+  }));
+
+  const years  = Array.from({ length: 5 }, (_, i) => ({ value: today.getFullYear() - i, label: `${today.getFullYear() - i}` }));
+  const months = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Tháng ${i + 1}` }));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">Biểu đồ doanh thu</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <DashTabs tabs={[{label:"Ngày",value:"day"},{label:"Tháng",value:"month"},{label:"Năm",value:"year"}]} value={mode} onChange={setMode} />
+          {mode !== "year" && <DashSelect value={year} onChange={(v) => setYear(+v)} options={years.map(y => ({value: y.value, label: y.label}))} />}
+          {mode === "day"  && <DashSelect value={month} onChange={(v) => setMonth(+v)} options={months} />}
+        </div>
+      </div>
+      <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#111" }}>
+        {loading
+          ? <div className="h-64 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>
+          : chartData.length === 0
+          ? <div className="h-64 flex items-center justify-center text-white/30 text-sm">Không có dữ liệu</div>
+          : (
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gO2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={ORANGE} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={ORANGE} stopOpacity={0}   />
+                </linearGradient>
+                <linearGradient id="gP2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={PURPLE} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={PURPLE} stopOpacity={0}   />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "rgba(255,255,255,0.35)" }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={(v) => fmt(v)} tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} width={55} />
+              <Tooltip content={<DashTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)", paddingTop: 8 }} />
+              <Area type="monotone" dataKey="Kỳ này"   stroke={ORANGE} strokeWidth={2}   fill="url(#gO2)" dot={false} activeDot={{ r: 4, fill: ORANGE }} />
+              {chartData[0]?.["Kỳ trước"] !== undefined && (
+                <Area type="monotone" dataKey="Kỳ trước" stroke={PURPLE} strokeWidth={1.5} fill="url(#gP2)" dot={false} strokeDasharray="4 3" />
+              )}
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashCompare() {
+  const [mode,  setMode]  = useState("month");
+  const [input, setInput] = useState("2024-01,2024-06,2024-12");
+  const [url,   setUrl]   = useState(null);
+  const { data, loading } = useDashFetch(url);
+  const rows = data?.data || [];
+  const placeholders = { day: "2024-06-01, 2024-06-15", month: "2024-01, 2024-06", year: "2022, 2023, 2024" };
+
+  return (
+    <div>
+      <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest mb-4">So sánh khoảng thời gian</h2>
+      <div className="rounded-2xl border border-white/5 p-5 flex flex-col gap-5" style={{ background: "#111" }}>
+        <div className="flex flex-wrap items-center gap-3">
+          <DashTabs tabs={[{label:"Ngày",value:"day"},{label:"Tháng",value:"month"},{label:"Năm",value:"year"}]} value={mode} onChange={(v) => { setMode(v); setInput(""); }} />
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={`VD: ${placeholders[mode]}`}
+            className="flex-1 min-w-48 rounded-xl px-4 py-1.5 text-xs border outline-none"
+            style={{ background: "rgba(255,255,255,0.05)", borderColor: "rgba(255,255,255,0.1)", color: "white" }} />
+          <button onClick={() => setUrl(`/api/admin/dashboard/revenue/compare/?mode=${mode}&values=${encodeURIComponent(input.trim())}`)}
+            className="px-4 py-1.5 rounded-xl text-xs font-semibold transition" style={{ background: ORANGE, color: "white" }}>
+            So sánh
+          </button>
+        </div>
+        {loading && <div className="h-48 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>}
+        {!loading && rows.length > 0 && (
+          <>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={rows} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "rgba(255,255,255,0.35)" }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={(v) => fmt(v)} tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} width={55} />
+                <Tooltip content={<DashTooltip />} />
+                <Bar dataKey="revenue" name="Doanh thu" radius={[6,6,0,0]}>
+                  {rows.map((_, i) => <Cell key={i} fill={BRAND_COLORS[i % BRAND_COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {rows.map((r, i) => (
+                <div key={i} className="rounded-xl p-3 border border-white/5" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <div className="w-2 h-2 rounded-full mb-2" style={{ background: BRAND_COLORS[i % BRAND_COLORS.length] }} />
+                  <p className="text-xs text-white/50 mb-1">{r.label}</p>
+                  <p className="text-sm font-bold">{fmt(r.revenue)}đ</p>
+                  <p className="text-[10px] text-white/30 mt-0.5">{r.orders} đơn</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashTopProducts() {
+  const today = new Date();
+  const [year,  setYear]  = useState(today.getFullYear());
+  const [month, setMonth] = useState("");
+  const url = `/api/admin/dashboard/revenue/product/?limit=10${year ? `&year=${year}` : ""}${month ? `&month=${month}` : ""}`;
+  const { data, loading } = useDashFetch(url);
+  const rows = data?.data || [];
+  const maxRev = rows[0]?.revenue || 1;
+  const years  = [{ value: "", label: "Tất cả" }, ...Array.from({ length: 5 }, (_, i) => ({ value: today.getFullYear() - i, label: `${today.getFullYear() - i}` }))];
+  const months = [{ value: "", label: "Cả năm" }, ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Tháng ${i + 1}` }))];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">Top sản phẩm</h2>
+        <div className="flex gap-2">
+          <DashSelect value={year}  onChange={setYear}  options={years}  />
+          <DashSelect value={month} onChange={setMonth} options={months} />
+        </div>
+      </div>
+      <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#111" }}>
+        {loading
+          ? <div className="py-10 text-center text-white/30 text-sm">Đang tải...</div>
+          : rows.length === 0
+          ? <div className="py-10 text-center text-white/30 text-sm">Không có dữ liệu</div>
+          : (
+          <div className="flex flex-col gap-3">
+            {rows.map((r, i) => (
+              <div key={r.product_id} className="flex items-center gap-4">
+                <span className="w-5 text-center text-xs font-bold" style={{ color: i < 3 ? ORANGE : "rgba(255,255,255,0.2)" }}>{i + 1}</span>
+                <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 border border-white/5 flex items-center justify-center" style={{ background: "#222" }}>
+                  {r.image ? <img src={r.image} alt="" className="w-full h-full object-contain p-0.5" /> : <Package size={14} className="text-white/20" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{r.product_name}</p>
+                  <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                    <div className="h-full rounded-full transition-all" style={{ width: `${(r.revenue / maxRev) * 100}%`, background: i < 3 ? ORANGE : "rgba(255,255,255,0.2)" }} />
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-bold" style={{ color: ORANGE }}>{fmt(r.revenue)}đ</p>
+                  <p className="text-[10px] text-white/30 mt-0.5">{r.qty_sold} sp</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashBrandRevenue() {
+  const today = new Date();
+  const [year,  setYear]  = useState(today.getFullYear());
+  const [month, setMonth] = useState("");
+  const url = `/api/admin/dashboard/revenue/brand/?${year ? `year=${year}` : ""}${month ? `&month=${month}` : ""}`;
+  const { data, loading } = useDashFetch(url);
+  const rows = data?.data || [];
+  const years  = [{ value: "", label: "Tất cả" }, ...Array.from({ length: 5 }, (_, i) => ({ value: today.getFullYear() - i, label: `${today.getFullYear() - i}` }))];
+  const months = [{ value: "", label: "Cả năm" }, ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Tháng ${i + 1}` }))];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">Doanh thu theo hãng</h2>
+        <div className="flex gap-2">
+          <DashSelect value={year}  onChange={setYear}  options={years}  />
+          <DashSelect value={month} onChange={setMonth} options={months} />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#111" }}>
+          {loading || rows.length === 0
+            ? <div className="h-56 flex items-center justify-center text-white/30 text-sm">{loading ? "Đang tải..." : "Không có dữ liệu"}</div>
+            : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={rows} dataKey="revenue" nameKey="brand" cx="50%" cy="50%" outerRadius={80} innerRadius={45} paddingAngle={2} stroke="none">
+                  {rows.map((_, i) => <Cell key={i} fill={BRAND_COLORS[i % BRAND_COLORS.length]} />)}
+                </Pie>
+                <Tooltip formatter={(v) => fmtFull(v)} contentStyle={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#111" }}>
+          {loading
+            ? <div className="py-10 text-center text-white/30 text-sm">Đang tải...</div>
+            : rows.length === 0
+            ? <div className="py-10 text-center text-white/30 text-sm">Không có dữ liệu</div>
+            : (
+            <div className="flex flex-col gap-3">
+              {rows.map((r, i) => (
+                <div key={r.brand} className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ background: BRAND_COLORS[i % BRAND_COLORS.length] }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold truncate">{r.brand}</span>
+                      <span className="text-xs text-white/40 ml-2 shrink-0">{r.share_pct}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${r.share_pct}%`, background: BRAND_COLORS[i % BRAND_COLORS.length] }} />
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 ml-2">
+                    <p className="text-xs font-bold">{fmt(r.revenue)}đ</p>
+                    <p className="text-[10px] text-white/30">{r.qty_sold} sp · {r.order_count} đơn</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RevenueDashboard() {
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/5 text-xs text-white/40" style={{ background: "#111" }}>
+          <Award size={13} className="text-orange-400" />
+          Chỉ tính đơn hàng <span className="text-green-400 font-medium mx-1">Delivered</span>
+        </div>
+      </div>
+      <DashOverview />
+      <DashRevenueChart />
+      <DashCompare />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <DashTopProducts />
+        <DashBrandRevenue />
+      </div>
+    </div>
+  );
+}
 
 // ============================================================
 // TOOLBAR HELPERS
@@ -42,14 +445,12 @@ function RichEditor({ value, onChange }) {
   const tblRef  = useRef(null);
   const cellRef = useRef(null);
 
-  // init
   useEffect(() => {
     if (editorRef.current && editorRef.current.innerHTML !== value) {
       editorRef.current.innerHTML = value || "";
     }
   }, []); // eslint-disable-line
 
-  // close dropdowns on outside click
   useEffect(() => {
     const fn = (e) => {
       if (txtRef.current  && !txtRef.current.contains(e.target))  setShowTxtClr(false);
@@ -83,7 +484,6 @@ function RichEditor({ value, onChange }) {
     inp.click();
   };
 
-  // ── Tạo bảng mới ──
   const insertTable = (rows, cols) => {
     editorRef.current?.focus();
     let html = '<table style="border-collapse:collapse;width:100%;margin:8px 0;">';
@@ -100,7 +500,6 @@ function RichEditor({ value, onChange }) {
     setShowTbl(false);
   };
 
-  // ── Thêm/xóa hàng/cột ──
   const tableAction = (action) => {
     editorRef.current?.focus();
     const sel = window.getSelection();
@@ -145,7 +544,6 @@ function RichEditor({ value, onChange }) {
     setShowTbl(false);
   };
 
-  // ── Màu nền ô ──
   const setCellBgColor = (color) => {
     editorRef.current?.focus();
     const sel = window.getSelection();
@@ -183,30 +581,21 @@ function RichEditor({ value, onChange }) {
 
   return (
     <div className="border border-white/10 rounded-xl overflow-visible">
-      {/* TOOLBAR */}
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-2 bg-white/[0.03] border-b border-white/10 rounded-t-xl">
-
-        {/* Format */}
         <ToolBtn title="In đậm" onClick={() => exec("bold")}><strong className="text-xs">B</strong></ToolBtn>
         <ToolBtn title="In nghiêng" onClick={() => exec("italic")}><em className="text-xs italic">I</em></ToolBtn>
         <ToolBtn title="Gạch chân" onClick={() => exec("underline")}><span className="text-xs underline">U</span></ToolBtn>
         <ToolBtn title="Gạch ngang" onClick={() => exec("strikeThrough")}><span className="text-xs line-through">S</span></ToolBtn>
         <Divider />
-
-        {/* Align */}
         <ToolBtn title="Căn trái"  onClick={() => exec("justifyLeft")}> <AlignLeft   size={13} /></ToolBtn>
         <ToolBtn title="Căn giữa"  onClick={() => exec("justifyCenter")}><AlignCenter size={13} /></ToolBtn>
         <ToolBtn title="Căn phải"  onClick={() => exec("justifyRight")}> <AlignRight  size={13} /></ToolBtn>
         <Divider />
-
-        {/* Size */}
         {SIZES.map(s => (
           <button key={s.v} type="button" onMouseDown={(e) => { e.preventDefault(); exec("fontSize", s.v); }}
             className="px-2 h-7 rounded-lg hover:bg-white/10 text-xs text-white/50 hover:text-white transition">{s.l}</button>
         ))}
         <Divider />
-
-        {/* Text color */}
         <div className="relative" ref={txtRef}>
           <button type="button" title="Màu chữ"
             onMouseDown={e => { e.preventDefault(); setShowTxtClr(p => !p); setShowBgClr(false); setShowTbl(false); setShowCellBg(false); }}
@@ -230,8 +619,6 @@ function RichEditor({ value, onChange }) {
             </div>
           )}
         </div>
-
-        {/* Text background (highlight) */}
         <div className="relative" ref={bgRef}>
           <button type="button" title="Nền chữ (highlight)"
             onMouseDown={e => { e.preventDefault(); setShowBgClr(p => !p); setShowTxtClr(false); setShowTbl(false); setShowCellBg(false); }}
@@ -259,13 +646,9 @@ function RichEditor({ value, onChange }) {
           )}
         </div>
         <Divider />
-
-        {/* Lists */}
         <ToolBtn title="Danh sách •" onClick={() => exec("insertUnorderedList")}><List size={13} /></ToolBtn>
         <ToolBtn title="Danh sách số" onClick={() => exec("insertOrderedList")}><ListOrdered size={13} /></ToolBtn>
         <Divider />
-
-        {/* Table menu */}
         <div className="relative" ref={tblRef}>
           <button type="button" title="Bảng"
             onMouseDown={e => { e.preventDefault(); setShowTbl(p => !p); setShowTxtClr(false); setShowBgClr(false); setShowCellBg(false); }}
@@ -298,8 +681,6 @@ function RichEditor({ value, onChange }) {
             </div>
           )}
         </div>
-
-        {/* Cell background */}
         <div className="relative" ref={cellRef}>
           <button type="button" title="Màu nền ô bảng (click vào ô trước)"
             onMouseDown={e => { e.preventDefault(); setShowCellBg(p => !p); setShowTxtClr(false); setShowBgClr(false); setShowTbl(false); }}
@@ -328,19 +709,13 @@ function RichEditor({ value, onChange }) {
           )}
         </div>
         <Divider />
-
-        {/* Image */}
         <ToolBtn title="Chèn ảnh" onClick={insertImage} extra="hover:bg-orange-500/20 text-orange-400">
           <ImageIcon size={13} />
         </ToolBtn>
-
-        {/* Clear format */}
         <ToolBtn title="Xóa định dạng" onClick={() => exec("removeFormat")} extra="hover:bg-red-500/10 text-white/30 hover:text-red-400">
           <span className="text-xs line-through">T</span>
         </ToolBtn>
       </div>
-
-      {/* EDITOR */}
       <div ref={editorRef} contentEditable suppressContentEditableWarning
         onInput={sync} onBlur={sync}
         className="min-h-[160px] max-h-[400px] overflow-y-auto p-4 text-sm text-white/70 outline-none leading-relaxed rounded-b-xl"
@@ -451,13 +826,12 @@ export default function Admin() {
   const [pcSaving,     setPcSaving]     = useState(false);
   const [pcLoaded,     setPcLoaded]     = useState(false);
 
-  // ── REVIEWS & COMMENTS ──
   const [reviewList,        setReviewList]        = useState([]);
   const [reviewLoading,     setReviewLoading]     = useState(false);
-  const [reviewFilter,      setReviewFilter]      = useState("all"); // "all" | "unanswered" | "answered"
+  const [reviewFilter,      setReviewFilter]      = useState("all");
   const [reviewSearch,      setReviewSearch]      = useState("");
-  const [reviewType,        setReviewType]        = useState("reviews"); // "reviews" | "comments"
-  const [replyTarget,       setReplyTarget]       = useState(null); // { type, id }
+  const [reviewType,        setReviewType]        = useState("reviews");
+  const [replyTarget,       setReplyTarget]       = useState(null);
   const [replyText,         setReplyText]         = useState("");
   const [replySaving,       setReplySaving]       = useState(false);
   const [unansweredCount,   setUnansweredCount]   = useState(0);
@@ -476,7 +850,6 @@ export default function Admin() {
 
   const fileInputRef = useRef(null);
 
-  // ── LOAD ──
   useEffect(() => {
     if (!adminLocal.id || adminLocal.loginType !== "admin") { navigate("/admin/login"); return; }
     fetch(`${API}/api/staff/${adminLocal.id}/`).then(r=>r.json()).then(setAdmin)
@@ -496,7 +869,6 @@ export default function Admin() {
     if(activeTab==="voucher"){ loadVouchers(); if(categories.length===0||productList.length===0) loadProducts(); }
   },[activeTab]); // eslint-disable-line
 
-  // Poll unanswered count for sidebar badge
   useEffect(()=>{
     const fetchCount = () => fetch(`${API}/api/admin/reviews/?count_only=1`).then(r=>r.json()).then(d=>setUnansweredCount(d.unanswered_count||0)).catch(()=>{});
     fetchCount();
@@ -624,19 +996,22 @@ export default function Admin() {
     Staff:      "bg-blue-500/20 text-blue-300 border-blue-500/30",
     Unentitled: "bg-gray-500/20 text-gray-400 border-gray-500/30",
   };
+
+  // ── B) Thêm "dashboard" vào menuItems ────────────────────────
   const menuItems = [
-    { key:"profile",         label:"Thông tin cá nhân",  icon:User        },
-    { key:"staff",           label:"Quản lý nhân viên",  icon:Users       },
-    { key:"category",        label:"Danh mục sản phẩm",  icon:LayoutGrid  },
-    { key:"product",         label:"Quản lý sản phẩm",   icon:Package     },
-    { key:"import",          label:"Nhập hàng",           icon:PackagePlus },
-    { key:"orders",          label:"Đơn hàng",            icon:ShoppingBag },
-    { key:"returns",         label:"Trả hàng",            icon:RotateCcw   },
-    { key:"voucher",         label:"Voucher",             icon:Ticket      },
-    { key:"posts",           label:"Bài viết",            icon:Newspaper   },
-    { key:"product_content", label:"Mô tả sản phẩm",     icon:FileText    },
-    { key:"reviews",         label:"Đánh giá & Bình luận",icon:MessageCircle, badge: unansweredCount },
-    { key:"settings",        label:"Cài đặt",             icon:Settings    },
+    { key:"dashboard",       label:"Dashboard doanh thu",  icon:BarChart2   },
+    { key:"profile",         label:"Thông tin cá nhân",   icon:User        },
+    { key:"staff",           label:"Quản lý nhân viên",   icon:Users       },
+    { key:"category",        label:"Danh mục sản phẩm",   icon:LayoutGrid  },
+    { key:"product",         label:"Quản lý sản phẩm",    icon:Package     },
+    { key:"import",          label:"Nhập hàng",            icon:PackagePlus },
+    { key:"orders",          label:"Đơn hàng",             icon:ShoppingBag },
+    { key:"returns",         label:"Trả hàng",             icon:RotateCcw   },
+    { key:"voucher",         label:"Voucher",              icon:Ticket      },
+    { key:"posts",           label:"Bài viết",             icon:Newspaper   },
+    { key:"product_content", label:"Mô tả sản phẩm",      icon:FileText    },
+    { key:"reviews",         label:"Đánh giá & Bình luận", icon:MessageCircle, badge: unansweredCount },
+    { key:"settings",        label:"Cài đặt",              icon:Settings    },
   ];
 
   if(loading) return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><div className="w-8 h-8 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin"/></div>;
@@ -700,6 +1075,9 @@ export default function Admin() {
         </div>
 
         <div className="p-8">
+
+          {/* ── C) Dashboard tab render ──────────────────────────── */}
+          {activeTab === "dashboard" && <RevenueDashboard />}
 
           {/* PROFILE */}
           {activeTab==="profile" && (
@@ -1139,23 +1517,19 @@ export default function Admin() {
           {/* REVIEWS & COMMENTS */}
           {activeTab==="reviews"&&(
             <div className="flex flex-col gap-4">
-              {/* Toolbar */}
               <div className="flex items-center gap-3 flex-wrap">
-                {/* Type toggle */}
                 <div className="flex gap-1 bg-white/5 rounded-xl p-1">
                   {[{k:"reviews",l:"Đánh giá"},{k:"comments",l:"Bình luận"}].map(({k,l})=>(
                     <button key={k} onClick={()=>setReviewType(k)}
                       className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${reviewType===k?"bg-orange-500 text-white":"text-white/40 hover:text-white"}`}>{l}</button>
                   ))}
                 </div>
-                {/* Filter toggle */}
                 <div className="flex gap-1 bg-white/5 rounded-xl p-1">
                   {[{k:"all",l:"Tất cả"},{k:"unanswered",l:`Chưa trả lời${unansweredCount>0?` (${unansweredCount})`:""}`},{k:"answered",l:"Đã trả lời"}].map(({k,l})=>(
                     <button key={k} onClick={()=>setReviewFilter(k)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${reviewFilter===k?"bg-orange-500/20 text-orange-400 border border-orange-500/30":"text-white/40 hover:text-white"}`}>{l}</button>
                   ))}
                 </div>
-                {/* Search */}
                 <div className="flex-1 min-w-[200px] relative">
                   <SearchIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20"/>
                   <input value={reviewSearch} onChange={e=>setReviewSearch(e.target.value)} placeholder="Tìm theo tên sản phẩm..."
@@ -1163,8 +1537,6 @@ export default function Admin() {
                 </div>
                 <button onClick={loadReviews} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition"><RefreshCw size={14} className="text-white/40"/></button>
               </div>
-
-              {/* List */}
               {reviewLoading ? (
                 <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin"/></div>
               ) : (()=>{
@@ -1186,7 +1558,6 @@ export default function Admin() {
                   <div className="flex flex-col gap-3">
                     {items.map(item=>(
                       <div key={`${item.type}-${item.id}`} className="bg-[#161616] border border-white/5 rounded-2xl p-5 flex flex-col gap-3">
-                        {/* Header */}
                         <div className="flex items-start gap-3">
                           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-xs font-bold shrink-0">
                             {item.customer_name?.[0]?.toUpperCase()||"U"}
@@ -1216,8 +1587,6 @@ export default function Admin() {
                             )}
                           </div>
                         </div>
-
-                        {/* Existing admin reply */}
                         {item.admin_reply && (
                           <div className="ml-12 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex gap-3">
                             <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
@@ -1229,8 +1598,6 @@ export default function Admin() {
                             </div>
                           </div>
                         )}
-
-                        {/* Reply form */}
                         {replyTarget?.id===item.id && replyTarget?.type===item.type ? (
                           <div className="ml-12 flex gap-2">
                             <textarea value={replyText} onChange={e=>setReplyText(e.target.value)} rows={2} placeholder="Trả lời với tư cách PHONEZONE..."
