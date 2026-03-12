@@ -113,6 +113,8 @@ const PRICE_RANGES = [
   { label: "10 – 20 triệu", min: 10_000_000, max: 20_000_000 },
   { label: "Trên 20 triệu", min: 20_000_000, max: Infinity   },
 ];
+const RAM_OPTIONS     = ["4GB","6GB","8GB","12GB","16GB","32GB"];
+const STORAGE_OPTIONS = ["64GB","128GB","256GB","512GB","1TB","2TB"];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function SearchPage() {
@@ -187,6 +189,8 @@ export default function SearchPage() {
   const [priceRange,  setPriceRange]  = useState("");
   const [brandFilter, setBrandFilter] = useState("");
   const [brands,      setBrands]      = useState([]);
+  const [selectedRams,     setSelectedRams]     = useState([]);
+  const [selectedStorages, setSelectedStorages] = useState([]);
   const [filterOpen,  setFilterOpen]  = useState(false);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
@@ -198,6 +202,8 @@ export default function SearchPage() {
     setSort("relevance");
     setBrandFilter("");
     setPriceRange("");
+    setSelectedRams([]);
+    setSelectedStorages([]);
     try {
       const r = await fetch(`${API}/api/search/text/?q=${encodeURIComponent(query)}&limit=60`);
       const d = await r.json();
@@ -249,6 +255,8 @@ export default function SearchPage() {
     setResults([]);
     setSearchParams({});
     setInputQ("");
+    setSelectedRams([]);
+    setSelectedStorages([]);
 
     const form = new FormData();
     form.append("file", file);
@@ -278,12 +286,19 @@ export default function SearchPage() {
     );
   }
 
+  if (selectedRams.length)
+    displayed = displayed.filter(p => (p.variants || []).some(v => selectedRams.includes(v.ram)));
+
+  if (selectedStorages.length)
+    displayed = displayed.filter(p => (p.variants || []).some(v => selectedStorages.includes(v.storage)));
+
   if (sort === "price_asc")  displayed.sort((a, b) => (a.min_price||0) - (b.min_price||0));
   if (sort === "price_desc") displayed.sort((a, b) => (b.min_price||0) - (a.min_price||0));
   if (sort === "rating")     displayed.sort((a, b) => b.rating_avg - a.rating_avg);
   if (sort === "sold")       displayed.sort((a, b) => b.sold - a.sold);
 
-  const filterActive = brandFilter || priceRange || sort !== "relevance";
+  const toggleItem = (setter, val) => setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
+  const filterActive = brandFilter || priceRange || sort !== "relevance" || selectedRams.length > 0 || selectedStorages.length > 0;
 
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
@@ -545,7 +560,7 @@ export default function SearchPage() {
                     </div>
                     {filterActive && (
                       <button
-                        onClick={() => { setSort("relevance"); setBrandFilter(""); setPriceRange(""); }}
+                        onClick={() => { setSort("relevance"); setBrandFilter(""); setPriceRange(""); setSelectedRams([]); setSelectedStorages([]); }}
                         className="text-[10px] text-white/30 hover:text-red-400 transition flex items-center gap-0.5">
                         <X size={10} /> Xóa
                       </button>
@@ -636,6 +651,43 @@ export default function SearchPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* RAM */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-1.5">
+                        RAM
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {RAM_OPTIONS.map((r) => (
+                          <button key={r} onClick={() => toggleItem(setSelectedRams, r)}
+                            className={`px-2.5 py-1 rounded-lg text-xs border transition
+                              ${selectedRams.includes(r)
+                                ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
+                                : "bg-white/5 border-white/10 text-white/40 hover:border-white/30 hover:text-white"}`}>
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Storage */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-1.5">
+                        Bộ nhớ trong
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {STORAGE_OPTIONS.map((s) => (
+                          <button key={s} onClick={() => toggleItem(setSelectedStorages, s)}
+                            className={`px-2.5 py-1 rounded-lg text-xs border transition
+                              ${selectedStorages.includes(s)
+                                ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
+                                : "bg-white/5 border-white/10 text-white/40 hover:border-white/30 hover:text-white"}`}>
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               </aside>
@@ -661,7 +713,7 @@ export default function SearchPage() {
                     <Package size={40} className="mx-auto mb-3 opacity-30" />
                     <p className="text-sm">Không có sản phẩm phù hợp với bộ lọc</p>
                     <button
-                      onClick={() => { setBrandFilter(""); setPriceRange(""); setSort("relevance"); }}
+                      onClick={() => { setBrandFilter(""); setPriceRange(""); setSort("relevance"); setSelectedRams([]); setSelectedStorages([]); }}
                       className="mt-3 text-xs text-orange-400 hover:underline">
                       Xóa bộ lọc
                     </button>

@@ -10,6 +10,7 @@ import {
   Camera, Loader2, Search
 } from "lucide-react";
 import { SearchModal } from "./Searchbar";
+import Footer from "./Footer";
 
 const API = "http://localhost:8000";
 
@@ -1129,6 +1130,7 @@ export default function InformationProduct() {
           </div>
         )}
       </div>
+      <Footer />
     </div>
   );
 }

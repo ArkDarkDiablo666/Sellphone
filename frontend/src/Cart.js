@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { SearchModal } from "./Searchbar";
+import Footer from "./Footer";
 
 const API = "http://localhost:8000";
 
@@ -1070,6 +1071,7 @@ export default function CartPage() {
           </div>
         )}
       </div>
+      <Footer />
     </div>
   );
 }

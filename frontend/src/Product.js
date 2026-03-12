@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
+import Footer from "./Footer";
 
 const API = "http://localhost:8000";
 
@@ -408,11 +409,10 @@ export default function Product() {
           )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
-
-// ── PRODUCT CARD ──
 function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navigate }) {
   const variants   = p.variants || [];
   const comboKey   = comboVariant ? `${comboVariant.ram || ""}|${comboVariant.storage || ""}` : null;

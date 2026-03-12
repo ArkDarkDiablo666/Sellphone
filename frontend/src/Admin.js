@@ -793,6 +793,14 @@ export default function Admin() {
   const [addVarList,        setAddVarList]        = useState([{ ...EMPTY_VARIANT }]);
   const [addVarErrors,      setAddVarErrors]      = useState({});
   const [addVarSaving,      setAddVarSaving]      = useState(false);
+  const [editProductId,   setEditProductId]   = useState(null);
+  const [editProductData, setEditProductData] = useState({});
+  const [editProductSaving, setEditProductSaving] = useState(false);
+  const [editVariantId,   setEditVariantId]   = useState(null);
+  const [editVariantData, setEditVariantData] = useState({});
+  const [editVariantSaving, setEditVariantSaving] = useState(false);
+  const [productDetailMap, setProductDetailMap] = useState({});
+  const [loadingDetailId,  setLoadingDetailId]  = useState(null);
   const [existingVariants,  setExistingVariants]  = useState([]);
 
   const [voucherList, setVoucherList]       = useState([]);
@@ -859,6 +867,7 @@ export default function Admin() {
 
   useEffect(()=>{ if(activeTab==="staff")           loadStaff();      },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="product")         loadProducts();   },[activeTab]); // eslint-disable-line
+  useEffect(()=>{ if(activeTab==="orders")          loadOrders();     },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="category")        loadCategories(); },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="import")          loadProducts();   },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="returns")         loadReturns();    },[activeTab]); // eslint-disable-line
@@ -932,6 +941,113 @@ export default function Admin() {
       else setAddVarErrors({general:d.message});
     }finally{ setAddVarSaving(false); }
   };
+  const loadProductDetail = async (productId) => {
+  if (productDetailMap[productId]) return;
+  setLoadingDetailId(productId);
+  try {
+    const r = await fetch(`${API}/api/product/${productId}/detail/`);
+    const d = await r.json();
+    if (r.ok) setProductDetailMap(prev => ({ ...prev, [productId]: d }));
+  } finally {
+    setLoadingDetailId(null);
+  }
+};
+
+const handleSaveEditProduct = async (productId) => {
+  setEditProductSaving(true);
+  try {
+    const fd = new FormData();
+    fd.append("product_id", productId);
+    if (editProductData.name)        fd.append("product_name", editProductData.name);
+    if (editProductData.brand !== undefined) fd.append("brand", editProductData.brand);
+    if (editProductData.description !== undefined) fd.append("description", editProductData.description);
+    if (editProductData.categoryId)  fd.append("category_id", editProductData.categoryId);
+    (editProductData.newImages || []).forEach(f => fd.append("images", f));
+
+    const r = await fetch(`${API}/api/product/update/`, { method: "POST", body: fd });
+    const d = await r.json();
+    if (r.ok) {
+      setEditProductId(null);
+      setEditProductData({});
+      setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+      loadProducts();
+      alert("Cập nhật sản phẩm thành công!");
+    } else alert(d.message);
+  } finally {
+    setEditProductSaving(false);
+  }
+};
+
+const handleSaveEditVariant = async (variantId, productId) => {
+  setEditVariantSaving(true);
+  try {
+    const fd = new FormData();
+    fd.append("variant_id", variantId);
+    const fields = ["color","storage","ram","price","stock","cpu","os",
+      "screenSize","screenTech","refreshRate","battery","chargingSpeed",
+      "frontCamera","rearCamera","weights","updates"];
+    fields.forEach(k => {
+      if (editVariantData[k] !== undefined) fd.append(k, editVariantData[k]);
+    });
+    if (editVariantData.imageFile) fd.append("image", editVariantData.imageFile);
+
+    const r = await fetch(`${API}/api/product/update-variant/`, { method: "POST", body: fd });
+    const d = await r.json();
+    if (r.ok) {
+      setEditVariantId(null);
+      setEditVariantData({});
+      setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+      loadProducts();
+      alert("Cập nhật biến thể thành công!");
+    } else alert(d.message);
+  } finally {
+    setEditVariantSaving(false);
+  }
+};
+
+const handleDeleteVariant = async (variantId, productId) => {
+  if (!window.confirm("Xóa biến thể này?")) return;
+  const r = await fetch(`${API}/api/product/delete-variant/`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ variant_id: variantId })
+  });
+  const d = await r.json();
+  if (r.ok) {
+    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+    loadProducts();
+  } else alert(d.message);
+};
+
+const handleDeleteProductImage = async (imageId, productId) => {
+  if (!window.confirm("Xóa ảnh này?")) return;
+  const r = await fetch(`${API}/api/product/delete-image/`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_id: imageId })
+  });
+  if (r.ok) {
+    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+  } else { const d = await r.json(); alert(d.message); }
+};
+
+const handleSetPrimaryImage = async (imageId, productId) => {
+  const r = await fetch(`${API}/api/product/set-primary-image/`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_id: imageId, product_id: productId })
+  });
+  if (r.ok) {
+    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+  }
+};
+
+const handleDeleteProduct = async (productId) => {
+  if (!window.confirm("Xóa sản phẩm này? Hành động không thể hoàn tác.")) return;
+  const r = await fetch(`${API}/api/product/delete/`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ product_id: productId })
+  });
+  if (r.ok) { loadProducts(); setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; }); }
+  else { const d = await r.json(); alert(d.message); }
+};
 
   const handleSaveVoucher = async()=>{
     if(!newVoucher.code.trim()){alert("Vui lòng nhập mã voucher");return;}
@@ -1257,46 +1373,303 @@ export default function Admin() {
                 :(
                   <div className="bg-[#161616] border border-white/5 rounded-2xl overflow-hidden">
                     <div className="grid grid-cols-5 px-6 py-3 border-b border-white/5 text-xs text-white/30 uppercase tracking-wider"><span className="col-span-2">Sản phẩm</span><span>Hãng</span><span>Biến thể</span><span>Danh mục</span></div>
-                    {productList.map(p=>(
-                      <div key={p.id} className="border-b border-white/5 last:border-0">
-                        <div className="grid grid-cols-5 px-6 py-4 items-center hover:bg-white/2 transition">
-                          <div className="col-span-2"><p className="text-sm font-medium">{p.name}</p><p className="text-xs text-white/30 mt-0.5">#{p.id}</p></div>
-                          <span className="text-sm text-white/50">{p.brand||"—"}</span>
-                          <span className="text-sm text-white/50">{p.variant_count} biến thể</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10">{p.category}</span>
-                            <button onClick={()=>addVarProductId===p.id?setAddVarProductId(null):openAddVariant(p)} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition border ${addVarProductId===p.id?"bg-white/10 border-white/20 text-white/50":"bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20"}`}><Plus size={11}/> {addVarProductId===p.id?"Đóng":"Thêm BT"}</button>
-                          </div>
-                        </div>
-                        {addVarProductId===p.id&&(
-                          <div className="mx-4 mb-4 bg-[#1a1a1a] border border-orange-500/20 rounded-2xl p-5 flex flex-col gap-4">
-                            <div className="flex items-center justify-between"><p className="text-sm font-medium text-orange-400">Thêm biến thể cho: <span className="text-white">{addVarProductName}</span></p><button onClick={()=>setAddVarList(l=>[...l,{...EMPTY_VARIANT}])} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs transition"><Plus size={12}/> Thêm biến thể</button></div>
-                            {existingVariants.length>0&&<div><p className="text-xs text-white/30 mb-2">Biến thể hiện có ({existingVariants.length})</p><div className="flex flex-wrap gap-2">{existingVariants.map(v=><span key={v.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/50">{[v.color,v.storage,v.ram].filter(Boolean).join(" / ")||`#${v.id}`}<span className="text-orange-400/60">{parseInt(v.price).toLocaleString("vi-VN")}đ</span></span>)}</div></div>}
-                            {addVarErrors.general&&<p className="text-red-400 text-xs">{addVarErrors.general}</p>}
-                            <div className="flex flex-col gap-3">
-                              {addVarList.map((v,vi)=>(
-                                <div key={vi} className="border border-white/10 rounded-xl p-4 bg-white/2">
-                                  <div className="flex items-center justify-between mb-3"><span className="text-xs font-medium text-orange-400">Biến thể mới #{vi+1}</span>{addVarList.length>1&&<button onClick={()=>setAddVarList(l=>l.filter((_,idx)=>idx!==vi))} className="text-red-400/60 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition"><X size={13}/></button>}</div>
-                                  <div className="mb-3 flex items-center gap-3"><div className="w-16 h-16 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center shrink-0">{v.imagePreview?<img src={v.imagePreview} alt="" className="w-full h-full object-cover"/>:<Plus size={16} className="text-white/15"/>}</div><label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs cursor-pointer transition"><Plus size={11} className="text-orange-400"/>{v.imagePreview?"Đổi ảnh":"Chọn ảnh"}<input type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files[0];if(!f)return;setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,imageFile:f,imagePreview:URL.createObjectURL(f)}:item));}}/></label>{v.imagePreview&&<button onClick={()=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,imageFile:null,imagePreview:""}:item))} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs transition hover:bg-red-500/20"><X size={11}/> Xóa</button>}</div>
-                                  <div className="grid grid-cols-3 gap-3 mb-3">
-                                    <ComboField value={v.color} onChange={val=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,color:val}:item))} options={["Đen","Trắng","Xanh dương","Xanh lá","Đỏ","Vàng","Hồng","Tím","Xám","Bạc","Vàng đồng","Titan tự nhiên","Titan đen","Titan trắng","Titan sa mạc"]} placeholder="Màu sắc"/>
-                                    <StorageField value={v.storage} onChange={val=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,storage:val}:item))} error={addVarErrors.variantDetails?.[vi]?.storage}/>
-                                    <RamField value={v.ram} onChange={val=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,ram:val}:item))} error={addVarErrors.variantDetails?.[vi]?.ram}/>
-                                    <div><input placeholder="Giá (VNĐ) *" value={v.price} onChange={e=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,price:e.target.value}:item))} className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition ${addVarErrors.variantDetails?.[vi]?.price?"border-red-500/50":"border-white/10"}`}/>{addVarErrors.variantDetails?.[vi]?.price&&<p className="text-red-400 text-xs mt-1">{addVarErrors.variantDetails[vi].price}</p>}</div>
-                                    <div><input placeholder="Số lượng *" value={v.stock} onChange={e=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,stock:e.target.value}:item))} className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition ${addVarErrors.variantDetails?.[vi]?.stock?"border-red-500/50":"border-white/10"}`}/>{addVarErrors.variantDetails?.[vi]?.stock&&<p className="text-red-400 text-xs mt-1">{addVarErrors.variantDetails[vi].stock}</p>}</div>
-                                  </div>
-                                  <details className="group"><summary className="text-xs text-white/30 hover:text-white/60 cursor-pointer select-none list-none flex items-center gap-1 mb-3"><ChevronRight size={12} className="group-open:rotate-90 transition-transform"/> Thông số kỹ thuật</summary><div className="grid grid-cols-3 gap-3">{[["cpu","CPU"],["os","Hệ điều hành"],["screenSize","Kích thước MH"],["screenTech","Công nghệ MH"],["refreshRate","Tần số quét"],["battery","Pin"],["chargingSpeed","Tốc độ sạc"],["frontCamera","Camera trước"],["rearCamera","Camera sau"],["weights","Trọng lượng"],["updates","Cập nhật OS"]].map(([key,ph])=><input key={key} placeholder={ph} value={v[key]} onChange={e=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,[key]:e.target.value}:item))} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition"/>)}</div></details>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="flex gap-2 pt-2 border-t border-white/5">
-                              <button onClick={handleSaveAddVariant} disabled={addVarSaving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> {addVarSaving?"Đang lưu...":`Lưu ${addVarList.length} biến thể`}</button>
-                              <button onClick={()=>setAddVarProductId(null)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition"><X size={14}/> Hủy</button>
-                            </div>
-                          </div>
+ {productList.map(p => {
+  const isExpanded = editProductId === p.id || productDetailMap[p.id];
+  const detail = productDetailMap[p.id];
+  const isEditingProduct = editProductId === p.id;
+
+  return (
+    <div key={p.id} className="border-b border-white/5 last:border-0">
+      {/* Row chính */}
+      <div className="grid grid-cols-5 px-6 py-4 items-center hover:bg-white/2 transition">
+        <div className="col-span-2">
+          <p className="text-sm font-medium">{p.name}</p>
+          <p className="text-xs text-white/30 mt-0.5">#{p.id} · {p.brand || "—"}</p>
+        </div>
+        <span className="text-sm text-white/50">{p.brand || "—"}</span>
+        <span className="text-sm text-white/50">{p.variant_count} biến thể</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10">{p.category}</span>
+          {/* Nút Sửa */}
+          <button
+            onClick={() => {
+              if (isEditingProduct) { setEditProductId(null); setEditProductData({}); }
+              else {
+                setEditProductId(p.id);
+                setEditProductData({ name: p.name, brand: p.brand || "", categoryId: p.category_id, description: "" });
+                loadProductDetail(p.id);
+              }
+            }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition border ${isEditingProduct ? "bg-white/10 border-white/20 text-white/50" : "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20"}`}>
+            <Pencil size={11} /> {isEditingProduct ? "Đóng" : "Sửa"}
+          </button>
+          {/* Nút Thêm BT */}
+          <button
+            onClick={() => addVarProductId === p.id ? setAddVarProductId(null) : openAddVariant(p)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition border ${addVarProductId === p.id ? "bg-white/10 border-white/20 text-white/50" : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20"}`}>
+            <Plus size={11} /> {addVarProductId === p.id ? "Đóng" : "Thêm BT"}
+          </button>
+          {/* Nút Xóa SP */}
+          <button
+            onClick={() => handleDeleteProduct(p.id)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition border bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20">
+            <Trash2 size={11} />
+          </button>
+        </div>
+      </div>
+
+      {/* Panel Edit Product */}
+      {isEditingProduct && (
+        <div className="mx-4 mb-4 bg-[#1a1a1a] border border-blue-500/20 rounded-2xl p-5 flex flex-col gap-5">
+          <p className="text-sm font-medium text-blue-400">Chỉnh sửa: <span className="text-white">{p.name}</span></p>
+
+          {/* Thông tin chung */}
+          <div>
+            <p className="text-xs text-white/40 uppercase tracking-wider mb-3">Thông tin chung</p>
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                placeholder="Tên sản phẩm"
+                value={editProductData.name || ""}
+                onChange={e => setEditProductData(d => ({ ...d, name: e.target.value }))}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500/50 transition" />
+              <input
+                placeholder="Hãng sản xuất"
+                value={editProductData.brand || ""}
+                onChange={e => setEditProductData(d => ({ ...d, brand: e.target.value }))}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500/50 transition" />
+              <select
+                value={editProductData.categoryId || ""}
+                onChange={e => setEditProductData(d => ({ ...d, categoryId: e.target.value }))}
+                className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500/50 transition">
+                <option value="">-- Danh mục --</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Ảnh sản phẩm */}
+          {loadingDetailId === p.id
+            ? <div className="py-4 text-center text-white/20 text-sm">Đang tải...</div>
+            : detail && (
+              <div>
+                <p className="text-xs text-white/40 uppercase tracking-wider mb-3">Ảnh sản phẩm</p>
+                <div className="flex flex-wrap gap-2 items-start">
+                  {(detail.images || []).map((img, i) => (
+                    <div key={i} className="relative group w-20 h-20">
+                      <img src={img.url} alt="" className="w-full h-full object-cover rounded-xl border border-white/10" />
+                      {img.is_primary && (
+                        <span className="absolute top-1 left-1 bg-orange-500 text-[9px] text-white px-1.5 py-0.5 rounded-full font-bold">MAIN</span>
+                      )}
+                      <div className="absolute inset-0 rounded-xl bg-black/70 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-1">
+                        {!img.is_primary && (
+                          <button
+                            onClick={() => handleSetPrimaryImage(img.image_id, p.id)}
+                            className="text-[9px] text-orange-400 bg-orange-500/20 px-1.5 py-0.5 rounded-full hover:bg-orange-500/40 transition">
+                            Đặt chính
+                          </button>
                         )}
+                        <button
+                          onClick={() => handleDeleteProductImage(img.image_id, p.id)}
+                          className="text-[9px] text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded-full hover:bg-red-500/40 transition">
+                          Xóa
+                        </button>
                       </div>
-                    ))}
+                    </div>
+                  ))}
+                  {/* Upload ảnh mới */}
+                  <label className="w-20 h-20 rounded-xl border border-dashed border-white/20 hover:border-blue-500/50 flex flex-col items-center justify-center text-white/30 hover:text-blue-400 transition text-xs gap-1 cursor-pointer">
+                    <Plus size={18} />
+                    <span>Thêm</span>
+                    <input type="file" accept="image/*" multiple className="hidden"
+                      onChange={e => setEditProductData(d => ({ ...d, newImages: [...(d.newImages || []), ...Array.from(e.target.files)] }))} />
+                  </label>
+                  {(editProductData.newImages || []).map((f, i) => (
+                    <div key={`new-${i}`} className="relative w-20 h-20 group">
+                      <img src={URL.createObjectURL(f)} alt="" className="w-full h-full object-cover rounded-xl border border-blue-500/30" />
+                      <span className="absolute top-1 left-1 bg-blue-500 text-[9px] text-white px-1.5 py-0.5 rounded-full">MỚI</span>
+                      <button
+                        onClick={() => setEditProductData(d => ({ ...d, newImages: d.newImages.filter((_, idx) => idx !== i) }))}
+                        className="absolute inset-0 rounded-xl bg-black/60 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                        <X size={16} className="text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          {/* Biến thể */}
+          {detail && (
+            <div>
+              <p className="text-xs text-white/40 uppercase tracking-wider mb-3">Biến thể ({detail.variants?.length || 0})</p>
+              <div className="flex flex-col gap-3">
+                {(detail.variants || []).map(v => (
+                  <div key={v.id} className="border border-white/10 rounded-xl overflow-hidden">
+                    {/* Header biến thể */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-white/3">
+                      <div className="flex items-center gap-3">
+                        {v.image && <img src={v.image} alt="" className="w-9 h-9 rounded-lg object-cover border border-white/10" />}
+                        <div>
+                          <p className="text-sm font-medium">{[v.color, v.storage, v.ram].filter(Boolean).join(" / ") || `#${v.id}`}</p>
+                          <p className="text-xs text-orange-400">{parseInt(v.price).toLocaleString("vi-VN")}đ · {v.stock} còn</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (editVariantId === v.id) { setEditVariantId(null); setEditVariantData({}); }
+                            else {
+                              setEditVariantId(v.id);
+                              setEditVariantData({
+                                color: v.color || "", storage: v.storage || "", ram: v.ram || "",
+                                price: v.price, stock: v.stock,
+                                cpu: v.cpu || "", os: v.os || "", screenSize: v.screen_size || "",
+                                screenTech: v.screen_tech || "", refreshRate: v.refresh_rate || "",
+                                battery: v.battery || "", chargingSpeed: v.charging_speed || "",
+                                frontCamera: v.front_camera || "", rearCamera: v.rear_camera || "",
+                                weights: v.weights || "", updates: v.updates || "",
+                              });
+                            }
+                          }}
+                          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition border ${editVariantId === v.id ? "bg-white/10 border-white/15 text-white/40" : "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20"}`}>
+                          <Pencil size={11} /> {editVariantId === v.id ? "Đóng" : "Sửa"}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteVariant(v.id, p.id)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs border bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20 transition">
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Form edit biến thể */}
+                    {editVariantId === v.id && (
+                      <div className="p-4 border-t border-white/5 flex flex-col gap-4">
+                        {/* Ảnh biến thể */}
+                        <div>
+                          <p className="text-xs text-white/30 mb-2">Ảnh biến thể</p>
+                          <div className="flex items-center gap-3">
+                            <div className="w-16 h-16 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center shrink-0">
+                              {editVariantData.imagePreview
+                                ? <img src={editVariantData.imagePreview} alt="" className="w-full h-full object-cover" />
+                                : v.image
+                                  ? <img src={v.image} alt="" className="w-full h-full object-cover" />
+                                  : <Plus size={16} className="text-white/15" />}
+                            </div>
+                            <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs cursor-pointer transition">
+                              <Plus size={11} className="text-blue-400" />
+                              {editVariantData.imagePreview || v.image ? "Đổi ảnh" : "Chọn ảnh"}
+                              <input type="file" accept="image/*" className="hidden"
+                                onChange={e => {
+                                  const f = e.target.files[0]; if (!f) return;
+                                  setEditVariantData(d => ({ ...d, imageFile: f, imagePreview: URL.createObjectURL(f) }));
+                                }} />
+                            </label>
+                            {(editVariantData.imagePreview) && (
+                              <button
+                                onClick={() => setEditVariantData(d => ({ ...d, imageFile: null, imagePreview: "" }))}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs transition hover:bg-red-500/20">
+                                <X size={11} /> Huỷ
+                              </button>
+                            )}
+                          </div>
+                          {editVariantData.imageFile && (
+                            <p className="text-xs text-yellow-400/70 mt-2 flex items-center gap-1">
+                              <AlertTriangle size={11} /> Thay ảnh sẽ xóa dữ liệu YOLO cũ và train lại
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Thông số */}
+                        <div className="grid grid-cols-3 gap-3">
+                          <ComboField value={editVariantData.color} onChange={val => setEditVariantData(d => ({ ...d, color: val }))}
+                            options={["Đen","Trắng","Xanh dương","Xanh lá","Đỏ","Vàng","Hồng","Tím","Xám","Bạc","Titan tự nhiên","Titan đen","Titan trắng","Titan sa mạc"]}
+                            placeholder="Màu sắc" />
+                          <StorageField value={editVariantData.storage} onChange={val => setEditVariantData(d => ({ ...d, storage: val }))} />
+                          <RamField value={editVariantData.ram} onChange={val => setEditVariantData(d => ({ ...d, ram: val }))} />
+                          <input placeholder="Giá (VNĐ)" value={editVariantData.price || ""} onChange={e => setEditVariantData(d => ({ ...d, price: e.target.value }))}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500/50 transition" />
+                          <input placeholder="Số lượng tồn" value={editVariantData.stock || ""} onChange={e => setEditVariantData(d => ({ ...d, stock: e.target.value }))}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500/50 transition" />
+                        </div>
+                        <details className="group">
+                          <summary className="text-xs text-white/30 hover:text-white/60 cursor-pointer select-none list-none flex items-center gap-1 mb-3">
+                            <ChevronRight size={12} className="group-open:rotate-90 transition-transform" /> Thông số kỹ thuật
+                          </summary>
+                          <div className="grid grid-cols-3 gap-3">
+                            {[["cpu","CPU"],["os","Hệ điều hành"],["screenSize","Kích thước màn hình"],["screenTech","Công nghệ màn hình"],
+                              ["refreshRate","Tần số quét"],["battery","Pin"],["chargingSpeed","Tốc độ sạc"],
+                              ["frontCamera","Camera trước"],["rearCamera","Camera sau"],["weights","Trọng lượng"],["updates","Cập nhật OS"]
+                            ].map(([key, ph]) => (
+                              <input key={key} placeholder={ph} value={editVariantData[key] || ""}
+                                onChange={e => setEditVariantData(d => ({ ...d, [key]: e.target.value }))}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500/50 transition" />
+                            ))}
+                          </div>
+                        </details>
+                        <div className="flex gap-2 pt-2 border-t border-white/5">
+                          <button onClick={() => handleSaveEditVariant(v.id, p.id)} disabled={editVariantSaving}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">
+                            <Check size={14} /> {editVariantSaving ? "Đang lưu..." : "Lưu biến thể"}
+                          </button>
+                          <button onClick={() => { setEditVariantId(null); setEditVariantData({}); }}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition">
+                            <X size={14} /> Hủy
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Lưu thông tin chung */}
+          <div className="flex gap-2 pt-2 border-t border-white/5">
+            <button onClick={() => handleSaveEditProduct(p.id)} disabled={editProductSaving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">
+              <Check size={14} /> {editProductSaving ? "Đang lưu..." : "Lưu thông tin sản phẩm"}
+            </button>
+            <button onClick={() => { setEditProductId(null); setEditProductData({}); }}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition">
+              <X size={14} /> Hủy
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Panel Thêm biến thể (giữ nguyên code cũ) */}
+      {addVarProductId === p.id && (
+        <div className="mx-4 mb-4 bg-[#1a1a1a] border border-orange-500/20 rounded-2xl p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between"><p className="text-sm font-medium text-orange-400">Thêm biến thể cho: <span className="text-white">{addVarProductName}</span></p><button onClick={()=>setAddVarList(l=>[...l,{...EMPTY_VARIANT}])} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs transition"><Plus size={12}/> Thêm biến thể</button></div>
+          {existingVariants.length>0&&<div><p className="text-xs text-white/30 mb-2">Biến thể hiện có ({existingVariants.length})</p><div className="flex flex-wrap gap-2">{existingVariants.map(v=><span key={v.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/50">{[v.color,v.storage,v.ram].filter(Boolean).join(" / ")||`#${v.id}`}<span className="text-orange-400/60">{parseInt(v.price).toLocaleString("vi-VN")}đ</span></span>)}</div></div>}
+          {addVarErrors.general&&<p className="text-red-400 text-xs">{addVarErrors.general}</p>}
+          <div className="flex flex-col gap-3">
+            {addVarList.map((v,vi)=>(
+              <div key={vi} className="border border-white/10 rounded-xl p-4 bg-white/2">
+                <div className="flex items-center justify-between mb-3"><span className="text-xs font-medium text-orange-400">Biến thể mới #{vi+1}</span>{addVarList.length>1&&<button onClick={()=>setAddVarList(l=>l.filter((_,idx)=>idx!==vi))} className="text-red-400/60 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition"><X size={13}/></button>}</div>
+                <div className="mb-3 flex items-center gap-3"><div className="w-16 h-16 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center shrink-0">{v.imagePreview?<img src={v.imagePreview} alt="" className="w-full h-full object-cover"/>:<Plus size={16} className="text-white/15"/>}</div><label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs cursor-pointer transition"><Plus size={11} className="text-orange-400"/>{v.imagePreview?"Đổi ảnh":"Chọn ảnh"}<input type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files[0];if(!f)return;setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,imageFile:f,imagePreview:URL.createObjectURL(f)}:item));}}/></label>{v.imagePreview&&<button onClick={()=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,imageFile:null,imagePreview:""}:item))} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs transition hover:bg-red-500/20"><X size={11}/> Xóa</button>}</div>
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <ComboField value={v.color} onChange={val=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,color:val}:item))} options={["Đen","Trắng","Xanh dương","Xanh lá","Đỏ","Vàng","Hồng","Tím","Xám","Bạc","Vàng đồng","Titan tự nhiên","Titan đen","Titan trắng","Titan sa mạc"]} placeholder="Màu sắc"/>
+                  <StorageField value={v.storage} onChange={val=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,storage:val}:item))} error={addVarErrors.variantDetails?.[vi]?.storage}/>
+                  <RamField value={v.ram} onChange={val=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,ram:val}:item))} error={addVarErrors.variantDetails?.[vi]?.ram}/>
+                  <div><input placeholder="Giá (VNĐ) *" value={v.price} onChange={e=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,price:e.target.value}:item))} className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition ${addVarErrors.variantDetails?.[vi]?.price?"border-red-500/50":"border-white/10"}`}/>{addVarErrors.variantDetails?.[vi]?.price&&<p className="text-red-400 text-xs mt-1">{addVarErrors.variantDetails[vi].price}</p>}</div>
+                  <div><input placeholder="Số lượng *" value={v.stock} onChange={e=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,stock:e.target.value}:item))} className={`w-full bg-white/5 border rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition ${addVarErrors.variantDetails?.[vi]?.stock?"border-red-500/50":"border-white/10"}`}/>{addVarErrors.variantDetails?.[vi]?.stock&&<p className="text-red-400 text-xs mt-1">{addVarErrors.variantDetails[vi].stock}</p>}</div>
+                </div>
+                <details className="group"><summary className="text-xs text-white/30 hover:text-white/60 cursor-pointer select-none list-none flex items-center gap-1 mb-3"><ChevronRight size={12} className="group-open:rotate-90 transition-transform"/> Thông số kỹ thuật</summary><div className="grid grid-cols-3 gap-3">{[["cpu","CPU"],["os","Hệ điều hành"],["screenSize","Kích thước MH"],["screenTech","Công nghệ MH"],["refreshRate","Tần số quét"],["battery","Pin"],["chargingSpeed","Tốc độ sạc"],["frontCamera","Camera trước"],["rearCamera","Camera sau"],["weights","Trọng lượng"],["updates","Cập nhật OS"]].map(([key,ph])=><input key={key} placeholder={ph} value={v[key]} onChange={e=>setAddVarList(l=>l.map((item,idx)=>idx===vi?{...item,[key]:e.target.value}:item))} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition"/>)}</div></details>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-2 border-t border-white/5">
+            <button onClick={handleSaveAddVariant} disabled={addVarSaving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> {addVarSaving?"Đang lưu...":`Lưu ${addVarList.length} biến thể`}</button>
+            <button onClick={()=>setAddVarProductId(null)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition"><X size={14}/> Hủy</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+})}
                   </div>
                 )}
             </div>

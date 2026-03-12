@@ -7,6 +7,7 @@ import {
   ShoppingCart, ChevronDown, ShoppingBag, Search
 } from "lucide-react";
 import { SearchModal } from "./Searchbar";
+import Footer from "./Footer";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -178,7 +179,7 @@ export default function Home() {
             Công nghệ trong tầm tay bạn
           </h1>
           <p className="text-gray-400 max-w-xl mb-10 text-base leading-relaxed">
-            Khám phá các dòng điện thoại và thiết bị mới nhất với hiệu năng mạnh mẽ
+            Khám phá các dòng điện thoại mới nhất với hiệu năng mạnh mẽ, camera sắc nét và thiết kế tuyệt vời nhất.
           </p>
           <div className="flex gap-4 flex-wrap justify-center">
             <Link to="/product"
@@ -194,6 +195,9 @@ export default function Home() {
           </div>
         </section>
 
+      </div>
+      <div className="relative z-10">
+        <Footer />
       </div>
     </div>
   );

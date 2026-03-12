@@ -16,6 +16,7 @@ import {
 import { BlockRenderer } from "./Blockeditor";
 import { useCart } from "./Cart";
 import { SearchModal } from "./Searchbar";
+import Footer from "./Footer";
 
 const API = "http://localhost:8000";
 
@@ -671,7 +672,8 @@ export default function Blog() {
             </div>
           </div>
         )}
-      </div>
+        <Footer />
+    </div>
     </div>
   );
 }

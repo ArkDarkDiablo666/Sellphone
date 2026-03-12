@@ -5,6 +5,7 @@ import { useCart } from "./Cart";
 import { Search, ShoppingCart, User, ShoppingBag, Settings, Pencil, X, Check, Eye, EyeOff, LogOut, Camera, ChevronDown, AlertTriangle } from "lucide-react";
 import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
+import Footer from "./Footer";
 
 const API = "http://localhost:8000";
 
@@ -378,11 +379,10 @@ export default function Information() {
           </main>
         </div>
       </div>
+      <Footer />
     </div>
   );
-}
-
-function Section({ title, children }) {
+}function Section({ title, children }) {
   return (
     <div className="bg-black/30 rounded-2xl border border-white/5 overflow-hidden backdrop-blur-sm">
       <div className="px-6 py-4 border-b border-white/5"><h3 className="font-semibold text-sm">{title}</h3></div>

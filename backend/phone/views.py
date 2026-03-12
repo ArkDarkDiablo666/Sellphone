@@ -665,14 +665,17 @@ def get_product_detail(request, product_id):
     variants         = ProductVariant.objects.filter(ProductID=product)
     images           = ProductImage.objects.filter(ProductID=product)
     related_products = Product.objects.filter(CategoryID=product.CategoryID).exclude(ProductID=product_id).order_by('-CreatedAt')[:5]
+
     def variant_data(v):
         return {"id": v.VariantID, "image": v.Image or "" if hasattr(v, "Image") else "", "color": v.Color or "", "storage": v.Storage or "", "ram": v.Ram or "", "price": str(v.Price), "stock": v.StockQuantity, "cpu": v.Cpu or "", "os": v.OperatingSystem or "", "screen_size": v.ScreenSize or "", "screen_tech": v.ScreenTechnology or "", "refresh_rate": v.RefreshRate or "", "battery": v.Battery or "", "charging_speed": v.ChargingSpeed or "", "front_camera": v.FrontCamera or "", "rear_camera": v.RearCamera or "", "weights": v.Weights or "", "updates": v.Updates or ""}
+
     def related_data(p):
         primary_img = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first() or ProductImage.objects.filter(ProductID=p).first()
         min_v       = ProductVariant.objects.filter(ProductID=p).order_by('Price').first()
         return {"id": p.ProductID, "name": p.ProductName, "brand": p.Brand or "", "image": primary_img.ImageUrl if primary_img else "", "min_price": str(min_v.Price) if min_v else "0"}
+
     images_sorted = list(images.filter(IsPrimary=True)) + list(images.filter(IsPrimary=False))
-    return Response({"product": {"id": product.ProductID, "name": product.ProductName, "brand": product.Brand or "", "description": product.Description or "", "category": product.CategoryID.CategoryName, "category_id": product.CategoryID.CategoryID}, "variants": [variant_data(v) for v in variants], "images": [{"url": img.ImageUrl, "is_primary": img.IsPrimary} for img in images_sorted], "related": [related_data(p) for p in related_products]}, status=status.HTTP_200_OK)
+    return Response({"product": {"id": product.ProductID, "name": product.ProductName, "brand": product.Brand or "", "description": product.Description or "", "category": product.CategoryID.CategoryName, "category_id": product.CategoryID.CategoryID}, "variants": [variant_data(v) for v in variants], "images": [{"image_id": img.ImageID, "url": img.ImageUrl, "is_primary": img.IsPrimary} for img in images_sorted], "related": [related_data(p) for p in related_products]}, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -1707,7 +1710,7 @@ def momo_create(request):
     request_id = str(uuid.uuid4())
     order_info = f"Thanh toan don hang #{order_id}"
     extra_data = ""
-    momo_order_id = f"{order_id}-{int(time.time())}"   # ← thêm timestamp, tránh trùng
+    momo_order_id = f"{order_id}-{int(time.time())}"
     raw = f"accessKey={MOMO_CONFIG['access_key']}&amount={int(amount)}&extraData={extra_data}&ipnUrl={MOMO_CONFIG['ipn_url']}&orderId={momo_order_id}&orderInfo={order_info}&partnerCode={MOMO_CONFIG['partner_code']}&redirectUrl={MOMO_CONFIG['redirect_url']}&requestId={request_id}&requestType=payWithATM"
     sig = hmac.new(MOMO_CONFIG["secret_key"].encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
     payload = json.dumps({"partnerCode": MOMO_CONFIG["partner_code"], "accessKey": MOMO_CONFIG["access_key"], "requestId": request_id, "amount": str(int(amount)), "orderId": momo_order_id, "orderInfo": order_info, "redirectUrl": MOMO_CONFIG["redirect_url"], "ipnUrl": MOMO_CONFIG["ipn_url"], "extraData": extra_data, "requestType": "payWithATM", "signature": sig, "lang": "vi"}).encode("utf-8")
