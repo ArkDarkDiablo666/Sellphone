@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Blockeditor from "./Blockeditor";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 import {
   User, LogOut, Camera, Settings, Package,
   PackagePlus, Users, ChevronRight, Eye, EyeOff,
@@ -37,9 +38,9 @@ const BLUE     = "#0a84ff";
 const BRAND_COLORS = [ORANGE, PURPLE, CYAN, GREEN, PINK, BLUE, "#ffd60a", "#30d158", "#64d2ff", "#ff9f0a"];
 
 const fmt = (n) => {
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + " tỷ";
-  if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1) + " tr";
-  if (n >= 1_000)         return (n / 1_000).toFixed(0) + "k";
+  if (n >= 1_000_000_000) return n.toLocaleString("vi-VN");
+  if (n >= 1_000_000)     return n.toLocaleString("vi-VN");
+  if (n >= 1_000)         return n.toLocaleString("vi-VN");
   return n.toLocaleString("vi-VN");
 };
 const fmtFull = (n) => Math.round(n).toLocaleString("vi-VN") + "đ";
@@ -435,6 +436,7 @@ function Divider() { return <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0
 // RICH TEXT EDITOR — đầy đủ: màu chữ, nền chữ, bảng + nền ô
 // ============================================================
 function RichEditor({ value, onChange }) {
+  const { toast } = useToast();
   const editorRef       = useRef(null);
   const [showTxtClr,  setShowTxtClr]  = useState(false);
   const [showBgClr,   setShowBgClr]   = useState(false);
@@ -508,7 +510,7 @@ function RichEditor({ value, onChange }) {
     const td    = (node.nodeType === 3 ? node.parentElement : node)?.closest?.("td,th");
     const tr    = td?.closest("tr");
     const table = td?.closest("table");
-    if (!td || !tr || !table) { alert("Hãy click vào một ô trong bảng trước"); return; }
+    if (!td || !tr || !table) { toast.info("Hãy click vào một ô trong bảng trước"); return; }
 
     const rows    = Array.from(table.querySelectorAll("tr"));
     const cols    = Array.from(tr.querySelectorAll("td,th"));
@@ -525,7 +527,7 @@ function RichEditor({ value, onChange }) {
       });
       tr.insertAdjacentElement("afterend", newTr);
     } else if (action === "del-row") {
-      if (rows.length > 1) tr.remove(); else alert("Bảng phải có ít nhất 1 hàng");
+      if (rows.length > 1) tr.remove(); else toast.info("Bảng phải có ít nhất 1 hàng");
     } else if (action === "add-col") {
       rows.forEach(row => {
         const cells = Array.from(row.querySelectorAll("td,th"));
@@ -538,7 +540,7 @@ function RichEditor({ value, onChange }) {
       });
     } else if (action === "del-col") {
       if (cols.length > 1) rows.forEach(row => { const c = Array.from(row.querySelectorAll("td,th")); if (c[colIdx]) c[colIdx].remove(); });
-      else alert("Bảng phải có ít nhất 1 cột");
+      else toast.info("Bảng phải có ít nhất 1 cột");
     }
     sync();
     setShowTbl(false);
@@ -550,7 +552,7 @@ function RichEditor({ value, onChange }) {
     if (!sel?.rangeCount) return;
     const node = sel.getRangeAt(0).startContainer;
     const td = (node.nodeType === 3 ? node.parentElement : node)?.closest?.("td,th");
-    if (!td) { alert("Hãy click vào một ô trong bảng trước"); return; }
+    if (!td) { toast.info("Hãy click vào một ô trong bảng trước"); return; }
     td.style.background = color;
     sync();
     setShowCellBg(false);
@@ -741,6 +743,7 @@ export default function Admin() {
   const [activeTab, setActiveTab]         = useState("profile");
   const [admin, setAdmin]                 = useState(null);
   const [loading, setLoading]             = useState(true);
+  const { toasts, removeToast, toast }    = useToast();
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [saving, setSaving]               = useState(false);
@@ -918,7 +921,7 @@ export default function Admin() {
       fd.append("variants",JSON.stringify(variants.map(({imageFile,imagePreview,...r})=>r)));
       productImages.forEach(f=>fd.append("images",f)); variants.forEach((v,i)=>{ if(v.imageFile)fd.append(`variant_image_${i}`,v.imageFile); });
       const r=await fetch(`${API}/api/product/create/`,{method:"POST",body:fd}); const d=await r.json();
-      if(r.ok){ setShowAddProduct(false); setNewProduct({name:"",brand:"",description:"",categoryId:""}); setVariants([{...EMPTY_VARIANT}]); setProductImages([]); loadProducts(); alert("Tạo sản phẩm thành công!"); }
+      if(r.ok){ setShowAddProduct(false); setNewProduct({name:"",brand:"",description:"",categoryId:""}); setVariants([{...EMPTY_VARIANT}]); setProductImages([]); loadProducts(); toast.success("Tạo sản phẩm thành công!"); }
       else setProductErrors({general:d.message});
     }finally{ setProductSaving(false); }
   };
@@ -937,7 +940,7 @@ export default function Admin() {
       fd.append("variants",JSON.stringify(addVarList.map(({imageFile,imagePreview,...r})=>r)));
       addVarList.forEach((v,i)=>{ if(v.imageFile)fd.append(`variant_image_${i}`,v.imageFile); });
       const r=await fetch(`${API}/api/product/add-variants/`,{method:"POST",body:fd}); const d=await r.json();
-      if(r.ok){ setAddVarProductId(null); loadProducts(); alert(`Đã thêm ${addVarList.length} biến thể thành công!`); }
+      if(r.ok){ setAddVarProductId(null); loadProducts(); toast.success(`Đã thêm ${addVarList.length} biến thể thành công!`); }
       else setAddVarErrors({general:d.message});
     }finally{ setAddVarSaving(false); }
   };
@@ -971,8 +974,8 @@ const handleSaveEditProduct = async (productId) => {
       setEditProductData({});
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
       loadProducts();
-      alert("Cập nhật sản phẩm thành công!");
-    } else alert(d.message);
+      toast.success("Cập nhật sản phẩm thành công!");
+    } else toast.error(d.message);
   } finally {
     setEditProductSaving(false);
   }
@@ -998,8 +1001,8 @@ const handleSaveEditVariant = async (variantId, productId) => {
       setEditVariantData({});
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
       loadProducts();
-      alert("Cập nhật biến thể thành công!");
-    } else alert(d.message);
+      toast.success("Cập nhật biến thể thành công!");
+    } else toast.error(d.message);
   } finally {
     setEditVariantSaving(false);
   }
@@ -1015,7 +1018,7 @@ const handleDeleteVariant = async (variantId, productId) => {
   if (r.ok) {
     setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
     loadProducts();
-  } else alert(d.message);
+  } else toast.error(d.message);
 };
 
 const handleDeleteProductImage = async (imageId, productId) => {
@@ -1026,7 +1029,7 @@ const handleDeleteProductImage = async (imageId, productId) => {
   });
   if (r.ok) {
     setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-  } else { const d = await r.json(); alert(d.message); }
+  } else { const d = await r.json(); toast.error(d.message); }
 };
 
 const handleSetPrimaryImage = async (imageId, productId) => {
@@ -1046,44 +1049,44 @@ const handleDeleteProduct = async (productId) => {
     body: JSON.stringify({ product_id: productId })
   });
   if (r.ok) { loadProducts(); setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; }); }
-  else { const d = await r.json(); alert(d.message); }
+  else { const d = await r.json(); toast.error(d.message); }
 };
 
   const handleSaveVoucher = async()=>{
-    if(!newVoucher.code.trim()){alert("Vui lòng nhập mã voucher");return;}
-    if(!newVoucher.value||parseFloat(newVoucher.value)<=0){alert("Vui lòng nhập giá trị voucher");return;}
+    if(!newVoucher.code.trim()){toast.error("Vui lòng nhập mã voucher");return;}
+    if(!newVoucher.value||parseFloat(newVoucher.value)<=0){toast.error("Vui lòng nhập giá trị voucher");return;}
     setVoucherSaving(true);
     try{
       const r=await fetch(`${API}/api/voucher/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...newVoucher,value:parseFloat(newVoucher.value),variant_id:newVoucher.variant_id||null})});
       const d=await r.json();
-      if(r.ok){ setShowAddVoucher(false); setVoucherVariants([]); setNewVoucher({code:"",type:"percent",value:"",scope:"all",category_id:"",product_id:"",variant_id:"",min_order:"",max_discount:"",start_date:"",end_date:"",usage_limit:""}); loadVouchers(); alert("Tạo voucher thành công!"); }
-      else alert(d.message);
+      if(r.ok){ setShowAddVoucher(false); setVoucherVariants([]); setNewVoucher({code:"",type:"percent",value:"",scope:"all",category_id:"",product_id:"",variant_id:"",min_order:"",max_discount:"",start_date:"",end_date:"",usage_limit:""}); loadVouchers(); toast.success("Tạo voucher thành công!"); }
+      else toast.error(d.message);
     }finally{ setVoucherSaving(false); }
   };
 
   const deactivateVoucher = async(id)=>{ const r=await fetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); if(r.ok)loadVouchers(); };
 
-  const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else alert(d.message); }catch{alert("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleCancelOrder = async(orderId)=>{ if(!window.confirm("Hủy đơn hàng này?"))return; setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();alert(d.message);} }catch{alert("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await fetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); alert(d.message); }else alert(d.message); }catch{alert("Lỗi kết nối");}finally{setProcessingReturn(false);} };
+  const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
+  const handleCancelOrder = async(orderId)=>{ if(!window.confirm("Hủy đơn hàng này?"))return; setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
+  const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await fetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.error(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
 
   const loadImportVariants = async(pid)=>{ if(!pid)return; setImportLoading(true); try{ const r=await fetch(`${API}/api/product/${pid}/variants/`); const d=await r.json(); if(r.ok){setImportVariants(d.variants||[]);setImportQty({});} }finally{setImportLoading(false);} };
-  const handleImport = async()=>{ const entries=Object.entries(importQty).filter(([,q])=>parseInt(q)>0); if(entries.length===0){alert("Chưa nhập số lượng");return;} setImportSaving(true); try{ const r=await fetch(`${API}/api/product/import/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:entries.map(([vid,qty])=>({variant_id:parseInt(vid),quantity:parseInt(qty)}))})}); const d=await r.json(); if(r.ok){alert("Nhập hàng thành công!");loadImportVariants(importProductId);}else alert(d.message); }finally{setImportSaving(false);} };
+  const handleImport = async()=>{ const entries=Object.entries(importQty).filter(([,q])=>parseInt(q)>0); if(entries.length===0){toast.error("Chưa nhập số lượng");return;} setImportSaving(true); try{ const r=await fetch(`${API}/api/product/import/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:entries.map(([vid,qty])=>({variant_id:parseInt(vid),quantity:parseInt(qty)}))})}); const d=await r.json(); if(r.ok){toast.success("Nhập hàng thành công!");loadImportVariants(importProductId);}else toast.error(d.message); }finally{setImportSaving(false);} };
 
-  const handleAddCategory = async()=>{ if(!newCatName.trim()){alert("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("name",newCatName.trim()); if(newCatImage)fd.append("image",newCatImage); const r=await fetch(`${API}/api/product/category/create/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowAddCat(false);setNewCatName("");setNewCatImage(null);setNewCatPreview("");loadCategories();setCategories(p=>[...p,{id:d.id,name:d.name}]);alert("Tạo danh mục thành công!");}else alert(d.message); }finally{setCatSaving(false);} };
-  const handleSaveCatEdit = async(catId)=>{ if(!editCatName.trim()){alert("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("id",catId); fd.append("name",editCatName.trim()); if(editCatImage)fd.append("image",editCatImage); const r=await fetch(`${API}/api/product/category/update/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setEditCatId(null);setEditCatName("");setEditCatImage(null);setEditCatPreview("");loadCategories();}else alert(d.message); }finally{setCatSaving(false);} };
+  const handleAddCategory = async()=>{ if(!newCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("name",newCatName.trim()); if(newCatImage)fd.append("image",newCatImage); const r=await fetch(`${API}/api/product/category/create/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowAddCat(false);setNewCatName("");setNewCatImage(null);setNewCatPreview("");loadCategories();setCategories(p=>[...p,{id:d.id,name:d.name}]);toast.success("Tạo danh mục thành công!");}else toast.error(d.message); }finally{setCatSaving(false);} };
+  const handleSaveCatEdit = async(catId)=>{ if(!editCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("id",catId); fd.append("name",editCatName.trim()); if(editCatImage)fd.append("image",editCatImage); const r=await fetch(`${API}/api/product/category/update/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setEditCatId(null);setEditCatName("");setEditCatImage(null);setEditCatPreview("");loadCategories();}else toast.error(d.message); }finally{setCatSaving(false);} };
 
-  const handleAvatarChange = async(e)=>{ const f=e.target.files[0];if(!f)return; if(!f.type.startsWith("image/")){alert("Vui lòng chọn file ảnh");return;} if(f.size>5*1024*1024){alert("Ảnh không được vượt quá 5MB");return;} setAvatarLoading(true); try{ const fd=new FormData(); fd.append("id",adminLocal.id); fd.append("avatar_file",f); const r=await fetch(`${API}/api/staff/upload-avatar/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){ setAdmin(p=>({...p,avatar:d.avatar_url})); const s=JSON.parse(localStorage.getItem("admin_user")||"{}"); localStorage.setItem("admin_user",JSON.stringify({...s,avatar:d.avatar_url})); window.dispatchEvent(new Event("userUpdated")); }else alert(d.message); }catch{alert("Không thể kết nối server");}finally{setAvatarLoading(false);} };
+  const handleAvatarChange = async(e)=>{ const f=e.target.files[0];if(!f)return; if(!f.type.startsWith("image/")){toast.error("Vui lòng chọn file ảnh");return;} if(f.size>5*1024*1024){toast.error("Ảnh không được vượt quá 5MB");return;} setAvatarLoading(true); try{ const fd=new FormData(); fd.append("id",adminLocal.id); fd.append("avatar_file",f); const r=await fetch(`${API}/api/staff/upload-avatar/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){ setAdmin(p=>({...p,avatar:d.avatar_url})); const s=JSON.parse(localStorage.getItem("admin_user")||"{}"); localStorage.setItem("admin_user",JSON.stringify({...s,avatar:d.avatar_url})); window.dispatchEvent(new Event("userUpdated")); }else toast.error(d.message); }catch{toast.error("Không thể kết nối server");}finally{setAvatarLoading(false);} };
 
-  const savePassword = async()=>{ const ne={}; if(!passForm.current)ne.current="Vui lòng nhập mật khẩu hiện tại"; if(!passForm.newPass)ne.newPass="Vui lòng nhập mật khẩu mới"; else if(passForm.newPass.includes(" "))ne.newPass="Không được chứa dấu cách"; else if(passForm.newPass.length<6)ne.newPass="Ít nhất 6 ký tự"; if(!passForm.confirm)ne.confirm="Vui lòng nhập lại"; else if(passForm.newPass!==passForm.confirm)ne.confirm="Không trùng khớp"; setErrors(ne); if(Object.keys(ne).length>0)return; setSaving(true); try{ const r=await fetch(`${API}/api/staff/change-password/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:adminLocal.id,current_password:passForm.current,new_password:passForm.newPass})}); const d=await r.json(); if(r.ok){setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});alert("Đổi mật khẩu thành công!");}else setErrors({current:d.message}); }finally{setSaving(false);} };
-  const handleAddStaff = async()=>{ const errs={}; if(!newStaff.fullname.trim())errs.fullname="Vui lòng nhập họ tên"; if(!newStaff.email.trim())errs.email="Vui lòng nhập email"; if(!newStaff.password.trim())errs.password="Vui lòng nhập mật khẩu"; else if(newStaff.password.length<6)errs.password="Ít nhất 6 ký tự"; setNewStaffErrors(errs); if(Object.keys(errs).length>0)return; setSaving(true); try{ const r=await fetch(`${API}/api/staff/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:newStaff.fullname,email:newStaff.email,password:newStaff.password,role:newStaff.role})}); const d=await r.json(); if(r.ok){setShowAddStaff(false);setNewStaff({fullname:"",email:"",password:"",role:"Staff"});loadStaff();alert("Tạo tài khoản thành công!");}else setNewStaffErrors({general:d.message}); }finally{setSaving(false);} };
-  const changeRole = async(staffId,newRole)=>{ try{const r=await fetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})});if(r.ok)loadStaff();}catch{alert("Lỗi cập nhật quyền");} };
+  const savePassword = async()=>{ const ne={}; if(!passForm.current)ne.current="Vui lòng nhập mật khẩu hiện tại"; if(!passForm.newPass)ne.newPass="Vui lòng nhập mật khẩu mới"; else if(passForm.newPass.includes(" "))ne.newPass="Không được chứa dấu cách"; else if(passForm.newPass.length<6)ne.newPass="Ít nhất 6 ký tự"; if(!passForm.confirm)ne.confirm="Vui lòng nhập lại"; else if(passForm.newPass!==passForm.confirm)ne.confirm="Không trùng khớp"; setErrors(ne); if(Object.keys(ne).length>0)return; setSaving(true); try{ const r=await fetch(`${API}/api/staff/change-password/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:adminLocal.id,current_password:passForm.current,new_password:passForm.newPass})}); const d=await r.json(); if(r.ok){setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});toast.success("Đổi mật khẩu thành công!");}else setErrors({current:d.message}); }finally{setSaving(false);} };
+  const handleAddStaff = async()=>{ const errs={}; if(!newStaff.fullname.trim())errs.fullname="Vui lòng nhập họ tên"; if(!newStaff.email.trim())errs.email="Vui lòng nhập email"; if(!newStaff.password.trim())errs.password="Vui lòng nhập mật khẩu"; else if(newStaff.password.length<6)errs.password="Ít nhất 6 ký tự"; setNewStaffErrors(errs); if(Object.keys(errs).length>0)return; setSaving(true); try{ const r=await fetch(`${API}/api/staff/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:newStaff.fullname,email:newStaff.email,password:newStaff.password,role:newStaff.role})}); const d=await r.json(); if(r.ok){setShowAddStaff(false);setNewStaff({fullname:"",email:"",password:"",role:"Staff"});loadStaff();toast.success("Tạo tài khoản thành công!");}else setNewStaffErrors({general:d.message}); }finally{setSaving(false);} };
+  const changeRole = async(staffId,newRole)=>{ try{const r=await fetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})});if(r.ok)loadStaff();}catch{toast.error("Lỗi cập nhật quyền");} };
 
-  const savePost = async()=>{ if(!postForm.title.trim()){alert("Vui lòng nhập tiêu đề");return;} setPostSaving(true); try{ const fd=new FormData(); fd.append("title",postForm.title); fd.append("category",postForm.category); fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin"); fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r))); Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); if(editingPost)fd.append("post_id",editingPost.id); const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`; const r=await fetch(url,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else alert(d.message); }catch{alert("Lỗi kết nối");}finally{setPostSaving(false);} };
-  const deletePost = async(postId)=>{ if(!window.confirm("Xóa bài viết này?"))return; const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();alert(d.message);} };
+  const savePost = async()=>{ if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;} setPostSaving(true); try{ const fd=new FormData(); fd.append("title",postForm.title); fd.append("category",postForm.category); fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin"); fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r))); Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); if(editingPost)fd.append("post_id",editingPost.id); const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`; const r=await fetch(url,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);} };
+  const deletePost = async(postId)=>{ if(!window.confirm("Xóa bài viết này?"))return; const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();toast.error(d.message);} };
 
   const loadProductContent = async(pid)=>{ if(!pid)return; setPcLoaded(false); try{const r=await fetch(`${API}/api/product/${pid}/content/`);const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);} };
-  const saveProductContent = async()=>{ if(!pcProductId){alert("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await fetch(`${API}/api/product/content/save/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok)alert("✅ "+d.message); else alert(d.message); }catch{alert("Lỗi kết nối");}finally{setPcSaving(false);} };
+  const saveProductContent = async()=>{ if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await fetch(`${API}/api/product/content/save/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok)toast.success(d.message); else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);} };
 
   const handleLogout = ()=>{ localStorage.removeItem("admin_user"); navigate("/admin/login"); };
 
@@ -1134,6 +1137,19 @@ const handleDeleteProduct = async (productId) => {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex">
+      {/* Global fix: native <option> kế thừa màu nền tối */}
+      <style>{`
+        select option {
+          background-color: #1e1e1e;
+          color: #e5e5e5;
+        }
+        select option:checked,
+        select option:hover {
+          background-color: #2a2a2a;
+          color: #ffffff;
+        }
+      `}</style>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">

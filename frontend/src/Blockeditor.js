@@ -3,7 +3,8 @@ import {
   Type, AlignLeft, Image, Video, Quote, Minus,
   List, ChevronUp, ChevronDown, Trash2, Plus,
   Bold, Italic, Underline as UnderlineIcon, Link2,
-  GripVertical, Eye, EyeOff, BookOpen, Hash, Palette
+  GripVertical, Eye, EyeOff, BookOpen, Hash, Palette,
+  AlignJustify,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
@@ -84,11 +85,11 @@ const TEXT_COLORS = [
 ];
 
 // ─────────────────────────────────────────────────────────────
-//  FORMAT BAR
+//  FORMAT BAR  (thêm căn đều / justify)
 // ─────────────────────────────────────────────────────────────
 function FormatBar({ onFormat, showAlign = true }) {
   const [showColors, setShowColors] = useState(false);
-  const colorRef    = useRef(null);
+  const colorRef = useRef(null);
 
   useEffect(() => {
     const fn = (e) => {
@@ -137,8 +138,6 @@ function FormatBar({ onFormat, showAlign = true }) {
         {showColors && (
           <div className="absolute top-full left-0 mt-1 z-50 bg-[#1e1e1e] border border-white/10 rounded-xl p-2.5 shadow-2xl"
             style={{ minWidth: 180 }}>
-
-            {/* Màu chữ */}
             <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5 px-0.5">Màu chữ</p>
             <div className="flex flex-wrap gap-1.5 mb-2.5">
               {TEXT_COLORS.map(c => (
@@ -147,7 +146,6 @@ function FormatBar({ onFormat, showAlign = true }) {
                   className="w-5 h-5 rounded-full border border-white/20 hover:scale-125 transition flex-shrink-0"
                   style={{ backgroundColor: c.value }} />
               ))}
-              {/* Custom */}
               <label title="Màu tùy chỉnh"
                 className="w-5 h-5 rounded-full border border-dashed border-white/30 hover:border-orange-400 flex items-center justify-center cursor-pointer flex-shrink-0">
                 <span className="text-[8px] text-white/40 select-none">+</span>
@@ -156,7 +154,6 @@ function FormatBar({ onFormat, showAlign = true }) {
               </label>
             </div>
 
-            {/* Nền chữ */}
             <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5 px-0.5">Nền chữ</p>
             <div className="flex flex-wrap gap-1.5">
               {TEXT_COLORS.filter(c => c.value !== "#ffffff").map(c => (
@@ -165,7 +162,6 @@ function FormatBar({ onFormat, showAlign = true }) {
                   className="w-5 h-5 rounded border border-white/20 hover:scale-125 transition flex-shrink-0"
                   style={{ backgroundColor: c.value }} />
               ))}
-              {/* Bỏ nền (transparent) */}
               <button type="button" title="Bỏ nền"
                 onMouseDown={e => { e.preventDefault(); exec("hiliteColor", "transparent"); setShowColors(false); }}
                 className="w-5 h-5 rounded border border-dashed border-white/30 hover:border-orange-400 flex items-center justify-center flex-shrink-0">
@@ -176,16 +172,23 @@ function FormatBar({ onFormat, showAlign = true }) {
         )}
       </div>
 
-      {/* Căn chỉnh */}
+      {/* Căn chỉnh – bao gồm căn đều */}
       {showAlign && (
         <>
           <div className="w-px h-4 bg-white/10 mx-0.5" />
-          {["left","center","right"].map(a => (
-            <button key={a} type="button"
-              onMouseDown={e => { e.preventDefault(); onFormat && onFormat("align", a); }}
-              title={a === "left" ? "Căn trái" : a === "center" ? "Căn giữa" : "Căn phải"}
-              className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition text-[10px] font-mono">
-              {a === "left" ? "⇤" : a === "center" ? "⇔" : "⇥"}
+          {[
+            { val: "left",    label: "⇤",            tip: "Căn trái"  },
+            { val: "center",  label: "⇔",            tip: "Căn giữa"  },
+            { val: "right",   label: "⇥",            tip: "Căn phải"  },
+            { val: "justify", icon: AlignJustify,    tip: "Căn đều"   },
+          ].map(a => (
+            <button key={a.val} type="button"
+              onMouseDown={e => { e.preventDefault(); onFormat && onFormat("align", a.val); }}
+              title={a.tip}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition">
+              {a.icon
+                ? <a.icon size={12} />
+                : <span className="text-[10px] font-mono">{a.label}</span>}
             </button>
           ))}
         </>
@@ -490,7 +493,7 @@ function BlockRenderItem({ block, allBlocks }) {
       return (
         <h2 id={slug}
           style={{ textAlign: block.align || "left" }}
-          className="text-2xl font-bold text-white scroll-mt-24 group"
+          className="text-2xl font-bold text-white scroll-mt-24"
           dangerouslySetInnerHTML={{ __html: block.text }} />
       );
     }

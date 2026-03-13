@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./Cart";
+import Footer from "./Footer";
 import {
   ShoppingCart, User, LogOut, Settings, ChevronDown,
   AlertTriangle, ShoppingBag, ArrowLeft, SlidersHorizontal,
@@ -207,7 +208,10 @@ export default function SearchPage() {
     try {
       const r = await fetch(`${API}/api/search/text/?q=${encodeURIComponent(query)}&limit=60`);
       const d = await r.json();
-      const rs = d.results || [];
+      const raw = d.results || [];
+      // dedup by product id — API đôi khi trả về nhiều variant cùng 1 sản phẩm
+      const seen = new Set();
+      const rs = raw.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
       setResults(rs);
       setTotal(d.total || rs.length);
       setFallback(d.fallback || false);
@@ -263,7 +267,9 @@ export default function SearchPage() {
     try {
       const r = await fetch(`${API}/api/search/image/`, { method: "POST", body: form });
       const d = await r.json();
-      const rs = d.results || [];
+      const raw2 = d.results || [];
+      const seen2 = new Set();
+      const rs = raw2.filter(p => { if (seen2.has(p.id)) return false; seen2.add(p.id); return true; });
       setResults(rs);
       setTotal(rs.length);
       setFallback(d.fallback || false);
@@ -730,6 +736,7 @@ export default function SearchPage() {
           )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

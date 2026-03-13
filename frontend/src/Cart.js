@@ -1071,7 +1071,144 @@ export default function CartPage() {
           </div>
         )}
       </div>
+      <FeaturedProductsSection navigate={navigate} />
       <Footer />
     </div>
+  );
+}
+// ── Featured Products Section for Cart ─────────────────────────
+function FeaturedProductsSection({ navigate }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [voucherList, setVoucherList] = useState([]);
+  const { voucher: cartVoucher } = useCart();
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API}/api/home/featured/?limit=8`)
+      .then(r => r.json())
+      .then(async (featuredData) => {
+        const featured = featuredData.products || [];
+        const detailed = await Promise.all(
+          featured.map(fp =>
+            fetch(`${API}/api/product/${fp.id}/detail/`)
+              .then(r => r.json())
+              .then(d => ({ ...fp, variants: d.variants || [] }))
+              .catch(() => fp)
+          )
+        );
+        setProducts(detailed);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API}/api/voucher/active/`)
+      .then(r => r.json())
+      .then(d => setVoucherList(d.vouchers || []))
+      .catch(() => {});
+  }, []);
+
+  if (loading || products.length === 0) return null;
+
+  return (
+    <section className="px-8 py-10 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-base font-bold text-white">Sản phẩm gợi ý</h2>
+          <p className="text-xs text-white/30 mt-0.5">Những sản phẩm nổi bật tại PHONEZONE</p>
+        </div>
+        <button
+          onClick={() => navigate("/product")}
+          className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition
+            px-3 py-1.5 rounded-xl border border-orange-500/20 hover:border-orange-500/40 bg-orange-500/5"
+        >
+          Xem tất cả <ChevronRight size={12} />
+        </button>
+      </div>
+      <div className="grid grid-cols-4 gap-4">
+        {products.slice(0, 8).map(p => {
+          const variants = p.variants || [];
+          const dv = variants.length > 0
+            ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
+            : null;
+          const basePrice = dv ? parseFloat(dv.price) : parseFloat(p.min_price || 0);
+          const comboLabel = dv ? [dv.ram, dv.storage].filter(Boolean).join(" · ") : null;
+
+          // calc best voucher discount
+          let finalPrice = basePrice;
+          let bestVoucher = null;
+          if (dv && basePrice) {
+            const allVouchers = cartVoucher ? [cartVoucher, ...voucherList] : voucherList;
+            let bestDisc = 0;
+            for (const v of allVouchers) {
+              if (!v) continue;
+              if (v.scope === "category" && v.category_id && String(p.category_id) !== String(v.category_id)) continue;
+              if (v.scope === "product" && v.product_id && String(p.id) !== String(v.product_id)) continue;
+              if (basePrice < (v.min_order || 0)) continue;
+              let d = v.type === "percent"
+                ? Math.round(basePrice * Math.min(v.value, 100) / 100)
+                : Math.min(v.value, basePrice);
+              if (v.max_discount) d = Math.min(d, v.max_discount);
+              if (d > bestDisc) { bestDisc = d; bestVoucher = v; }
+            }
+            if (bestDisc > 0) finalPrice = Math.max(0, basePrice - bestDisc);
+          }
+          const hasDisc = finalPrice < basePrice;
+
+          return (
+            <article
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
+              className="flex flex-col rounded-2xl overflow-hidden transition-all duration-300
+                hover:-translate-y-0.5 cursor-pointer
+                bg-[#00000001] backdrop-blur-[2px]
+                shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+                hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]"
+            >
+              <div className="w-full h-28 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">
+                {(dv?.image || p.image)
+                  ? <img src={dv?.image || p.image} alt={p.name} className="w-full h-full object-contain p-2" />
+                  : <Package size={24} className="text-white/10" />}
+                {hasDisc && bestVoucher && (
+                  <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
+                    {bestVoucher.type === "percent" ? `-${bestVoucher.value}%` : `-${(basePrice - finalPrice).toLocaleString("vi-VN")}đ`}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5 p-2.5">
+                <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">
+                  {p.name}
+                </h3>
+                {comboLabel && (
+                  <span className="inline-block px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9px] font-semibold text-white/50 w-fit">
+                    {comboLabel}
+                  </span>
+                )}
+                <div className="flex items-center justify-between mt-auto pt-1 gap-1">
+                  <div className="min-w-0">
+                    {hasDisc && (
+                      <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">
+                        {basePrice.toLocaleString("vi-VN")}đ
+                      </p>
+                    )}
+                    <p className="font-bold text-sm leading-tight truncate text-[#ff3b30]">
+                      {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+                    </p>
+                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
+                    className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium
+                      bg-[rgba(255,149,0,0.75)] border border-[#ff9500] hover:bg-[rgba(255,149,0,1)] transition">
+                    Mua
+                  </button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 import {
   ArrowLeft, Package, ChevronRight, Clock, CheckCircle2,
   Truck, MapPin, XCircle, RefreshCw, ShoppingBag, Check,
@@ -688,7 +689,7 @@ export default function Orders({ embedded = false }) {
     if (res.ok) {
       setOrders(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled" } : o));
       if (detail?.id === orderId) setDetail(d => ({ ...d, status: "Cancelled" }));
-    } else alert(data.message);
+    } else toast.error(data.message);
   };
 
   // ── CHI TIẾT ────────────────────────────────────────────────

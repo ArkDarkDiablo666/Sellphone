@@ -1,7 +1,6 @@
 """
 search_engine.py — Bộ máy tìm kiếm text cho PHONEZONE
-Thuật toán: BM25 + Trigram fuzzy matching
-Không cần thư viện ngoài, chỉ Python stdlib.
+Thuật toán: BM25 + Trigram fuzzy matching + Model number exact matching
 """
 
 import math
@@ -19,7 +18,11 @@ def normalize(text: str) -> str:
 
 
 def tokenize(text: str) -> list:
-    return re.findall(r"[^\s\W]+", normalize(text), re.UNICODE)
+    """
+    Tách token thông minh hơn: giữ nguyên các chuỗi model như '16e', '14 pro max', v.v.
+    """
+    tokens = re.findall(r"[^\s\W]+", normalize(text), re.UNICODE)
+    return tokens
 
 
 def trigrams(text: str) -> set:
@@ -44,6 +47,83 @@ def prefix_similarity(query: str, term: str) -> float:
     if q in t:
         return 0.5
     return 0.0
+
+
+def extract_model_tokens(text: str) -> list:
+    """
+    Trích xuất các token đặc trưng của model: số + chữ liền nhau như '16e', '14', '15pro', v.v.
+    VD: 'iPhone 16e Pro Max' → ['16e', 'pro', 'max', '16']
+    """
+    t = normalize(text)
+    # Model token: số kèm chữ (16e, 15pro) hoặc số đơn (14, 16)
+    model_tokens = re.findall(r'\d+[a-z]*', t)
+    return model_tokens
+
+
+def model_tokens_match(query: str, title: str) -> float:
+    """
+    Kiểm tra xem tất cả model token trong query có xuất hiện trong title không.
+    Nếu query có '16e', title phải có '16e' chứ không phải '16' hay '14'.
+    Trả về score bonus.
+    """
+    q_model = extract_model_tokens(query)
+    t_model = extract_model_tokens(title)
+    t_norm  = normalize(title)
+
+    if not q_model:
+        return 0.0
+
+    score = 0.0
+    all_match = True
+
+    for qm in q_model:
+        # Exact match trong model tokens của title
+        if qm in t_model:
+            score += 3.0
+        # Partial: query token xuất hiện như substring trong title
+        elif qm in t_norm:
+            score += 1.0
+        else:
+            all_match = False
+            score -= 2.0  # Phạt nặng nếu model token không match
+
+    # Bonus nếu tất cả đều match chính xác
+    if all_match and q_model:
+        score += 2.0
+
+    return score
+
+
+def has_conflicting_model(query: str, title: str) -> bool:
+    """
+    Kiểm tra xem title có chứa model number KHÁC với query không.
+    VD: query='16e', title='iPhone 14' → True (conflict)
+         query='16e', title='iPhone 16e' → False (no conflict)
+    """
+    q_model = extract_model_tokens(query)
+    t_model = extract_model_tokens(title)
+
+    if not q_model or not t_model:
+        return False
+
+    # Lấy số thuần từ query (bỏ chữ suffix)
+    q_numbers = set(re.findall(r'\d+', ' '.join(q_model)))
+    t_numbers = set(re.findall(r'\d+', ' '.join(t_model)))
+
+    for qn in q_numbers:
+        for tn in t_numbers:
+            # Nếu title có số mà query không có → conflict
+            if tn != qn and qn not in tn and tn not in qn:
+                # Nhưng chỉ conflict nếu chúng là cùng dòng sản phẩm (cùng brand keyword)
+                q_norm = normalize(query)
+                t_norm = normalize(title)
+                # Lấy brand từ query (từ đầu tiên không phải số)
+                q_words = [w for w in q_norm.split() if not re.match(r'^\d', w)]
+                if q_words:
+                    brand_word = q_words[0]
+                    if brand_word in t_norm:
+                        return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -89,8 +169,13 @@ class BM25Index:
             except Exception:
                 pass
 
-            # Title nhân 3 để tăng trọng số
-            body   = f"{title} {title} {title} {brand} {brand} {cat} {desc} {variant_text}"
+            # Title nhân 4 để tăng trọng số, thêm model tokens riêng
+            model_tokens_str = " ".join(extract_model_tokens(title))
+            body   = (
+                f"{title} {title} {title} {title} "
+                f"{model_tokens_str} {model_tokens_str} "
+                f"{brand} {brand} {cat} {desc} {variant_text}"
+            )
             tokens = tokenize(body)
             freq: dict = defaultdict(int)
             for t in tokens:
@@ -120,6 +205,8 @@ class BM25Index:
             return []
 
         scores: dict = defaultdict(float)
+        q_model_tokens = extract_model_tokens(query)
+        has_model_query = len(q_model_tokens) > 0
 
         for term in q_tokens:
             postings = self.inverted.get(term, [])
@@ -128,32 +215,57 @@ class BM25Index:
                 for doc_idx, tf in postings:
                     scores[doc_idx] += idf * self._tf_norm(tf, doc_idx)
             else:
-                # Fuzzy
-                if self._vocab is None:
-                    self._vocab = list(self.inverted.keys())
-                for vt in self._vocab:
-                    if abs(len(vt) - len(term)) > max(len(term), 3):
-                        continue
-                    sim = max(trigram_similarity(term, vt), prefix_similarity(term, vt))
-                    if sim >= self.FUZZY_THRESHOLD:
-                        idf = self._idf(vt)
-                        for doc_idx, tf in self.inverted[vt]:
-                            scores[doc_idx] += sim * idf * self._tf_norm(tf, doc_idx)
+                # Fuzzy — CHỈ dùng cho non-model tokens
+                # Không fuzzy match model numbers để tránh '16e' → '16' → '14'
+                is_model_token = bool(re.match(r'^\d+[a-z]*$', term))
+                if not is_model_token:
+                    if self._vocab is None:
+                        self._vocab = list(self.inverted.keys())
+                    for vt in self._vocab:
+                        if abs(len(vt) - len(term)) > max(len(term), 3):
+                            continue
+                        sim = max(trigram_similarity(term, vt), prefix_similarity(term, vt))
+                        if sim >= self.FUZZY_THRESHOLD:
+                            idf = self._idf(vt)
+                            for doc_idx, tf in self.inverted[vt]:
+                                scores[doc_idx] += sim * idf * self._tf_norm(tf, doc_idx)
 
-        # Title/brand bonus
+        # ── Bonus / Penalty dựa trên title matching ──
         q_norm = normalize(query)
         for doc_idx, doc in enumerate(self.docs):
             title_n = normalize(doc["title"])
             brand_n = normalize(doc["brand"])
+
+            # 1. Model number matching (quan trọng nhất)
+            if has_model_query:
+                model_score = model_tokens_match(query, doc["title"])
+                scores[doc_idx] += model_score
+
+                # Phạt mạnh nếu title chứa model number khác
+                # VD: tìm '16e' mà title là 'iPhone 14' → trừ điểm
+                doc_model = extract_model_tokens(doc["title"])
+                if doc_model:
+                    # Kiểm tra xem tất cả q_model_token có trong doc_model không
+                    missing = [qm for qm in q_model_tokens if qm not in doc_model]
+                    if missing:
+                        # Có model token không khớp → phạt nặng
+                        scores[doc_idx] -= 8.0 * len(missing)
+                    else:
+                        # Tất cả model token đều khớp → bonus lớn
+                        scores[doc_idx] += 10.0
+
+            # 2. Full query substring match trong title
             if q_norm in title_n:
-                scores[doc_idx] += 5.0
+                scores[doc_idx] += 8.0
             elif q_norm in brand_n or brand_n in q_norm:
                 scores[doc_idx] += 2.0
             else:
+                # Token-level match
                 for tok in q_tokens:
                     if tok in title_n:
                         scores[doc_idx] += 0.8
 
+        # Lọc kết quả âm (không liên quan)
         result = [(sc, self.docs[idx]) for idx, sc in scores.items() if sc > 0]
         result.sort(key=lambda x: x[0], reverse=True)
         return result[:top_k]
@@ -178,7 +290,6 @@ def rebuild_index() -> int:
     global _index, _version
     from .models import Product
     _index = BM25Index()
-    # FIX: Product không có field IsActive — bỏ filter đó
     qs = Product.objects.select_related("CategoryID").prefetch_related("productvariant_set").all()
     _index.build(qs)
     _version += 1

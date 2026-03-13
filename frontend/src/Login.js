@@ -4,6 +4,7 @@ import { FcGoogle } from "react-icons/fc";
 import { FaFacebookF } from "react-icons/fa";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 import { useGoogleLogin } from "@react-oauth/google";
 import FacebookLogin from "@greatsumini/react-facebook-login";
 
@@ -19,6 +20,7 @@ export default function Login() {
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState({});
+  const { toasts, removeToast, toast } = useToast();
 
   const [form, setForm] = useState({
     fullname: "",
@@ -158,7 +160,7 @@ export default function Login() {
           if (res.ok) {
             saveUser({ id: data.customer.id, fullName: profile.name, email: profile.email, avatar: profile.picture, loginType: "google" });
             navigate("/");
-          } else { alert(data.message); }
+          } else { toast.error(data.message); }
         } else {
           const res  = await fetch(`${API}/api/auth/google/register/`, {
             method:  "POST",
@@ -169,18 +171,18 @@ export default function Login() {
           if (res.ok) {
             saveUser({ id: data.customer.id, fullName: profile.name, email: profile.email, avatar: profile.picture, loginType: "google" });
             navigate("/");
-          } else { alert(data.message); }
+          } else { toast.error(data.message); }
         }
-      } catch { alert("Lỗi kết nối Google"); }
+      } catch { toast.error("Lỗi kết nối Google"); }
     },
-    onError: () => alert("Đăng nhập Google thất bại"),
+    onError: () => toast.error("Đăng nhập Google thất bại"),
   });
 
   // ===== FACEBOOK =====
   const handleFacebookSuccess = async (response) => {
     try {
       const accessToken = response.accessToken;
-      if (!accessToken) { alert("Không nhận được token Facebook"); return; }
+      if (!accessToken) { toast.error("Không nhận được token Facebook"); return; }
 
       const fbRes   = await fetch(`https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`);
       const profile = await fbRes.json();
@@ -200,7 +202,7 @@ export default function Login() {
         if (res.ok) {
           saveUser({ id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" });
           navigate("/");
-        } else { alert(data.message); }
+        } else { toast.error(data.message); }
       } else {
         const res  = await fetch(`${API}/api/auth/facebook/register/`, {
           method:  "POST",
@@ -211,9 +213,9 @@ export default function Login() {
         if (res.ok) {
           saveUser({ id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" });
           navigate("/");
-        } else { alert(data.message); }
+        } else { toast.error(data.message); }
       }
-    } catch { alert("Lỗi khi xử lý đăng nhập Facebook"); }
+    } catch { toast.error("Lỗi khi xử lý đăng nhập Facebook"); }
   };
 
   return (
@@ -361,7 +363,7 @@ export default function Login() {
                 scope="public_profile"
                 fields="id,name,email,picture"
                 onSuccess={handleFacebookSuccess}
-                onFail={(err) => { console.error(err); alert("Đăng nhập Facebook thất bại"); }}
+                onFail={(err) => { console.error(err); toast.error("Đăng nhập Facebook thất bại"); }}
                 render={({ onClick }) => (
                   <button type="button" onClick={onClick}
                     className="flex items-center justify-center gap-3 p-3 rounded-full bg-blue-600 text-white font-medium hover:bg-blue-700 transition">

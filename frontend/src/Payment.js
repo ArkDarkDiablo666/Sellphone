@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 import {
   ArrowLeft, MapPin, Plus, Pencil, Trash2, Check, Package,
   Tag, ChevronRight, X, Truck, CheckCircle2, ChevronDown, Loader,
@@ -475,15 +476,15 @@ export default function Payment() {
           } catch { /* fallback to success screen */ }
         }
       } else {
-        alert(data.message || "Đặt hàng thất bại");
+        toast.error(data.message || "Đặt hàng thất bại");
       }
-    } catch { alert("Không thể kết nối server"); }
+    } catch { toast.error("Không thể kết nối server"); }
     finally { setPlacing(false); }
   };
 
   const saveAddr = async () => {
     const { name, phone, addrObj: ao } = addrForm;
-    if (!name || !phone || !ao.detail) { alert("Vui lòng điền đủ thông tin địa chỉ"); return; }
+    if (!name || !phone || !ao.detail) { toast.error("Vui lòng điền đủ thông tin địa chỉ"); return; }
     const fullAddress = buildFullAddress(ao);
     try {
       const url  = editAddr ? `${API}/api/customer/address/update/` : `${API}/api/customer/address/create/`;
@@ -497,8 +498,8 @@ export default function Payment() {
         else setAddresses((p) => [...p, { name, phone, address: fullAddress, id: data.id }]);
         setShowAddAddr(false); setEditAddr(null);
         setAddrForm({ name: "", phone: "", addrObj: emptyAddr() });
-      } else alert(data.message);
-    } catch { alert("Lỗi kết nối"); }
+      } else toast.error(data.message);
+    } catch { toast.error("Lỗi kết nối"); }
   };
 
   const deleteAddr = async (id) => {

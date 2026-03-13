@@ -75,8 +75,8 @@ export default function Information() {
   const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) { alert("Vui lòng chọn file ảnh"); return; }
-    if (file.size > 5 * 1024 * 1024) { alert("Ảnh không được vượt quá 5MB"); return; }
+    if (!file.type.startsWith("image/")) { toast.error("Vui lòng chọn file ảnh"); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Ảnh không được vượt quá 5MB"); return; }
 
     setAvatarLoading(true);
     try {
@@ -92,9 +92,9 @@ export default function Information() {
         setCustomer((prev) => ({ ...prev, avatar: data.avatar_url }));
         window.dispatchEvent(new Event("userUpdated"));
       } else {
-        alert(data.message || "Lỗi upload ảnh");
+        toast.error(data.message || "Lỗi upload ảnh");
       }
-    } catch { alert("Không thể kết nối server"); }
+    } catch { toast.error("Không thể kết nối server"); }
     finally { setAvatarLoading(false); }
   };
 
@@ -147,7 +147,7 @@ export default function Information() {
         setEditPass(false);
         setPassForm({ current: "", newPass: "", confirm: "" });
         setErrors({});
-        alert("Đổi mật khẩu thành công!");
+        toast.success("Đổi mật khẩu thành công!");
       } else {
         setErrors({ current: data.message });
       }
@@ -158,6 +158,7 @@ export default function Information() {
 
   if (loading) return (
     <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
       <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
     </div>
   );

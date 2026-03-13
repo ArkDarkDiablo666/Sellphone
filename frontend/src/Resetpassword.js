@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -12,6 +13,7 @@ export default function Resetpassword() {
   const [confirm, setConfirm]         = useState("");
   const [errors, setErrors]           = useState({});
   const [loading, setLoading]         = useState(false);
+  const { toasts, removeToast, toast } = useToast();
   const navigate = useNavigate();
 
   const validatePassword = (pass) => {
@@ -46,7 +48,7 @@ export default function Resetpassword() {
 
       if (res.ok) {
         sessionStorage.removeItem("reset_email");
-        alert("Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại.");
+        toast.success("Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại.");
         navigate("/login");
       } else {
         setErrors({ general: data.message });

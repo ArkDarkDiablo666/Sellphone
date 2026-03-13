@@ -7,7 +7,7 @@ import {
   AlertTriangle, ShoppingBag, ChevronLeft, ChevronRight, Package,
   Shield, Truck, RotateCcw, ZapIcon, Star, Heart, MessageCircle,
   Send, Image as ImageIcon, X, ChevronUp, Edit2, CornerDownRight,
-  Camera, Loader2, Search
+  Camera, Loader2, Search, GitCompare, Plus, Check, Tag
 } from "lucide-react";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
@@ -427,7 +427,7 @@ function ReviewCommentSection({ productId, user, navigate }) {
   const totalReviews = stats?.total || 0;
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       {totalReviews > 0 && (
         <div className="flex items-center gap-8 p-6 bg-white/[0.03] border border-white/[0.08] rounded-2xl mb-6">
           <div className="flex flex-col items-center gap-1 shrink-0">
@@ -546,7 +546,7 @@ function ReviewCommentSection({ productId, user, navigate }) {
             </div>
           ) : (
             comments.map(c => (
-              <CommentCard key={c.id} comment={{ ...c, product_id: productId }} user={user} onLike={handleLike} />
+              <CommentCard key={c.id} comment={{ ...c, product_id: productId }} user={user} onLike={handleLike} depth={0} />
             ))
           )}
         </div>
@@ -591,6 +591,12 @@ export default function InformationProduct() {
   const [productContent, setProductContent] = useState([]);
   const [qty,            setQty]            = useState(1);
   const [related,        setRelated]        = useState([]);
+
+  // ── So sánh ──
+  const [compareList,    setCompareList]    = useState([]);   // [{id, name, image, min_price, variants:[]}]
+  const [showCompare,    setShowCompare]    = useState(false);
+  const [showAddCompare, setShowAddCompare] = useState(false);
+  const [allProducts,    setAllProducts]    = useState([]);
 
   const [selColor,   setSelColor]   = useState(null);
   const [selCombo,   setSelCombo]   = useState(null);
@@ -682,6 +688,14 @@ export default function InformationProduct() {
       .then(data => setProductBestVoucher(data))
       .catch(() => {});
   }, [product?.id, currentPrice]);
+
+  useEffect(() => {
+    if (!showAddCompare || allProducts.length > 0) return;
+    fetch(`${API}/api/product/list/`)
+      .then(r => r.json())
+      .then(d => setAllProducts(d.products || []))
+      .catch(() => {});
+  }, [showAddCompare]);
 
   useEffect(() => {
     const sync = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
@@ -806,6 +820,7 @@ export default function InformationProduct() {
 
       <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
+      {/* ── NAV ── */}
       <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
         <div className="flex gap-8 items-center text-gray-300">
@@ -814,12 +829,9 @@ export default function InformationProduct() {
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
-          {/* SEARCH BUTTON */}
-          <button onClick={() => setSearchOpen(true)}
-            className="text-gray-300 hover:text-white transition">
+          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
             <Search size={20} />
           </button>
-
           <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
@@ -863,8 +875,10 @@ export default function InformationProduct() {
         </div>
       </nav>
 
+      {/* ── BODY (centered) ── */}
       <div className="pt-[64px]">
-        <div className="px-10 py-4 flex items-center gap-2 text-xs text-white/30 border-b border-white/5">
+        {/* Breadcrumb */}
+        <div className="max-w-7xl mx-auto px-6 lg:px-10 py-4 flex items-center gap-2 text-xs text-white/30 border-b border-white/5">
           <button onClick={() => navigate("/")} className="hover:text-white transition">Trang chủ</button>
           <ChevronRight size={12} />
           <button onClick={() => navigate("/product")} className="hover:text-white transition">Sản phẩm</button>
@@ -872,10 +886,11 @@ export default function InformationProduct() {
           <span className="text-white/60 truncate max-w-xs">{product.name}</span>
         </div>
 
-        <div className="px-10 py-8 flex gap-10">
+        {/* Product main section */}
+        <div className="max-w-7xl mx-auto px-6 lg:px-10 py-8 flex gap-10 flex-wrap lg:flex-nowrap">
 
           {/* ===== ẢNH ===== */}
-          <div className="w-[420px] shrink-0 flex flex-col gap-3">
+          <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-3">
             <div className="w-full h-[380px] rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden flex items-center justify-center border border-white/5 relative">
               {activeImg === -1 && selectedVariant?.image ? (
                 <img src={selectedVariant.image} alt={product.name} className="w-full h-full object-contain p-6" />
@@ -1038,6 +1053,18 @@ export default function InformationProduct() {
               </button>
             </div>
 
+            {/* Nút so sánh */}
+            <button onClick={() => setShowAddCompare(true)}
+              className="flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5 text-white/40 hover:text-orange-400 text-sm transition">
+              <GitCompare size={15} />
+              So sánh sản phẩm
+              {compareList.length > 0 && (
+                <span className="ml-1 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                  {compareList.length}
+                </span>
+              )}
+            </button>
+
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
               {[
                 { icon: Shield,    text: "Bảo hành 12 tháng" },
@@ -1055,8 +1082,8 @@ export default function InformationProduct() {
         </div>
 
         {/* ===== TABS ===== */}
-        <div className="px-10 pb-10">
-          <div className="flex gap-1 border-b border-white/10 mb-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-10 pb-10">
+          <div className="flex justify-center gap-1 border-b border-white/10 mb-6">
             {[
               { key: "info",   label: "Mô tả sản phẩm" },
               { key: "specs",  label: "Thông tin sản phẩm" },
@@ -1071,19 +1098,19 @@ export default function InformationProduct() {
           </div>
 
           {activeTab === "info" && (
-            <div className="max-w-3xl">
+            <div className="w-full max-w-3xl mx-auto">
               {productContent.length > 0
                 ? <BlockRenderer blocks={productContent} />
                 : product.description
                   ? <div className="text-white/70 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: product.description }} />
-                  : <p className="text-white/20 text-sm italic">Chưa có mô tả sản phẩm</p>}
+                  : <p className="text-white/20 text-sm italic text-center">Chưa có mô tả sản phẩm</p>}
             </div>
           )}
 
           {activeTab === "specs" && (
-            <div className="max-w-3xl flex flex-col gap-4">
+            <div className="w-full max-w-3xl mx-auto flex flex-col gap-4">
               {specsGroups.length === 0
-                ? <p className="text-white/20 text-sm italic">Chưa có thông số kỹ thuật</p>
+                ? <p className="text-white/20 text-sm italic text-center">Chưa có thông số kỹ thuật</p>
                 : specsGroups.map(group => (
                   <div key={group.label} className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
                     <div className="px-5 py-3 border-b border-white/5">
@@ -1102,35 +1129,353 @@ export default function InformationProduct() {
           )}
 
           {activeTab === "review" && product && (
-            <ReviewCommentSection productId={product.id} user={user} navigate={navigate} />
+            <div className="w-full max-w-3xl mx-auto">
+              <ReviewCommentSection productId={product.id} user={user} navigate={navigate} />
+            </div>
           )}
         </div>
 
         {/* ===== SẢN PHẨM LIÊN QUAN ===== */}
         {related.length > 0 && (
-          <div className="px-10 pb-12 border-t border-white/5 pt-8">
+          <div className="max-w-7xl mx-auto px-6 lg:px-10 pb-12 border-t border-white/5 pt-8">
             <h2 className="text-lg font-semibold mb-5">Sản phẩm tương tự</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-              {related.map(p => (
-                <article key={p.id} onClick={() => navigate(`/product/${p.id}`)}
-                  className="flex flex-col gap-3 p-3 rounded-[20px] cursor-pointer hover:-translate-y-1 transition-all duration-300
-                    shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]">
-                  <div className="w-full h-36 rounded-xl overflow-hidden bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
-                    {p.image ? <img src={p.image} alt={p.name} className="w-full h-full object-contain p-2" /> : <Package size={28} className="text-white/10" />}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-sm line-clamp-2 leading-snug mb-1">{p.name}</h3>
-                    <p className="text-[#ff3b30] font-semibold text-sm text-right">
-                      {parseFloat(p.min_price) ? parseFloat(p.min_price).toLocaleString("vi-VN") + "đ" : "Liên hệ"}
-                    </p>
-                  </div>
-                </article>
-              ))}
+              {related.map(p => {
+                const minPrice = parseFloat(p.min_price) || 0;
+                return (
+                  <article key={p.id} onClick={() => navigate(`/product/${p.id}`)}
+                    className="flex flex-col rounded-2xl overflow-hidden cursor-pointer hover:-translate-y-1 transition-all duration-300
+                      shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+                      hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),0_8px_32px_rgba(0,0,0,0.4)]">
+                    {/* Image */}
+                    <div className="w-full h-36 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden relative">
+                      {p.image
+                        ? <img src={p.image} alt={p.name} className="w-full h-full object-contain p-3" />
+                        : <Package size={28} className="text-white/10" />}
+                    </div>
+                    {/* Info */}
+                    <div className="flex flex-col gap-1.5 p-2.5">
+                      <h3 className="font-semibold text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">{p.name}</h3>
+                      {p.brand && <span className="text-[10px] text-white/30">{p.brand}</span>}
+                      <div className="flex items-center justify-between mt-auto pt-1 gap-1">
+                        <p className="font-bold text-sm text-[#ff3b30]">
+                          {minPrice ? minPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+                        </p>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (compareList.some(c => c.id === p.id)) {
+                              setCompareList(prev => prev.filter(c => c.id !== p.id));
+                            } else if (compareList.length < 3) {
+                              setCompareList(prev => [...prev, p]);
+                            }
+                          }}
+                          className={`shrink-0 h-7 px-2.5 rounded-full text-[10px] font-medium border transition
+                            ${compareList.some(c => c.id === p.id)
+                              ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
+                              : "bg-white/5 border-white/10 text-white/40 hover:border-orange-500/40 hover:text-orange-400"}`}>
+                          {compareList.some(c => c.id === p.id) ? <Check size={11} /> : <GitCompare size={11} />}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
+            {compareList.length > 0 && (
+              <div className="mt-5 flex items-center justify-between px-4 py-3 rounded-2xl bg-orange-500/10 border border-orange-500/20">
+                <div className="flex items-center gap-2 text-sm text-orange-300">
+                  <GitCompare size={15} />
+                  Đã chọn {compareList.length} sản phẩm để so sánh
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setCompareList([])} className="text-xs text-white/30 hover:text-red-400 transition">Xóa tất cả</button>
+                  <button onClick={() => setShowCompare(true)}
+                    className="px-4 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold transition">
+                    Xem so sánh
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* ═══ MODAL: CHỌN SẢN PHẨM SO SÁNH ═══ */}
+      {showAddCompare && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowAddCompare(false)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl w-full max-w-xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <GitCompare size={16} className="text-orange-400" />
+                <h3 className="font-semibold text-sm">So sánh sản phẩm</h3>
+                <span className="text-xs text-white/30">Chọn tối đa 3</span>
+              </div>
+              <button onClick={() => setShowAddCompare(false)} className="text-white/30 hover:text-white"><X size={16} /></button>
+            </div>
+
+            {/* Sản phẩm hiện tại luôn có */}
+            <div className="px-5 py-3 border-b border-white/5">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Sản phẩm đang xem</p>
+              <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20">
+                {images[0]?.url && <img src={images[0].url} alt="" className="w-10 h-10 object-contain rounded-lg bg-gray-800" />}
+                <p className="text-sm font-medium text-orange-300 flex-1 line-clamp-1">{product.name}</p>
+                <Check size={14} className="text-orange-400 shrink-0" />
+              </div>
+            </div>
+
+            {/* Danh sách đã chọn */}
+            {compareList.length > 0 && (
+              <div className="px-5 py-3 border-b border-white/5 flex flex-wrap gap-2">
+                {compareList.map(p => (
+                  <div key={p.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-xs">
+                    <span className="text-white/70 max-w-[100px] truncate">{p.name}</span>
+                    <button onClick={() => setCompareList(prev => prev.filter(c => c.id !== p.id))} className="text-white/20 hover:text-red-400 ml-1"><X size={10} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Search + list */}
+            <div className="flex-1 overflow-y-auto px-5 py-3">
+              <AddCompareSearch
+                allProducts={allProducts}
+                currentId={product?.id}
+                compareList={compareList}
+                onToggle={(p) => {
+                  if (compareList.some(c => c.id === p.id)) {
+                    setCompareList(prev => prev.filter(c => c.id !== p.id));
+                  } else if (compareList.length < 3) {
+                    setCompareList(prev => [...prev, p]);
+                  }
+                }}
+              />
+            </div>
+
+            <div className="px-5 py-4 border-t border-white/10 flex gap-3">
+              <button onClick={() => setShowAddCompare(false)}
+                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Đóng</button>
+              <button
+                onClick={() => { setShowAddCompare(false); if (compareList.length > 0) setShowCompare(true); }}
+                disabled={compareList.length === 0}
+                className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-sm font-semibold transition">
+                So sánh ({compareList.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL: BẢNG SO SÁNH ═══ */}
+      {showCompare && product && (
+        <CompareModal
+          current={{ ...product, variants, images }}
+          compareList={compareList}
+          onClose={() => setShowCompare(false)}
+          navigate={navigate}
+        />
+      )}
+
       <Footer />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// COMPONENT: Tìm kiếm sản phẩm để thêm vào so sánh
+// ═══════════════════════════════════════════════════════
+function AddCompareSearch({ allProducts, currentId, compareList, onToggle }) {
+  const [q, setQ] = useState("");
+  const filtered = allProducts.filter(p =>
+    p.id !== currentId &&
+    (!q.trim() || p.name?.toLowerCase().includes(q.toLowerCase()) || p.brand?.toLowerCase().includes(q.toLowerCase()))
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
+        <Search size={13} className="text-white/30 shrink-0" />
+        <input value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Tìm sản phẩm để so sánh..."
+          className="bg-transparent text-xs outline-none flex-1 text-white placeholder:text-white/20" />
+        {q && <button onClick={() => setQ("")}><X size={11} className="text-white/30 hover:text-white" /></button>}
+      </div>
+      <div className="flex flex-col gap-1">
+        {filtered.length === 0
+          ? <p className="text-center text-white/20 text-xs py-6">Không tìm thấy sản phẩm</p>
+          : filtered.map(p => {
+              const inList  = compareList.some(c => c.id === p.id);
+              const maxed   = !inList && compareList.length >= 3;
+              const minP    = parseFloat(p.min_price) || 0;
+              return (
+                <button key={p.id} onClick={() => !maxed && onToggle(p)} disabled={maxed}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition
+                    ${inList   ? "bg-orange-500/10 border-orange-500/30 text-orange-300"
+                    : maxed    ? "opacity-30 border-transparent cursor-not-allowed"
+                               : "border-transparent hover:bg-white/5 hover:border-white/10"}`}>
+                  <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
+                    {p.image ? <img src={p.image} alt="" className="w-full h-full object-contain p-1" /> : <Package size={14} className="text-white/20" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium line-clamp-1 text-white">{p.name}</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">{minP ? minP.toLocaleString("vi-VN") + "đ" : "Liên hệ"}</p>
+                  </div>
+                  <div className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition
+                    ${inList ? "bg-orange-500 border-orange-500" : "border-white/20"}`}>
+                    {inList ? <Check size={11} className="text-white" /> : <Plus size={11} className="text-white/30" />}
+                  </div>
+                </button>
+              );
+            })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// COMPONENT: Bảng so sánh thông số
+// ═══════════════════════════════════════════════════════
+const COMPARE_ROWS = [
+  { label: "Giá",            key: v => v ? parseInt(v.price || 0).toLocaleString("vi-VN") + "đ" : "—", group: null },
+  { label: "CPU",            key: v => v?.cpu            || "—", group: "Bộ xử lý" },
+  { label: "Hệ điều hành",  key: v => v?.os             || "—", group: "Bộ xử lý" },
+  { label: "RAM",            key: v => v?.ram            || "—", group: "Bộ nhớ" },
+  { label: "Bộ nhớ trong",  key: v => v?.storage        || "—", group: "Bộ nhớ" },
+  { label: "Màn hình",      key: v => v?.screen_size    || "—", group: "Màn hình" },
+  { label: "Công nghệ MH",  key: v => v?.screen_tech    || "—", group: "Màn hình" },
+  { label: "Tần số quét",   key: v => v?.refresh_rate   || "—", group: "Màn hình" },
+  { label: "Camera trước",  key: v => v?.front_camera   || "—", group: "Camera" },
+  { label: "Camera sau",    key: v => v?.rear_camera    || "—", group: "Camera" },
+  { label: "Pin",           key: v => v?.battery        || "—", group: "Pin & Sạc" },
+  { label: "Tốc độ sạc",   key: v => v?.charging_speed || "—", group: "Pin & Sạc" },
+  { label: "Trọng lượng",  key: v => v?.weights        || "—", group: "Khác" },
+  { label: "Cập nhật OS",  key: v => v?.updates        || "—", group: "Khác" },
+];
+
+function CompareModal({ current, compareList, onClose, navigate }) {
+  // Lấy variant rẻ nhất của mỗi sản phẩm
+  const getBestVariant = (variants) =>
+    [...(variants || [])].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0] || null;
+
+  const [compareDetails, setCompareDetails] = useState({});
+
+  useEffect(() => {
+    // Fetch chi tiết variant cho từng sp trong compareList
+    compareList.forEach(p => {
+      if (compareDetails[p.id]) return;
+      fetch(`${API}/api/product/${p.id}/detail/`)
+        .then(r => r.json())
+        .then(d => setCompareDetails(prev => ({ ...prev, [p.id]: d.variants || [] })))
+        .catch(() => {});
+    });
+  }, [compareList]);
+
+  const currentVariant = getBestVariant(current.variants);
+  const allCols = [
+    { id: current.id, name: current.name, image: current.images?.[0]?.url || "", variant: currentVariant, isCurrent: true },
+    ...compareList.map(p => ({
+      id: p.id, name: p.name, image: p.image || "",
+      variant: getBestVariant(compareDetails[p.id] || []),
+      isCurrent: false,
+    })),
+  ];
+
+  // Group rows by group
+  const groups = [];
+  let lastGroup = null;
+  COMPARE_ROWS.forEach(row => {
+    const g = row.group || "Giá";
+    if (g !== lastGroup) { groups.push({ name: g, rows: [] }); lastGroup = g; }
+    groups[groups.length - 1].rows.push(row);
+  });
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#161616] border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl mx-4 max-h-[90vh] flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
+          <div className="flex items-center gap-2">
+            <GitCompare size={17} className="text-orange-400" />
+            <h2 className="font-bold text-base">So sánh sản phẩm</h2>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white transition"><X size={18} /></button>
+        </div>
+
+        <div className="overflow-auto flex-1">
+          <table className="w-full border-collapse min-w-[600px]">
+            {/* Product headers */}
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="w-36 px-4 py-4 text-left text-xs text-white/30 uppercase tracking-wider font-medium shrink-0 bg-[#161616] sticky left-0 z-10">Thông số</th>
+                {allCols.map(col => (
+                  <th key={col.id} className={`px-4 py-4 text-center min-w-[180px] ${col.isCurrent ? "bg-orange-500/5" : ""}`}>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-16 h-16 rounded-xl bg-gray-800 overflow-hidden flex items-center justify-center">
+                        {col.image
+                          ? <img src={col.image} alt="" className="w-full h-full object-contain p-1" />
+                          : <Package size={20} className="text-white/20" />}
+                      </div>
+                      <p className="text-xs font-semibold text-white line-clamp-2 leading-snug max-w-[160px]">{col.name}</p>
+                      {col.isCurrent && <span className="text-[9px] bg-orange-500/20 border border-orange-500/30 text-orange-400 px-1.5 py-0.5 rounded-full">Đang xem</span>}
+                      <button onClick={() => { onClose(); navigate(`/product/${col.id}`); }}
+                        className="text-[10px] text-orange-400 hover:underline">Xem sản phẩm →</button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(group => (
+                <>
+                  {group.name && group.name !== "Giá" && (
+                    <tr key={`g_${group.name}`} className="bg-white/[0.02]">
+                      <td colSpan={allCols.length + 1} className="px-4 py-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-orange-400/60">{group.name}</span>
+                      </td>
+                    </tr>
+                  )}
+                  {group.rows.map((row, ri) => {
+                    const vals = allCols.map(col => row.key(col.variant));
+                    const unique = [...new Set(vals.filter(v => v !== "—"))];
+                    return (
+                      <tr key={row.label} className={`border-b border-white/5 ${ri % 2 === 0 ? "" : "bg-white/[0.015]"}`}>
+                        <td className="px-4 py-3 text-xs text-white/40 font-medium sticky left-0 bg-[#161616] z-10 border-r border-white/5">{row.label}</td>
+                        {allCols.map((col, ci) => {
+                          const val     = row.key(col.variant);
+                          const isPrice = row.label === "Giá";
+                          // Highlight giá thấp nhất
+                          const prices  = isPrice ? allCols.map(c => parseInt((c.variant?.price || "0").replace(/\D/g, ""))) : [];
+                          const minPrice = isPrice ? Math.min(...prices.filter(p => p > 0)) : 0;
+                          const thisPriceNum = isPrice ? parseInt((col.variant?.price || "0")) : 0;
+                          const isBestPrice = isPrice && thisPriceNum === minPrice && thisPriceNum > 0;
+                          const isDiff  = !isPrice && unique.length > 1 && val !== "—";
+                          return (
+                            <td key={col.id} className={`px-4 py-3 text-center text-xs transition
+                              ${col.isCurrent ? "bg-orange-500/5" : ""}
+                              ${isBestPrice   ? "text-green-400 font-bold" : ""}
+                              ${isDiff && !isBestPrice ? "text-white/80" : ""}
+                              ${!isDiff && !isBestPrice ? "text-white/40" : ""}`}>
+                              {isBestPrice
+                                ? <span className="flex flex-col items-center gap-0.5"><span>{val}</span><span className="text-[9px] text-green-400/60">Rẻ nhất</span></span>
+                                : val}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="px-6 py-4 border-t border-white/10 shrink-0 flex justify-end">
+          <button onClick={onClose} className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Đóng</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   Settings,
   ChevronDown,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import { BlockRenderer } from "./Blockeditor";
 import { useCart } from "./Cart";
@@ -171,12 +172,12 @@ export function BlogDetail() {
           </Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
-          {/* SEARCH BUTTON */}
-          <button onClick={() => setSearchOpen(true)}
-            className="text-gray-300 hover:text-white transition">
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="text-gray-300 hover:text-white transition"
+          >
             <Search size={20} />
           </button>
-
           <button
             onClick={() => navigate(user ? "/cart" : "/login")}
             className="relative"
@@ -297,6 +298,7 @@ export function BlogDetail() {
           </button>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
@@ -441,12 +443,12 @@ export default function Blog() {
           </Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
-          {/* SEARCH BUTTON */}
-          <button onClick={() => setSearchOpen(true)}
-            className="text-gray-300 hover:text-white transition">
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="text-gray-300 hover:text-white transition"
+          >
             <Search size={20} />
           </button>
-
           <button
             onClick={() => navigate(user ? "/cart" : "/login")}
             className="relative"
@@ -539,47 +541,86 @@ export default function Blog() {
         </div>
       </nav>
 
+      {/* ── Main content ── */}
       <div className="pt-24 pb-16 px-8 max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold">Bài viết nổi bật</h1>
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30"
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm bài viết..."
-              className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm outline-none focus:border-orange-500/50 transition w-52"
-            />
-          </div>
+
+        {/* SEARCH BAR — full width, prominent */}
+        <div className="relative mb-6">
+          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm kiếm bài viết theo tiêu đề..."
+            className="w-full bg-white/[0.04] border border-white/10 rounded-2xl pl-11 pr-10 py-3 text-sm outline-none
+              focus:border-orange-500/50 focus:bg-white/[0.06] transition placeholder-white/20"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center gap-0 mb-8 border-b border-white/8">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveTab(cat)}
-              className={`px-5 py-2.5 text-sm transition border-b-2 -mb-px ${
-                activeTab === cat
-                  ? "text-orange-400 border-orange-500"
-                  : "text-white/40 hover:text-white/70 border-transparent"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+        {/* TABS — hidden while searching */}
+        {!search && (
+          <div className="flex items-center gap-0 mb-8 border-b border-white/8">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveTab(cat)}
+                className={`px-5 py-2.5 text-sm transition border-b-2 -mb-px ${
+                  activeTab === cat
+                    ? "text-orange-400 border-orange-500"
+                    : "text-white/40 hover:text-white/70 border-transparent"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
 
         {loading ? (
           <div className="text-center py-20 text-white/20">Đang tải...</div>
+
+        ) : search ? (
+          /* ── KẾT QUẢ TÌM KIẾM ── */
+          <div>
+            <p className="text-sm text-white/30 mb-5">
+              {filtered.length === 0
+                ? <>Không tìm thấy bài viết nào cho <span className="text-orange-400">"{search}"</span></>
+                : <>{filtered.length} kết quả cho <span className="text-orange-400">"{search}"</span></>}
+            </p>
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center py-20 gap-3 text-white/15">
+                <Search size={48} strokeWidth={1} />
+                <p className="text-sm">Thử từ khóa khác</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {filtered.map((post) => (
+                  <SearchResultRow
+                    key={post.id}
+                    post={post}
+                    query={search}
+                    onClick={() => navigate(`/blog/${post.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
         ) : filtered.length === 0 ? (
           <div className="text-center py-20 text-white/20">
             Không có bài viết nào
           </div>
         ) : (
+          /* ── LAYOUT BÀI VIẾT BÌNH THƯỜNG ── */
           <div className="flex flex-col gap-8">
+            <h1 className="text-2xl font-bold -mb-2">Bài viết nổi bật</h1>
             {featured && (
               <div
                 onClick={() => navigate(`/blog/${featured.id}`)}
@@ -672,8 +713,56 @@ export default function Blog() {
             </div>
           </div>
         )}
-        <Footer />
+      </div>
+      <Footer />
     </div>
+  );
+}
+
+// ── Highlight từ khóa trong tiêu đề ─────────────────────────
+function HighlightText({ text, query }) {
+  if (!query) return <span>{text}</span>;
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <span>
+      {parts.map((part, i) =>
+        regex.test(part)
+          ? <mark key={i} className="bg-orange-500/30 text-orange-300 rounded px-0.5 not-italic">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </span>
+  );
+}
+
+// ── Row hiển thị trong kết quả tìm kiếm ─────────────────────
+function SearchResultRow({ post, query, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      className="cursor-pointer flex items-center gap-4 p-4 rounded-2xl border border-white/5
+        hover:border-orange-500/25 hover:bg-white/[0.02] transition group"
+      style={{ background: "#161616" }}
+    >
+      <div className="w-20 h-14 shrink-0 rounded-xl overflow-hidden bg-[#1e1e1e] flex items-center justify-center">
+        {post.thumbnail
+          ? <img src={post.thumbnail} alt={post.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          : <Tag size={18} className="text-white/10" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400/80">
+            {post.category}
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-white/25">
+            <Clock size={9} /> {timeAgo(post.created_at)}
+          </span>
+        </div>
+        <h3 className="text-sm font-medium text-white/85 leading-snug group-hover:text-orange-400 transition line-clamp-2">
+          <HighlightText text={post.title} query={query} />
+        </h3>
+      </div>
+      <ChevronRight size={14} className="shrink-0 text-white/20 group-hover:text-orange-400 transition" />
     </div>
   );
 }
