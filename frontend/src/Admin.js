@@ -746,6 +746,7 @@ export default function Admin() {
   const { toasts, removeToast, toast }    = useToast();
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmModal, setConfirmModal]   = useState(null);
   const [saving, setSaving]               = useState(false);
   const [errors, setErrors]               = useState({});
 
@@ -1008,28 +1009,30 @@ const handleSaveEditVariant = async (variantId, productId) => {
   }
 };
 
-const handleDeleteVariant = async (variantId, productId) => {
-  if (!window.confirm("Xóa biến thể này?")) return;
-  const r = await fetch(`${API}/api/product/delete-variant/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ variant_id: variantId })
-  });
-  const d = await r.json();
-  if (r.ok) {
-    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-    loadProducts();
-  } else toast.error(d.message);
+const handleDeleteVariant = (variantId, productId) => {
+  setConfirmModal({ message: "Xóa biến thể này?", onConfirm: async () => {
+    const r = await fetch(`${API}/api/product/delete-variant/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ variant_id: variantId })
+    });
+    const d = await r.json();
+    if (r.ok) {
+      setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+      loadProducts();
+    } else toast.error(d.message);
+  }});
 };
 
-const handleDeleteProductImage = async (imageId, productId) => {
-  if (!window.confirm("Xóa ảnh này?")) return;
-  const r = await fetch(`${API}/api/product/delete-image/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_id: imageId })
-  });
-  if (r.ok) {
-    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-  } else { const d = await r.json(); toast.error(d.message); }
+const handleDeleteProductImage = (imageId, productId) => {
+  setConfirmModal({ message: "Xóa ảnh này?", onConfirm: async () => {
+    const r = await fetch(`${API}/api/product/delete-image/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_id: imageId })
+    });
+    if (r.ok) {
+      setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+    } else { const d = await r.json(); toast.error(d.message); }
+  }});
 };
 
 const handleSetPrimaryImage = async (imageId, productId) => {
@@ -1042,14 +1045,15 @@ const handleSetPrimaryImage = async (imageId, productId) => {
   }
 };
 
-const handleDeleteProduct = async (productId) => {
-  if (!window.confirm("Xóa sản phẩm này? Hành động không thể hoàn tác.")) return;
-  const r = await fetch(`${API}/api/product/delete/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ product_id: productId })
-  });
-  if (r.ok) { loadProducts(); setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; }); }
-  else { const d = await r.json(); toast.error(d.message); }
+const handleDeleteProduct = (productId) => {
+  setConfirmModal({ message: "Xóa sản phẩm này? Hành động không thể hoàn tác.", onConfirm: async () => {
+    const r = await fetch(`${API}/api/product/delete/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product_id: productId })
+    });
+    if (r.ok) { loadProducts(); setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; }); toast.success("Đã xóa sản phẩm!"); }
+    else { const d = await r.json(); toast.error(d.message); }
+  }});
 };
 
   const handleSaveVoucher = async()=>{
@@ -1067,8 +1071,8 @@ const handleDeleteProduct = async (productId) => {
   const deactivateVoucher = async(id)=>{ const r=await fetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); if(r.ok)loadVouchers(); };
 
   const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleCancelOrder = async(orderId)=>{ if(!window.confirm("Hủy đơn hàng này?"))return; setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await fetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.error(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
+  const handleCancelOrder = (orderId) => { setConfirmModal({ message: "Hủy đơn hàng này?", onConfirm: async () => { setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} } }); };
+  const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await fetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.success(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
 
   const loadImportVariants = async(pid)=>{ if(!pid)return; setImportLoading(true); try{ const r=await fetch(`${API}/api/product/${pid}/variants/`); const d=await r.json(); if(r.ok){setImportVariants(d.variants||[]);setImportQty({});} }finally{setImportLoading(false);} };
   const handleImport = async()=>{ const entries=Object.entries(importQty).filter(([,q])=>parseInt(q)>0); if(entries.length===0){toast.error("Chưa nhập số lượng");return;} setImportSaving(true); try{ const r=await fetch(`${API}/api/product/import/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:entries.map(([vid,qty])=>({variant_id:parseInt(vid),quantity:parseInt(qty)}))})}); const d=await r.json(); if(r.ok){toast.success("Nhập hàng thành công!");loadImportVariants(importProductId);}else toast.error(d.message); }finally{setImportSaving(false);} };
@@ -1083,7 +1087,7 @@ const handleDeleteProduct = async (productId) => {
   const changeRole = async(staffId,newRole)=>{ try{const r=await fetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})});if(r.ok)loadStaff();}catch{toast.error("Lỗi cập nhật quyền");} };
 
   const savePost = async()=>{ if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;} setPostSaving(true); try{ const fd=new FormData(); fd.append("title",postForm.title); fd.append("category",postForm.category); fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin"); fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r))); Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); if(editingPost)fd.append("post_id",editingPost.id); const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`; const r=await fetch(url,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);} };
-  const deletePost = async(postId)=>{ if(!window.confirm("Xóa bài viết này?"))return; const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();toast.error(d.message);} };
+  const deletePost = (postId) => { setConfirmModal({ message: "Xóa bài viết này?", onConfirm: async () => { const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();toast.error(d.message);} } }); };
 
   const loadProductContent = async(pid)=>{ if(!pid)return; setPcLoaded(false); try{const r=await fetch(`${API}/api/product/${pid}/content/`);const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);} };
   const saveProductContent = async()=>{ if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await fetch(`${API}/api/product/content/save/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok)toast.success(d.message); else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);} };
@@ -1149,6 +1153,18 @@ const handleDeleteProduct = async (productId) => {
           color: #ffffff;
         }
       `}</style>
+      {confirmModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {confirmLogout && (
@@ -1227,7 +1243,7 @@ const handleDeleteProduct = async (productId) => {
                     <PwInput placeholder="Mật khẩu mới" value={passForm.newPass} show={showPass.newPass} onToggle={()=>setShowPass(p=>({...p,newPass:!p.newPass}))} onChange={v=>setPassForm(p=>({...p,newPass:v}))} error={errors.newPass}/>
                     <PwInput placeholder="Nhập lại mật khẩu mới" value={passForm.confirm} show={showPass.confirm} onToggle={()=>setShowPass(p=>({...p,confirm:!p.confirm}))} onChange={v=>setPassForm(p=>({...p,confirm:v}))} error={errors.confirm}/>
                     <div className="flex gap-2 mt-1">
-                      <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> Lưu</button>
+                      <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> Lưu</button>
                       <button onClick={()=>{setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});}} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm transition"><X size={14}/> Hủy</button>
                     </div>
                   </div>
@@ -1315,7 +1331,7 @@ const handleDeleteProduct = async (productId) => {
                             <input ref={editCatImgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files[0];if(f){setEditCatImage(f);setEditCatPreview(URL.createObjectURL(f));}}}/>
                             <input value={editCatName} onChange={e=>setEditCatName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50"/>
                             <div className="flex gap-2">
-                              <button onClick={()=>handleSaveCatEdit(cat.id)} disabled={catSaving} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-xs font-medium transition disabled:opacity-50"><Check size={12}/> Lưu</button>
+                              <button onClick={()=>handleSaveCatEdit(cat.id)} disabled={catSaving} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-xs font-medium transition disabled:opacity-50"><Check size={12}/> Lưu</button>
                               <button onClick={()=>{setEditCatId(null);setEditCatImage(null);setEditCatPreview("");}} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs transition"><X size={12}/> Hủy</button>
                             </div>
                           </div>
@@ -1734,7 +1750,7 @@ const handleDeleteProduct = async (productId) => {
                         <p className="text-xs text-orange-400 font-medium mb-3">Cập nhật trạng thái đơn hàng</p>
                         <input placeholder="Ghi chú cho khách hàng (tùy chọn)" value={statusNote} onChange={e=>setStatusNote(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition mb-3"/>
                         <div className="flex gap-2">
-                          <button onClick={()=>handleUpdateOrderStatus(orderDetail.id,ORDER_STATUS_MAP[orderDetail.status].next)} disabled={updatingOrder===orderDetail.id} className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">{updatingOrder===orderDetail.id?"Đang cập nhật...":ORDER_STATUS_MAP[orderDetail.status].nextLabel}</button>
+                          <button onClick={()=>handleUpdateOrderStatus(orderDetail.id,ORDER_STATUS_MAP[orderDetail.status].next)} disabled={updatingOrder===orderDetail.id} className="flex-1 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">{updatingOrder===orderDetail.id?"Đang cập nhật...":ORDER_STATUS_MAP[orderDetail.status].nextLabel}</button>
                           {orderDetail.status==="Pending"&&<button onClick={()=>handleCancelOrder(orderDetail.id)} className="px-4 py-2 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 text-sm transition">Hủy đơn</button>}
                         </div>
                       </div>
@@ -1856,7 +1872,7 @@ const handleDeleteProduct = async (productId) => {
                     <div className="flex items-center gap-2"><span className="text-xs text-white/40 shrink-0">Danh mục:</span><div className="flex gap-2 flex-wrap">{POST_CATEGORIES.map(cat=><button key={cat} onClick={()=>setPostForm(p=>({...p,category:cat}))} className="px-3 py-1 rounded-full text-xs transition" style={{background:postForm.category===cat?"rgba(255,149,0,0.2)":"rgba(255,255,255,0.05)",color:postForm.category===cat?"#ff9500":"rgba(255,255,255,0.4)",border:postForm.category===cat?"1px solid rgba(255,149,0,0.4)":"1px solid rgba(255,255,255,0.08)"}}>{cat}</button>)}</div></div>
                     <div><p className="text-xs text-white/30 mb-3">Nội dung bài viết (Block Editor)</p><Blockeditor blocks={postForm.blocks} onChange={blocks=>setPostForm(p=>({...p,blocks}))} mediaFiles={postForm.mediaFiles} onMediaChange={mediaFiles=>setPostForm(p=>({...p,mediaFiles}))}/></div>
                   </div>
-                  <button onClick={savePost} disabled={postSaving} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">{postSaving?"Đang lưu...":editingPost?"Cập nhật bài viết":"Đăng bài viết"}</button>
+                  <button onClick={savePost} disabled={postSaving} className={`py-3 rounded-xl disabled:opacity-50 font-semibold text-sm transition ${editingPost ? "bg-blue-500 hover:bg-blue-600" : "bg-orange-500 hover:bg-orange-600"}`}>{postSaving?"Đang lưu...":editingPost?"Cập nhật bài viết":"Đăng bài viết"}</button>
                 </div>
               ):(
                 <>
@@ -1896,7 +1912,7 @@ const handleDeleteProduct = async (productId) => {
               {pcProductId&&pcLoaded&&(
                 <>
                   <div className="bg-[#161616] border border-white/5 rounded-2xl p-5"><p className="text-xs text-white/40 mb-4 uppercase tracking-wider">Nội dung mô tả (Block Editor)</p><Blockeditor blocks={pcBlocks} onChange={setPcBlocks} mediaFiles={pcMediaFiles} onMediaChange={setPcMediaFiles}/></div>
-                  <button onClick={saveProductContent} disabled={pcSaving} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">{pcSaving?"Đang lưu...":"Lưu mô tả sản phẩm"}</button>
+                  <button onClick={saveProductContent} disabled={pcSaving} className="py-3 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-50 font-semibold text-sm transition">{pcSaving?"Đang lưu...":"Lưu mô tả sản phẩm"}</button>
                 </>
               )}
               {pcProductId&&!pcLoaded&&<div className="text-center py-10 text-white/20 text-sm">Đang tải nội dung...</div>}

@@ -1077,11 +1077,99 @@ export default function CartPage() {
   );
 }
 // ── Featured Products Section for Cart ─────────────────────────
+function FeaturedCard({ p, variants, dv, comboLabel, colors, basePrice, finalPrice, hasDisc, bestVoucher, navigate }) {
+  const { addItem } = useCart();
+  const [cartAnim, setCartAnim] = useState(false);
+  const handleAddToCart = (e) => {
+    e.stopPropagation();
+    if (!dv) return;
+    addItem(p, dv, 1);
+    setCartAnim(true);
+    setTimeout(() => setCartAnim(false), 600);
+  };
+  return (
+    <article
+      key={p.id}
+      onClick={() => navigate(`/product/${p.id}`)}
+      className="flex flex-col rounded-2xl overflow-hidden transition-all duration-300
+        hover:-translate-y-0.5 cursor-pointer
+        bg-[#00000001] backdrop-blur-[2px]
+        shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+        hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]"
+    >
+      <div className="w-full h-28 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">
+        {(dv?.image || p.image)
+          ? <img src={dv?.image || p.image} alt={p.name} className="w-full h-full object-contain p-2" />
+          : <Package size={24} className="text-white/10" />}
+        {hasDisc && bestVoucher && (
+          <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
+            {bestVoucher.type === "percent" ? `-${bestVoucher.value}%` : `-${(basePrice - finalPrice).toLocaleString("vi-VN")}đ`}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5 p-2.5">
+        <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">
+          {p.name}
+        </h3>
+        {comboLabel && (
+          <span className="inline-block px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9px] font-semibold text-white/50 w-fit">
+            {comboLabel}
+          </span>
+        )}
+        {colors.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {colors.map(col => {
+              const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
+              return (
+                <span key={col} title={!hasStock ? `${col} - Hết hàng` : col}
+                  className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
+                    ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through" : "bg-white/5 border-white/10 text-white/50"}`}>
+                  {col}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex items-end justify-between mt-auto pt-1 gap-1">
+          <div className="min-w-0">
+            {hasDisc && (
+              <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">
+                {basePrice.toLocaleString("vi-VN")}đ
+              </p>
+            )}
+            <p className="font-bold text-sm leading-tight truncate text-[#ff3b30]">
+              {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={handleAddToCart}
+              title="Thêm vào giỏ hàng"
+              className={`w-7 h-7 rounded-full flex items-center justify-center border border-[#ff9500] text-white transition
+                ${cartAnim ? "bg-orange-500 scale-110" : "bg-[rgba(255,149,0,0.75)] hover:bg-[rgba(255,149,0,1)]"}`}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+              </svg>
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
+              className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium
+                bg-[rgba(255,149,0,0.75)] border border-[#ff9500] hover:bg-[rgba(255,149,0,1)] transition">
+              Mua
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function FeaturedProductsSection({ navigate }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [voucherList, setVoucherList] = useState([]);
-  const { voucher: cartVoucher } = useCart();
+  const { voucher: cartVoucher, addItem } = useCart();
 
   useEffect(() => {
     setLoading(true);
@@ -1130,13 +1218,13 @@ function FeaturedProductsSection({ navigate }) {
       <div className="grid grid-cols-4 gap-4">
         {products.slice(0, 8).map(p => {
           const variants = p.variants || [];
+          const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
           const dv = variants.length > 0
             ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
             : null;
           const basePrice = dv ? parseFloat(dv.price) : parseFloat(p.min_price || 0);
           const comboLabel = dv ? [dv.ram, dv.storage].filter(Boolean).join(" · ") : null;
 
-          // calc best voucher discount
           let finalPrice = basePrice;
           let bestVoucher = null;
           if (dv && basePrice) {
@@ -1186,7 +1274,36 @@ function FeaturedProductsSection({ navigate }) {
                     {comboLabel}
                   </span>
                 )}
-                <div className="flex items-center justify-between mt-auto pt-1 gap-1">
+                {colors.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {colors.map(col => {
+                      const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
+                      return (
+                        <span key={col} title={!hasStock ? `${col} - Hết hàng` : col}
+                          className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
+                            ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through" : "bg-white/5 border-white/10 text-white/50"}`}>
+                          {col}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Rating — chiều cao cố định */}
+                <div className="h-5 flex items-center">
+                  {p.rating_avg > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      {[1,2,3,4,5].map(n => (
+                        <svg key={n} width="9" height="9" viewBox="0 0 24 24"
+                          fill={n <= Math.round(p.rating_avg) ? "#f59e0b" : "none"}
+                          stroke="#f59e0b" strokeWidth="2">
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                      ))}
+                      <span className="text-[9px] text-white/30 ml-0.5">({p.rating_count})</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-end justify-between mt-auto pt-1 gap-1">
                   <div className="min-w-0">
                     {hasDisc && (
                       <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">
@@ -1197,12 +1314,17 @@ function FeaturedProductsSection({ navigate }) {
                       {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
                     </p>
                   </div>
-                  <button
-                    onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
-                    className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium
-                      bg-[rgba(255,149,0,0.75)] border border-[#ff9500] hover:bg-[rgba(255,149,0,1)] transition">
-                    Mua
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={e => { e.stopPropagation(); if (dv) { addItem(p, dv, 1); } }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                      </svg>
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center">
+                      Mua
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>

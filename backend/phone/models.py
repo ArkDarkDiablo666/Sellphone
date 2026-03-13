@@ -100,7 +100,7 @@ class ProductVariant(models.Model):
     Cpu              = models.CharField(max_length=100, blank=True, null=True)
     OperatingSystem  = models.CharField(max_length=50, blank=True, null=True)
     ScreenSize       = models.CharField(max_length=50, blank=True, null=True)
-    ScreenTechnology = models.CharField(max_length=50, blank=True, null=True)
+    ScreenTechnology = models.CharField(max_length=200, blank=True, null=True)
     RefreshRate      = models.CharField(max_length=50, blank=True, null=True)
     Battery          = models.CharField(max_length=50, blank=True, null=True)
     ChargingSpeed    = models.CharField(max_length=50, blank=True, null=True)

@@ -87,6 +87,7 @@ export default function Product() {
   const [searchQ,          setSearchQ]          = useState("");
   const [filtered,         setFiltered]         = useState([]);
   const [showVoucherPanel, setShowVoucherPanel] = useState(false);
+  const [sortBy, setSortBy] = useState("default"); // default|price_asc|price_desc|name_asc|name_desc|rating_asc|rating_desc|sold_asc|sold_desc
 
   const toggleItem = (setter, val) => setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
 
@@ -116,8 +117,25 @@ export default function Product() {
       fetch(`${API}/api/product/list/`).then(r => r.json()),
       fetch(`${API}/api/category/list/`).then(r => r.json()),
     ]).then(([prodData, catData]) => {
-      setProducts(prodData.products || prodData || []);
+      const prods = prodData.products || prodData || [];
+      setProducts(prods);
       setCategories(catData.categories || catData || []);
+      // fetch rating stats for all products in background
+      Promise.all(
+        prods.map(p =>
+          fetch(`${API}/api/review/list/?product_id=${p.id}`)
+            .then(r => r.json())
+            .then(d => ({ id: p.id, avg: d.stats?.average || 0, count: d.stats?.total || 0 }))
+            .catch(() => ({ id: p.id, avg: 0, count: 0 }))
+        )
+      ).then(stats => {
+        const map = Object.fromEntries(stats.map(s => [s.id, s]));
+        setProducts(prev => prev.map(p => ({
+          ...p,
+          rating_avg: map[p.id]?.avg || 0,
+          rating_count: map[p.id]?.count || 0,
+        })));
+      });
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
@@ -154,11 +172,32 @@ export default function Product() {
         });
       }
     }
+    // ── Sort ──
+    if (sortBy === "price_asc") {
+      result.sort((a, b) => {
+        const ap = parseFloat(a.min_price || 0), bp = parseFloat(b.min_price || 0);
+        return ap - bp;
+      });
+    } else if (sortBy === "price_desc") {
+      result.sort((a, b) => parseFloat(b.min_price || 0) - parseFloat(a.min_price || 0));
+    } else if (sortBy === "name_asc") {
+      result.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
+    } else if (sortBy === "name_desc") {
+      result.sort((a, b) => (b.name || "").localeCompare(a.name || "", "vi"));
+    } else if (sortBy === "rating_asc") {
+      result.sort((a, b) => (a.rating_avg || 0) - (b.rating_avg || 0));
+    } else if (sortBy === "rating_desc") {
+      result.sort((a, b) => (b.rating_avg || 0) - (a.rating_avg || 0));
+    } else if (sortBy === "sold_asc") {
+      result.sort((a, b) => (a.sold_count || 0) - (b.sold_count || 0));
+    } else if (sortBy === "sold_desc") {
+      result.sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0));
+    }
     setFiltered(result);
-  }, [products, searchQ, selectedCats, selectedRams, selectedStorages, selectedPrices, voucherList, cartVoucher]);
+  }, [products, searchQ, selectedCats, selectedRams, selectedStorages, selectedPrices, voucherList, cartVoucher, sortBy]);
 
   const activeCount = selectedCats.length + selectedPrices.length + selectedRams.length + selectedStorages.length;
-  const clearAll = () => { setSelectedCats([]); setSelectedPrices([]); setSelectedRams([]); setSelectedStorages([]); setSearchQ(""); };
+  const clearAll = () => { setSelectedCats([]); setSelectedPrices([]); setSelectedRams([]); setSelectedStorages([]); setSearchQ(""); setSortBy("default"); };
 
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
@@ -363,6 +402,40 @@ export default function Product() {
 
         {/* PRODUCT GRID */}
         <div className="flex-1 min-w-0">
+
+          {/* ── SORT BAR ── */}
+          {!loading && filtered.length > 0 && (
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <span className="text-[11px] text-white/30 shrink-0">Sắp xếp:</span>
+              {[
+                { key: "price",  label: "Giá",      asc: "price_asc",   desc: "price_desc"  },
+                { key: "rating", label: "Sao",      asc: "rating_asc",  desc: "rating_desc" },
+                { key: "name",   label: "Tên",      asc: "name_asc",    desc: "name_desc"   },
+              ].map(opt => {
+                const isAsc  = sortBy === opt.asc;
+                const isDesc = sortBy === opt.desc;
+                const active = isAsc || isDesc;
+                const handleClick = () => {
+                  if (!active)   setSortBy(opt.asc);
+                  else if (isAsc) setSortBy(opt.desc);
+                  else           setSortBy("default");
+                };
+                return (
+                  <button key={opt.key} onClick={handleClick}
+                    className={`w-24 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium border transition select-none
+                      ${active
+                        ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
+                        : "bg-white/[0.04] border-white/10 text-white/40 hover:border-white/25 hover:text-white/70"}`}>
+                    {opt.label}
+                    <span className="text-[10px] w-3 text-center">
+                      {isAsc ? "↑" : isDesc ? "↓" : "⇅"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {loading ? (
             <div className="flex justify-center py-24">
               <div className="w-8 h-8 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
@@ -455,6 +528,17 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
     navigate(`/product/${p.id}${params.toString() ? "?" + params.toString() : ""}`);
   };
 
+  const { addItem } = useCart();
+  const [cartAnim, setCartAnim] = useState(false);
+  const handleAddToCart = (e) => {
+    e.stopPropagation();
+    const target = displayVariant || variants[0];
+    if (!target) return;
+    addItem(p, target, 1);
+    setCartAnim(true);
+    setTimeout(() => setCartAnim(false), 600);
+  };
+
   const displayImage = displayVariant?.image || p.image || null;
 
   return (
@@ -509,17 +593,39 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
             </span>
           </div>
         )}
-        <div className="flex items-center justify-between mt-auto pt-1 gap-1">
+        {/* Rating — chiều cao cố định */}
+        <div className="h-5 flex items-center">
+          {p.rating_avg > 0 && (
+            <div className="flex items-center gap-0.5">
+              {[1,2,3,4,5].map(n => (
+                <svg key={n} width="9" height="9" viewBox="0 0 24 24"
+                  fill={n <= Math.round(p.rating_avg) ? "#f59e0b" : "none"}
+                  stroke="#f59e0b" strokeWidth="2">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              ))}
+              <span className="text-[9px] text-white/30 ml-0.5">({p.rating_count})</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-end justify-between mt-auto pt-1 gap-1">
           <div className="min-w-0">
             {hasDisc && <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">{basePrice.toLocaleString("vi-VN")}đ</p>}
             <p className="font-bold text-sm leading-tight truncate text-[#ff3b30]">
               {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
             </p>
           </div>
-          <button onClick={handleBuy}
-            className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium bg-[rgba(255,149,0,0.75)] border border-[#ff9500] hover:bg-[rgba(255,149,0,1)] transition">
-            Mua
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={handleAddToCart} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+              </svg>
+            </button>
+            <button onClick={handleBuy} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center">
+              Mua
+            </button>
+          </div>
         </div>
       </div>
     </article>

@@ -50,11 +50,32 @@ function getBestHome(variant, productId, categoryId, voucherList, cartVoucher) {
 
 // ── Product card — giống hệt Product.jsx ─────────────────────
 function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
-  // pick cheapest variant for display
   const variants = product.variants || [];
-  const displayVariant = variants.length > 0
-    ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
-    : null;
+  const [activeColor, setActiveColor] = useState(null);
+  const { addItem } = useCart();
+  const [cartAnim, setCartAnim] = useState(false);
+
+  const handleAddToCart = (e) => {
+    e.stopPropagation();
+    const target = activeColor
+      ? variants.find(v => v.color === activeColor)
+      : variants.length > 0 ? [...variants].sort((a, b) => parseFloat(a.price||0) - parseFloat(b.price||0))[0] : null;
+    if (!target) return;
+    addItem(product, target, 1);
+    setCartAnim(true);
+    setTimeout(() => setCartAnim(false), 600);
+  };
+
+  // unique colors
+  const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
+
+  // pick display variant based on active color or cheapest
+  const displayVariant = (() => {
+    if (activeColor) return variants.find(v => v.color === activeColor) || null;
+    return variants.length > 0
+      ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
+      : null;
+  })();
 
   const basePrice = displayVariant ? parseFloat(displayVariant.price) : parseFloat(product.min_price || 0);
   const { finalPrice, voucher: bestVoucher } = displayVariant
@@ -106,18 +127,41 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
           </span>
         )}
 
-        {product.rating_avg > 0 && (
-          <div className="flex items-center gap-0.5">
-            {[1,2,3,4,5].map(n => (
-              <svg key={n} width="9" height="9" viewBox="0 0 24 24"
-                fill={n <= Math.round(product.rating_avg) ? "#f59e0b" : "none"}
-                stroke="#f59e0b" strokeWidth="2">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-            ))}
-            <span className="text-[9px] text-white/30 ml-0.5">({product.rating_count})</span>
+        {colors.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {colors.map(col => {
+              const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
+              const isActive = activeColor === col;
+              return (
+                <button key={col}
+                  onClick={e => { e.stopPropagation(); if (hasStock) setActiveColor(prev => prev === col ? null : col); }}
+                  disabled={!hasStock} title={!hasStock ? `${col} - Hết hàng` : col}
+                  className={`px-1.5 py-0.5 rounded text-[9px] border transition font-medium
+                    ${isActive ? "bg-white text-black border-white"
+                      : !hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through cursor-not-allowed"
+                      : "bg-white/5 border-white/10 text-white/50 hover:border-white/40 hover:text-white"}`}>
+                  {col}
+                </button>
+              );
+            })}
           </div>
         )}
+
+        {/* Rating — luôn chiếm chiều cao cố định để nút Mua thẳng hàng */}
+        <div className="h-5 flex items-center">
+          {product.rating_avg > 0 && (
+            <div className="flex items-center gap-0.5">
+              {[1,2,3,4,5].map(n => (
+                <svg key={n} width="9" height="9" viewBox="0 0 24 24"
+                  fill={n <= Math.round(product.rating_avg) ? "#f59e0b" : "none"}
+                  stroke="#f59e0b" strokeWidth="2">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              ))}
+              <span className="text-[9px] text-white/30 ml-0.5">({product.rating_count})</span>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center justify-between mt-auto pt-1 gap-1">
           <div className="min-w-0">
@@ -130,13 +174,17 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
               {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
             </p>
           </div>
-          <button
-            onClick={e => { e.stopPropagation(); onClick(); }}
-            className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium
-              bg-[rgba(255,149,0,0.75)] border border-[#ff9500]
-              hover:bg-[rgba(255,149,0,1)] transition">
-            Mua
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={handleAddToCart} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+              </svg>
+            </button>
+            <button onClick={e => { e.stopPropagation(); onClick(); }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center">
+              Mua
+            </button>
+          </div>
         </div>
       </div>
     </article>

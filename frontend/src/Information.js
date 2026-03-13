@@ -6,6 +6,7 @@ import { Search, ShoppingCart, User, ShoppingBag, Settings, Pencil, X, Check, Ey
 import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
+import { useToast, ToastContainer } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -13,6 +14,7 @@ export default function Information() {
   const navigate  = useNavigate();
   const userLocal = JSON.parse(localStorage.getItem("user") || "{}");
   const { totalCount } = useCart();
+  const { toast, toasts, removeToast } = useToast();
 
   const [customer, setCustomer]   = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -167,6 +169,7 @@ export default function Information() {
 
   return (
     <div className="relative min-h-screen text-white overflow-hidden bg-[#0f0f0f]">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* HỘP THOẠI XÁC NHẬN ĐĂNG XUẤT */}
       {confirmLogout && (
@@ -200,11 +203,9 @@ export default function Information() {
             <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
           </div>
           <div className="flex gap-5 items-center text-gray-300">
-            {/* SEARCH BUTTON */}
             <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
               <Search size={20} />
             </button>
-
             <button onClick={() => navigate(userLocal.id ? "/cart" : "/login")} className="relative">
               <ShoppingCart className="hover:text-white transition" size={22} />
               {totalCount > 0 && (
@@ -383,7 +384,9 @@ export default function Information() {
       <Footer />
     </div>
   );
-}function Section({ title, children }) {
+}
+
+function Section({ title, children }) {
   return (
     <div className="bg-black/30 rounded-2xl border border-white/5 overflow-hidden backdrop-blur-sm">
       <div className="px-6 py-4 border-b border-white/5"><h3 className="font-semibold text-sm">{title}</h3></div>
