@@ -50,6 +50,7 @@ function getBestHome(variant, productId, categoryId, voucherList, cartVoucher) {
 
 // ── Product card — giống hệt Product.jsx ─────────────────────
 function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
+  const navigate = useNavigate();
   const variants = product.variants || [];
   const [activeColor, setActiveColor] = useState(null);
   const { addItem } = useCart();
@@ -174,14 +175,14 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
               {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
             </p>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={handleAddToCart} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition">
+          <div className="flex items-center gap-1 shrink-0 mt-auto">
+            <button onClick={handleAddToCart} className="shrink-0 h-7 w-14 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition focus:outline-none">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
                 <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
               </svg>
             </button>
-            <button onClick={e => { e.stopPropagation(); onClick(); }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center">
+            <button onClick={e => { e.stopPropagation(); navigate(`/product/${product.id}`); }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center focus:outline-none">
               Mua
             </button>
           </div>
@@ -340,7 +341,7 @@ export default function Home() {
                 Hủy
               </button>
               <button onClick={handleLogout}
-                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">
+                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition focus:outline-none">
                 Đăng xuất
               </button>
             </div>
@@ -361,10 +362,10 @@ export default function Home() {
         </div>
 
         <div className="flex gap-5 items-center text-gray-300">
-          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
+          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
             <Search size={20} />
           </button>
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
+          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative focus:outline-none">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">

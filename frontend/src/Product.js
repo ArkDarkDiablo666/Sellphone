@@ -447,7 +447,7 @@ export default function Product() {
               {activeCount > 0 && <button onClick={clearAll} className="text-orange-400 text-xs hover:underline">Xóa bộ lọc</button>}
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
               {filtered.flatMap(p => {
                 const variants = p.variants || [];
                 const comboMap = {};
@@ -542,13 +542,11 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
   const displayImage = displayVariant?.image || p.image || null;
 
   return (
-    <article className="flex flex-col rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-0.5 cursor-pointer
+    <article onClick={() => navigate(`/product/${p.id}`)} className="flex flex-col h-full rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-0.5 cursor-pointer
       bg-[#00000001] backdrop-blur-[2px]
       shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
       hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]">
-      <div className="w-full h-32 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden"
-        onClick={() => navigate(`/product/${p.id}`)}>
-        {displayImage
+      <div className="w-full h-32 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">        {displayImage
           ? <img key={displayImage} src={displayImage} alt={p.name} className="w-full h-full object-contain p-2" />
           : <Package size={24} className="text-white/10" />}
         {hasDisc && bestVoucher && (
@@ -557,7 +555,7 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
           </div>
         )}
       </div>
-      <div className="flex flex-col gap-1.5 p-2.5">
+      <div className="flex flex-col gap-1.5 p-2.5 flex-1">
         <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition"
           onClick={() => navigate(`/product/${p.id}`)}>
           {p.name}
@@ -571,15 +569,13 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
           <div className="flex flex-wrap gap-1">
             {colorsOfCombo.map(col => {
               const hasStock = variants.some(v => v.color === col && (!comboKey || `${v.ram || ""}|${v.storage || ""}` === comboKey) && (v.stock ?? 1) > 0);
-              const isActive = activeColor === col;
               return (
-                <button key={col} onClick={e => { e.stopPropagation(); handleColorClick(col); }} disabled={!hasStock} title={!hasStock ? `${col} - Hết hàng` : col}
-                  className={`px-1.5 py-0.5 rounded text-[9px] border transition font-medium
-                    ${isActive ? "bg-white text-black border-white"
-                      : !hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through cursor-not-allowed"
-                      : "bg-white/5 border-white/10 text-white/50 hover:border-white/40 hover:text-white"}`}>
+                <span key={col} title={!hasStock ? `${col} - Hết hàng` : col}
+                  className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
+                    ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through"
+                      : "bg-white/5 border-white/10 text-white/50"}`}>
                   {col}
-                </button>
+                </span>
               );
             })}
           </div>
@@ -608,21 +604,21 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
             </div>
           )}
         </div>
-        <div className="flex items-end justify-between mt-auto pt-1 gap-1">
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-end justify-between mt-auto pt-1 gap-1">
+          <div className="shrink-0">
             {hasDisc && <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">{basePrice.toLocaleString("vi-VN")}đ</p>}
-            <p className="font-bold text-sm leading-tight truncate text-[#ff3b30]">
+            <p className="font-bold text-sm leading-tight text-[#ff3b30] whitespace-nowrap">
               {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
             </p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button onClick={handleAddToCart} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition">
+            <button onClick={handleAddToCart} className="shrink-0 h-7 w-14 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition focus:outline-none">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
                 <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
               </svg>
             </button>
-            <button onClick={handleBuy} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center">
+            <button onClick={handleBuy} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center focus:outline-none">
               Mua
             </button>
           </div>

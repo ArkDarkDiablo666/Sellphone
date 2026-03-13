@@ -266,11 +266,11 @@ function CartPopup() {
           </div>
           <div className="flex items-center gap-2">
             {items.length > 0 && (
-              <button onClick={() => { setShow(false); navigate("/cart"); }} className="text-xs text-white/40 hover:text-orange-400 transition flex items-center gap-1">
+              <button onClick={() => { setShow(false); navigate("/cart"); }} className="text-xs text-white/40 hover:text-orange-400 transition flex items-center gap-1 focus:outline-none">
                 Xem chi tiết <ChevronRight size={11} />
               </button>
             )}
-            <button onClick={() => setShow(false)} className="w-7 h-7 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition"><X size={15} /></button>
+            <button onClick={() => setShow(false)} className="w-7 h-7 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition focus:outline-none"><X size={15} /></button>
           </div>
         </div>
         {items.length === 0 ? (
@@ -280,7 +280,7 @@ function CartPopup() {
               <p className="text-sm text-white/40 font-medium">Chưa có sản phẩm nào trong giỏ</p>
               <p className="text-xs text-white/20 mt-1">Khám phá ngay những bộ sưu tập mới nhất</p>
             </div>
-            <button onClick={() => { setShow(false); navigate("/product"); }} className="px-5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition">Về trang chủ</button>
+            <button onClick={() => { setShow(false); navigate("/product"); }} className="px-5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition focus:outline-none">Về trang chủ</button>
           </div>
         ) : (
           <>
@@ -312,11 +312,11 @@ function CartPopup() {
                     })()}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => updateQty(item.key, item.qty - 1)} className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition"><Minus size={10} /></button>
+                    <button onClick={() => updateQty(item.key, item.qty - 1)} className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition focus:outline-none"><Minus size={10} /></button>
                     <span className="w-5 text-center text-xs">{parseInt(item.qty) || 1}</span>
-                    <button onClick={() => updateQty(item.key, item.qty + 1)} disabled={item.qty >= item.stock} className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition disabled:opacity-30"><Plus size={10} /></button>
+                    <button onClick={() => updateQty(item.key, item.qty + 1)} disabled={item.qty >= item.stock} className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition disabled:opacity-30 focus:outline-none"><Plus size={10} /></button>
                   </div>
-                  <button onClick={() => removeItem(item.key)} className="w-6 h-6 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400 flex items-center justify-center transition shrink-0"><Trash2 size={12} /></button>
+                  <button onClick={() => removeItem(item.key)} className="w-6 h-6 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400 flex items-center justify-center transition shrink-0 focus:outline-none"><Trash2 size={12} /></button>
                 </div>
               ))}
             </div>
@@ -328,11 +328,11 @@ function CartPopup() {
                     placeholder="Nhập mã voucher..." className="bg-transparent text-xs outline-none flex-1 text-white placeholder:text-white/20" />
                   {voucher && <Check size={12} className="text-green-400 shrink-0" />}
                 </div>
-                <button onClick={applyVoucher} disabled={vLoad} className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-xs font-medium transition disabled:opacity-50">
+                <button onClick={applyVoucher} disabled={vLoad} className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-xs font-medium transition disabled:opacity-50 focus:outline-none">
                   {vLoad ? "..." : "Áp"}
                 </button>
                 {voucherList.length > 0 && (
-                  <button onClick={() => setShowVList(!showVList)} className="px-2 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-white/50 transition border border-white/10">
+                  <button onClick={() => setShowVList(!showVList)} className="px-2 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-white/50 transition border border-white/10 focus:outline-none">
                     {showVList ? "Ẩn" : `${voucherList.filter(v => v.discountAmt > 0).length} mã`}
                   </button>
                 )}
@@ -371,7 +371,7 @@ function CartPopup() {
               <div className="flex justify-between font-bold text-sm mt-2 pt-2 border-t border-white/5">
                 <span>Tổng thanh toán</span><span className="text-orange-400">{total.toLocaleString("vi-VN")}đ</span>
               </div>
-              <button onClick={() => { setShow(false); navigate("/cart"); }} className="w-full mt-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition">
+              <button onClick={() => { setShow(false); navigate("/cart"); }} className="w-full mt-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition focus:outline-none">
                 Thanh toán ({selectedItems.length} sản phẩm)
               </button>
             </div>
@@ -403,9 +403,9 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
               Mã <span className="font-mono font-bold text-orange-400">{voucher.code}</span> không áp dụng cho một số sản phẩm
             </p>
           </div>
-          <button onClick={onClose} className="ml-auto text-white/30 hover:text-white shrink-0"><X size={16} /></button>
+          <button onClick={onClose} className="ml-auto text-white/30 hover:text-white shrink-0 focus:outline-none"><X size={16} /></button>
         </div>
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-500/5 border border-orange-500/20 mb-4">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-500/5 border border-orange-500/20 mb-4 focus:outline-none">
           <BadgePercent size={16} className="text-orange-400 shrink-0" />
           <div>
             <p className="text-sm font-mono font-bold text-orange-400">{voucher.code}</p>
@@ -461,11 +461,11 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
           </div>
         )}
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition focus:outline-none">
             Chọn voucher khác
           </button>
           {applicable.length > 0 && (
-            <button onClick={onApplyAnyway} className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition text-white">
+            <button onClick={onApplyAnyway} className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition text-white focus:outline-none">
               Áp dụng cho {applicable.length} sp
             </button>
           )}
@@ -494,7 +494,7 @@ function ItemVoucherPanel({ item, voucherList, activeVoucher, onSelectVoucher, o
             </div>
             <p className="text-xs text-white/40 mt-1 truncate max-w-[260px]">{item.productName}</p>
           </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white"><X size={16} /></button>
+          <button onClick={onClose} className="text-white/30 hover:text-white focus:outline-none"><X size={16} /></button>
         </div>
         <div className="max-h-[60vh] overflow-y-auto p-4 flex flex-col gap-2">
           {applicable.length === 0 && (
@@ -744,8 +744,8 @@ export default function CartPage() {
             </div>
             <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10">Hủy</button>
-              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Đăng xuất</button>
+              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10 focus:outline-none">Hủy</button>
+              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition focus:outline-none">Đăng xuất</button>
             </div>
           </div>
         </div>
@@ -763,11 +763,11 @@ export default function CartPage() {
         </div>
         <div className="flex gap-5 items-center text-gray-300">
           {/* SEARCH BUTTON */}
-          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
+          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
             <Search size={20} />
           </button>
 
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
+          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative focus:outline-none">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
@@ -777,7 +777,7 @@ export default function CartPage() {
           </button>
           {user ? (
             <div className="relative" ref={dropdownRef}>
-              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition">
+              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition focus:outline-none">
                 {user.avatar
                   ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                   : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
@@ -794,25 +794,25 @@ export default function CartPage() {
                       <p className="text-xs text-white/40 truncate">{user.email}</p>
                     </div>
                   </div>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
+                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition focus:outline-none">
                     <Settings size={15} /> Tài khoản
                   </button>
                   <div className="h-px bg-white/5 mx-3" />
-                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition">
+                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition focus:outline-none">
                     <LogOut size={15} /> Đăng xuất
                   </button>
                 </div>
               )}
             </div>
           ) : (
-            <button onClick={() => navigate("/login")}><User className="hover:text-white transition" size={22} /></button>
+            <button onClick={() => navigate("/login")}><User className="hover:text-white transition focus:outline-none" size={22} /></button>
           )}
         </div>
       </nav>
 
       {/* PAGE CONTENT */}
       <div className="pt-20 px-8 pb-10 max-w-6xl mx-auto">
-        <button onClick={() => navigate("/product")} className="flex items-center gap-2 text-sm text-white/40 hover:text-orange-400 transition mb-4 mt-2">
+        <button onClick={() => navigate("/product")} className="flex items-center gap-2 text-sm text-white/40 hover:text-orange-400 transition mb-4 mt-2 focus:outline-none">
           <ArrowLeft size={14} /> Tiếp tục mua sắm
         </button>
         <div className="flex items-center gap-2 text-xs text-white/30 mb-6">
@@ -833,7 +833,7 @@ export default function CartPage() {
               <p className="text-white/40 font-medium">Giỏ hàng trống</p>
               <p className="text-white/20 text-sm mt-1">Bạn chưa thêm sản phẩm nào vào giỏ hàng</p>
             </div>
-            <button onClick={() => navigate("/product")} className="px-6 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition">
+            <button onClick={() => navigate("/product")} className="px-6 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition focus:outline-none">
               Khám phá sản phẩm
             </button>
           </div>
@@ -895,9 +895,9 @@ export default function CartPage() {
                         </div>
 
                         <div className="flex items-center border border-white/10 rounded-xl overflow-hidden shrink-0">
-                          <button onClick={() => updateQty(item.key, item.qty - 1)} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 transition"><Minus size={13} /></button>
+                          <button onClick={() => updateQty(item.key, item.qty - 1)} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 transition focus:outline-none"><Minus size={13} /></button>
                           <span className="w-10 text-center text-sm font-medium">{parseInt(item.qty) || 1}</span>
-                          <button onClick={() => updateQty(item.key, item.qty + 1)} disabled={item.qty >= item.stock} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 transition disabled:opacity-30"><Plus size={13} /></button>
+                          <button onClick={() => updateQty(item.key, item.qty + 1)} disabled={item.qty >= item.stock} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 transition disabled:opacity-30 focus:outline-none"><Plus size={13} /></button>
                         </div>
 
                         <div className="w-32 text-right shrink-0">
@@ -905,7 +905,7 @@ export default function CartPage() {
                           <p className="text-[#ff3b30] font-bold text-sm">{(dp * item.qty).toLocaleString("vi-VN")}đ</p>
                         </div>
 
-                        <button onClick={() => removeItem(item.key)} className="w-9 h-9 rounded-xl hover:bg-red-500/10 text-white/20 hover:text-red-400 flex items-center justify-center transition shrink-0"><Trash2 size={15} /></button>
+                        <button onClick={() => removeItem(item.key)} className="w-9 h-9 rounded-xl hover:bg-red-500/10 text-white/20 hover:text-red-400 flex items-center justify-center transition shrink-0 focus:outline-none"><Trash2 size={15} /></button>
                       </div>
 
                       {itemApplicableVouchers.length > 0 && (
@@ -971,7 +971,7 @@ export default function CartPage() {
                     <Tag size={14} className="text-orange-400" /> Voucher giảm giá
                   </p>
                   {voucherList.filter(v => v.discountAmt > 0).length > 0 && (
-                    <button onClick={() => setShowVList(!showVList)} className="text-xs text-orange-400 hover:text-orange-300 transition flex items-center gap-1">
+                    <button onClick={() => setShowVList(!showVList)} className="text-xs text-orange-400 hover:text-orange-300 transition flex items-center gap-1 focus:outline-none">
                       {showVList ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                       {showVList ? "Ẩn" : `${voucherList.filter(v => v.discountAmt > 0).length} mã khả dụng`}
                     </button>
@@ -985,7 +985,7 @@ export default function CartPage() {
                       <span className="text-green-300 text-sm font-mono font-bold tracking-widest">{voucher.code}</span>
                       <span className="text-green-400/60 text-xs ml-2">-{discount.toLocaleString("vi-VN")}đ</span>
                     </div>
-                    <button onClick={removeVoucher} className="text-white/30 hover:text-red-400 transition"><X size={13} /></button>
+                    <button onClick={removeVoucher} className="text-white/30 hover:text-red-400 transition focus:outline-none"><X size={13} /></button>
                   </div>
                 ) : (
                   <div className="flex gap-2">
@@ -995,7 +995,7 @@ export default function CartPage() {
                       placeholder="Nhập mã voucher"
                       className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition placeholder:text-white/20"
                     />
-                    <button onClick={applyVoucher} disabled={vLoad} className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
+                    <button onClick={applyVoucher} disabled={vLoad} className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50 focus:outline-none">
                       {vLoad ? "..." : "Áp"}
                     </button>
                   </div>
@@ -1062,7 +1062,7 @@ export default function CartPage() {
                 <button
                   onClick={() => { if (selectedItems.length > 0) navigate("/payment"); }}
                   disabled={selectedItems.length === 0}
-                  className="w-full mt-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition"
+                  className="w-full mt-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition focus:outline-none"
                 >
                   Xác nhận đơn ({selectedItems.length} sản phẩm)
                 </button>
@@ -1145,8 +1145,8 @@ function FeaturedCard({ p, variants, dv, comboLabel, colors, basePrice, finalPri
             <button
               onClick={handleAddToCart}
               title="Thêm vào giỏ hàng"
-              className={`w-7 h-7 rounded-full flex items-center justify-center border border-[#ff9500] text-white transition
-                ${cartAnim ? "bg-orange-500 scale-110" : "bg-[rgba(255,149,0,0.75)] hover:bg-[rgba(255,149,0,1)]"}`}>
+              className={`w-7 h-7 rounded-full flex items-center justify-center text-white transition focus:outline-none
+                ${cartAnim ? "bg-blue-600 scale-110" : "bg-blue-500 hover:bg-blue-600"}`}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
                 <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
@@ -1154,8 +1154,7 @@ function FeaturedCard({ p, variants, dv, comboLabel, colors, basePrice, finalPri
             </button>
             <button
               onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
-              className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium
-                bg-[rgba(255,149,0,0.75)] border border-[#ff9500] hover:bg-[rgba(255,149,0,1)] transition">
+              className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium bg-orange-500 hover:bg-orange-600 transition focus:outline-none">
               Mua
             </button>
           </div>
@@ -1314,14 +1313,14 @@ function FeaturedProductsSection({ navigate }) {
                       {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={e => { e.stopPropagation(); if (dv) { addItem(p, dv, 1); } }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition">
+                  <div className="flex items-center gap-1 shrink-0 mt-auto">
+                    <button onClick={e => { e.stopPropagation(); if (dv) { addItem(p, dv, 1); } }} className="shrink-0 h-7 w-14 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition focus:outline-none">
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
                         <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
                       </svg>
                     </button>
-                    <button onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center">
+                    <button onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }} className="shrink-0 h-7 w-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-medium transition flex items-center justify-center focus:outline-none">
                       Mua
                     </button>
                   </div>

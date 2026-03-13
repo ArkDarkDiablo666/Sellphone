@@ -36,6 +36,8 @@ urlpatterns = [
     path('product/update/',              views.update_product),
     path('product/update-variant/',      views.update_variant),
     path('product/add-variants/',        views.add_variants),
+    path('product/delete-image/',        views.delete_product_image),
+    path('product/set-primary-image/',   views.set_primary_image),
     path('product/<int:product_id>/variants/', views.get_product_variants),
     path('product/<int:product_id>/detail/',   views.get_product_detail),
 

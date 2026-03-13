@@ -2,7 +2,7 @@ task: classify
 mode: train
 model: F:\Sellphone\backend\media\yolo\models\phonezone_clf.pt
 data: F:\Sellphone\backend\media\yolo\dataset
-epochs: 30
+epochs: 10
 time: null
 patience: 5
 batch: 8

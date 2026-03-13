@@ -762,7 +762,15 @@ def delete_product_image(request):
     if not image_id: return Response({"message": "Thiếu image_id"}, status=status.HTTP_400_BAD_REQUEST)
     img = ProductImage.objects.filter(ImageID=image_id).first()
     if not img: return Response({"message": "Không tìm thấy ảnh"}, status=status.HTTP_404_NOT_FOUND)
+    product = img.ProductID
+    was_primary = img.IsPrimary
     img.delete()
+    # Nếu ảnh bị xóa là ảnh chính → promote ảnh còn lại làm primary
+    if was_primary:
+        next_img = ProductImage.objects.filter(ProductID=product).first()
+        if next_img:
+            next_img.IsPrimary = True
+            next_img.save()
     return Response({"message": "Đã xóa ảnh"}, status=status.HTTP_200_OK)
 
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { BlockRenderer } from "./Blockeditor";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useCart } from "./Cart";
@@ -92,7 +92,7 @@ function MediaThumb({ url, type, onRemove }) {
       {onRemove && (
         <button onClick={onRemove}
           className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 flex items-center justify-center
-            opacity-0 group-hover:opacity-100 transition">
+            opacity-0 group-hover:opacity-100 transition focus:outline-none">
           <X size={10} className="text-white" />
         </button>
       )}
@@ -157,7 +157,7 @@ function WriteReviewModal({ productId, user, onClose, onSubmit, existing }) {
       <div className="w-full max-w-lg bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 flex flex-col gap-5 shadow-2xl">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-base">{existing ? "Chỉnh sửa đánh giá" : "Viết đánh giá"}</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10"><X size={16} /></button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 focus:outline-none"><X size={16} /></button>
         </div>
         <div className="flex flex-col items-center gap-2">
           <StarRow value={rating} onChange={setRating} size={36} />
@@ -189,9 +189,9 @@ function WriteReviewModal({ productId, user, onClose, onSubmit, existing }) {
         </div>
         {error && <p className="text-red-400 text-xs">{error}</p>}
         <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-5 py-2 rounded-xl border border-white/10 text-sm hover:bg-white/5 transition">Hủy</button>
+          <button onClick={onClose} className="px-5 py-2 rounded-xl border border-white/10 text-sm hover:bg-white/5 transition focus:outline-none">Hủy</button>
           <button onClick={handleSubmit} disabled={uploading || !rating}
-            className="px-6 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-sm font-medium transition flex items-center gap-2">
+            className="px-6 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-sm font-medium transition flex items-center gap-2 focus:outline-none">
             {uploading && <Loader2 size={14} className="animate-spin" />}
             {existing ? "Cập nhật" : "Gửi đánh giá"}
           </button>
@@ -234,7 +234,7 @@ function ReviewCard({ review, user, onLike, onAdminReply }) {
       )}
       {review.admin_reply && (
         <div className="ml-12 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex gap-3">
-          <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
+          <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center shrink-0 focus:outline-none">
             <span className="text-[9px] font-bold text-white">PZ</span>
           </div>
           <div>
@@ -297,7 +297,7 @@ function CommentCard({ comment, user, onLike, depth = 0 }) {
           <p className="mt-1 text-sm text-white/75 leading-relaxed">{comment.content}</p>
           {comment.admin_reply && (
             <div className="mt-2 bg-orange-500/10 border border-orange-500/20 rounded-xl p-2.5 flex gap-2">
-              <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
+              <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center shrink-0 focus:outline-none">
                 <span className="text-[8px] font-bold text-white">PZ</span>
               </div>
               <div>
@@ -331,7 +331,7 @@ function CommentCard({ comment, user, onLike, depth = 0 }) {
                   focus:outline-none focus:border-orange-500/40 transition"
               />
               <button onClick={submitReply} disabled={submitting || !replyText.trim()}
-                className="w-9 h-9 flex items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition">
+                className="w-9 h-9 flex items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition focus:outline-none">
                 {submitting ? <Loader2 size={14} className="animate-spin text-white" /> : <Send size={14} className="text-white" />}
               </button>
             </div>
@@ -530,7 +530,7 @@ function ReviewCommentSection({ productId, user, navigate }) {
                   placeholder-white/30 focus:outline-none focus:border-orange-500/40 transition"
               />
               <button onClick={submitComment} disabled={submittingComment || !commentText.trim()}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition shrink-0">
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition shrink-0 focus:outline-none">
                 {submittingComment ? <Loader2 size={15} className="animate-spin text-white" /> : <Send size={15} className="text-white" />}
               </button>
             </div>
@@ -641,7 +641,19 @@ export default function InformationProduct() {
     }
     if (match) {
       setSelectedVariant(match);
-      if (match.image) setActiveImg(-1);
+      if (match.image) {
+        // Tìm đúng index của ảnh biến thể trong allImgs
+        const productImgUrls = images.map(img => img?.url || img);
+        const variantImgUrls = [...new Set(
+          variants.map(v => v.image).filter(Boolean).filter(url => !productImgUrls.includes(url))
+        )];
+        const allImgsList = [
+          ...images.map(img => ({ url: img?.url || img })),
+          ...variantImgUrls.map(url => ({ url })),
+        ];
+        const idx = allImgsList.findIndex(img => img.url === match.image);
+        setActiveImg(idx >= 0 ? idx : 0);
+      }
     }
   }, [selColor, selCombo, variants]);
 
@@ -666,8 +678,25 @@ export default function InformationProduct() {
   const currentPrice = selectedVariant ? parseInt(selectedVariant.price) : 0;
   const currentStock = selectedVariant ? selectedVariant.stock : 0;
 
+  // ── Danh sách ảnh tổng hợp: ảnh gốc trước, biến thể sau ──
+  const allImgs = useMemo(() => {
+    const productImgUrls = images.map(img => img?.url || img);
+    const variantImgUrls = [...new Set(
+      variants.map(v => v.image).filter(Boolean).filter(url => !productImgUrls.includes(url))
+    )];
+    return [
+      ...images.map(img => ({ url: img?.url || img, type: "product" })),
+      ...variantImgUrls.map(url => ({ url, type: "variant" })),
+    ];
+  }, [images, variants]);
+
+  // ── Khi danh sách ảnh thay đổi (xóa ảnh, load xong) → clamp activeImg ──
   useEffect(() => {
-    if (!id) return;
+    if (allImgs.length === 0) { setActiveImg(0); return; }
+    setActiveImg(prev => Math.min(prev, allImgs.length - 1));
+  }, [allImgs]);
+
+  useEffect(() => {
     setLoading(true);
     Promise.all([
       fetch(`${API}/api/product/${id}/detail/`).then(r => r.json()),
@@ -804,7 +833,7 @@ export default function InformationProduct() {
     <div className="min-h-screen bg-[#1C1C1E] flex flex-col items-center justify-center gap-4 text-white/40">
       <Package size={48} className="opacity-30" />
       <p>Không tìm thấy sản phẩm</p>
-      <button onClick={() => navigate("/product")} className="text-orange-400 text-sm hover:underline">← Quay lại</button>
+      <button onClick={() => navigate("/product")} className="text-orange-400 text-sm hover:underline focus:outline-none">← Quay lại</button>
     </div>
   );
 
@@ -815,7 +844,7 @@ export default function InformationProduct() {
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[10000] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-medium bg-green-500/20 border border-green-500/40 text-green-300 backdrop-blur-md">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           Đã thêm vào giỏ hàng thành công!
-          <button onClick={() => navigate("/cart")} className="ml-2 text-xs text-white/60 hover:text-white underline">Xem giỏ</button>
+          <button onClick={() => navigate("/cart")} className="ml-2 text-xs text-white/60 hover:text-white underline focus:outline-none">Xem giỏ</button>
         </div>
       )}
 
@@ -831,8 +860,8 @@ export default function InformationProduct() {
             </div>
             <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10">Hủy</button>
-              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium">Đăng xuất</button>
+              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 focus:outline-none">Hủy</button>
+              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium focus:outline-none">Đăng xuất</button>
             </div>
           </div>
         </div>
@@ -849,10 +878,10 @@ export default function InformationProduct() {
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
-          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
+          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
             <Search size={20} />
           </button>
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
+          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative focus:outline-none">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
@@ -862,7 +891,7 @@ export default function InformationProduct() {
           </button>
           {user ? (
             <div className="relative" ref={dropdownRef}>
-              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition">
+              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition focus:outline-none">
                 {user.avatar
                   ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={e => e.currentTarget.style.display="none"} />
                   : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
@@ -879,18 +908,18 @@ export default function InformationProduct() {
                       <p className="text-xs text-white/40 truncate">{user.email}</p>
                     </div>
                   </div>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
+                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition focus:outline-none">
                     <Settings size={15} /> Tài khoản
                   </button>
                   <div className="h-px bg-white/5 mx-3" />
-                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition">
+                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition focus:outline-none">
                     <LogOut size={15} /> Đăng xuất
                   </button>
                 </div>
               )}
             </div>
           ) : (
-            <button onClick={() => navigate("/login")}><User className="hover:text-white transition" size={22} /></button>
+            <button onClick={() => navigate("/login")}><User className="hover:text-white transition focus:outline-none" size={22} /></button>
           )}
         </div>
       </nav>
@@ -899,9 +928,9 @@ export default function InformationProduct() {
       <div className="pt-[64px]">
         {/* Breadcrumb */}
         <div className="max-w-7xl mx-auto px-6 lg:px-10 py-4 flex items-center gap-2 text-xs text-white/30 border-b border-white/5">
-          <button onClick={() => navigate("/")} className="hover:text-white transition">Trang chủ</button>
+          <button onClick={() => navigate("/")} className="hover:text-white transition focus:outline-none">Trang chủ</button>
           <ChevronRight size={12} />
-          <button onClick={() => navigate("/product")} className="hover:text-white transition">Sản phẩm</button>
+          <button onClick={() => navigate("/product")} className="hover:text-white transition focus:outline-none">Sản phẩm</button>
           <ChevronRight size={12} />
           <span className="text-white/60 truncate max-w-xs">{product.name}</span>
         </div>
@@ -911,44 +940,49 @@ export default function InformationProduct() {
 
           {/* ===== ẢNH ===== */}
           <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-3">
-            <div className="w-full h-[380px] rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden flex items-center justify-center border border-white/5 relative">
-              {activeImg === -1 && selectedVariant?.image ? (
-                <img src={selectedVariant.image} alt={product.name} className="w-full h-full object-contain p-6" />
-              ) : images.length > 0 ? (
+            {(() => {
+              const totalImgs = allImgs.length;
+              const safeIdx = totalImgs > 0 ? Math.max(0, Math.min(activeImg, totalImgs - 1)) : 0;
+              const currentUrl = totalImgs > 0 ? allImgs[safeIdx].url : null;
+
+              return (
                 <>
-                  <img src={images[Math.max(0, activeImg)]?.url || images[Math.max(0, activeImg)]} alt={product.name} className="w-full h-full object-contain p-6" />
-                  {images.length > 1 && (
-                    <>
-                      <button onClick={() => setActiveImg(i => { const x = i < 0 ? 0 : i; return (x - 1 + images.length) % images.length; })}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition">
-                        <ChevronLeft size={16} />
-                      </button>
-                      <button onClick={() => setActiveImg(i => { const x = i < 0 ? 0 : i; return (x + 1) % images.length; })}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition">
-                        <ChevronRight size={16} />
-                      </button>
-                    </>
+                  {/* Ảnh lớn */}
+                  <div className="w-full h-[380px] rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden flex items-center justify-center border border-white/5 relative">
+                    {currentUrl
+                      ? <img src={currentUrl} alt={product.name} className="w-full h-full object-contain p-6" />
+                      : <Package size={64} className="text-white/10" />}
+                    {totalImgs > 1 && (
+                      <>
+                        <button onClick={() => setActiveImg((safeIdx - 1 + totalImgs) % totalImgs)}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition focus:outline-none">
+                          <ChevronLeft size={16} />
+                        </button>
+                        <button onClick={() => setActiveImg((safeIdx + 1) % totalImgs)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition focus:outline-none">
+                          <ChevronRight size={16} />
+                        </button>
+                        <div className="absolute bottom-3 right-3 bg-black/50 text-white/60 text-[10px] px-2 py-0.5 rounded-full">
+                          {safeIdx + 1} / {totalImgs}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Thumbnails */}
+                  {totalImgs > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {allImgs.map((img, i) => (
+                        <button key={i} onClick={() => setActiveImg(i)}
+                          className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 transition focus:outline-none ${safeIdx === i ? "border-orange-500" : "border-white/10 hover:border-white/30"}`}>
+                          <img src={img.url} alt="" className="w-full h-full object-contain p-1 bg-gray-900" />
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </>
-              ) : <Package size={64} className="text-white/10" />}
-            </div>
-            {(images.length > 0 || selectedVariant?.image) && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {selectedVariant?.image && (
-                  <button onClick={() => setActiveImg(-1)}
-                    className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 transition relative ${activeImg === -1 ? "border-orange-500" : "border-white/10 hover:border-white/30"}`}>
-                    <img src={selectedVariant.image} alt="" className="w-full h-full object-contain p-1 bg-gray-900" />
-                    <span className="absolute bottom-0.5 right-0.5 text-[8px] bg-orange-500 text-white px-1 rounded">BT</span>
-                  </button>
-                )}
-                {images.map((img, i) => (
-                  <button key={i} onClick={() => setActiveImg(i)}
-                    className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 transition ${activeImg === i ? "border-orange-500" : "border-white/10 hover:border-white/30"}`}>
-                    <img src={img?.url || img} alt="" className="w-full h-full object-contain p-1 bg-gray-900" />
-                  </button>
-                ))}
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* ===== INFO ===== */}
@@ -1059,12 +1093,12 @@ export default function InformationProduct() {
 
             <div className="flex items-center gap-3">
               <div className="flex items-center border border-white/10 rounded-xl overflow-hidden">
-                <button onClick={() => setQty(q => Math.max(1, q - 1))} className="w-10 h-10 flex items-center justify-center hover:bg-white/10 transition text-lg">−</button>
+                <button onClick={() => setQty(q => Math.max(1, q - 1))} className="w-10 h-10 flex items-center justify-center hover:bg-white/10 transition text-lg focus:outline-none">−</button>
                 <span className="w-10 text-center text-sm">{qty}</span>
-                <button onClick={() => setQty(q => Math.min(currentStock, q + 1))} className="w-10 h-10 flex items-center justify-center hover:bg-white/10 transition text-lg">+</button>
+                <button onClick={() => setQty(q => Math.min(currentStock, q + 1))} className="w-10 h-10 flex items-center justify-center hover:bg-white/10 transition text-lg focus:outline-none">+</button>
               </div>
               <button onClick={() => handleAddToCart(false)} disabled={currentStock === 0}
-                className="flex-1 h-11 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+                className="flex-1 h-11 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition flex items-center justify-center gap-2 focus:outline-none">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
                   <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
@@ -1072,14 +1106,14 @@ export default function InformationProduct() {
                 Thêm vào giỏ hàng
               </button>
               <button onClick={() => handleAddToCart(true)} disabled={currentStock === 0}
-                className="flex-1 h-11 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition">
+                className="flex-1 h-11 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition focus:outline-none">
                 Mua ngay
               </button>
             </div>
 
             {/* Nút so sánh */}
             <button onClick={() => setShowAddCompare(true)}
-              className="flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5 text-white/40 hover:text-orange-400 text-sm transition">
+              className="flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5 text-white/40 hover:text-orange-400 text-sm transition focus:outline-none">
               <GitCompare size={15} />
               So sánh sản phẩm
               {compareList.length > 0 && (
@@ -1250,7 +1284,7 @@ export default function InformationProduct() {
                             {rFinal ? rFinal.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
                           </p>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0 mt-auto">
                           <button
                             onClick={e => {
                               e.stopPropagation();
@@ -1261,16 +1295,23 @@ export default function InformationProduct() {
                               }
                             }}
                             title="So sánh"
-                            className={`shrink-0 h-7 w-7 flex items-center justify-center rounded-full border transition
+                            className={`shrink-0 h-7 w-7 flex items-center justify-center rounded-full border transition focus:outline-none
                               ${compareList.some(c => c.id === p.id)
                                 ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
                                 : "bg-white/5 border-white/10 text-white/40 hover:border-orange-500/40 hover:text-orange-400"}`}>
                             {compareList.some(c => c.id === p.id) ? <Check size={10} /> : <GitCompare size={10} />}
                           </button>
                           <button
+                            onClick={e => { e.stopPropagation(); if (rDv) { addItem(p, rDv, 1); } }}
+                            className="shrink-0 h-7 w-7 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition focus:outline-none">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                            </svg>
+                          </button>
+                          <button
                             onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
-                            className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium
-                              bg-[rgba(255,149,0,0.75)] border border-[#ff9500] hover:bg-[rgba(255,149,0,1)] transition">
+                            className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium bg-orange-500 hover:bg-orange-600 transition focus:outline-none">
                             Mua
                           </button>
                         </div>
@@ -1287,9 +1328,9 @@ export default function InformationProduct() {
                   Đã chọn {compareList.length} sản phẩm để so sánh
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setCompareList([])} className="text-xs text-white/30 hover:text-red-400 transition">Xóa tất cả</button>
+                  <button onClick={() => setCompareList([])} className="text-xs text-white/30 hover:text-red-400 transition focus:outline-none">Xóa tất cả</button>
                   <button onClick={() => setShowCompare(true)}
-                    className="px-4 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold transition">
+                    className="px-4 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold transition focus:outline-none">
                     Xem so sánh
                   </button>
                 </div>
@@ -1310,13 +1351,13 @@ export default function InformationProduct() {
                 <h3 className="font-semibold text-sm">So sánh sản phẩm</h3>
                 <span className="text-xs text-white/30">Chọn tối đa 3</span>
               </div>
-              <button onClick={() => setShowAddCompare(false)} className="text-white/30 hover:text-white"><X size={16} /></button>
+              <button onClick={() => setShowAddCompare(false)} className="text-white/30 hover:text-white focus:outline-none"><X size={16} /></button>
             </div>
 
             {/* Sản phẩm hiện tại luôn có */}
             <div className="px-5 py-3 border-b border-white/5">
               <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Sản phẩm đang xem</p>
-              <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 focus:outline-none">
                 {images[0]?.url && <img src={images[0].url} alt="" className="w-10 h-10 object-contain rounded-lg bg-gray-800" />}
                 <p className="text-sm font-medium text-orange-300 flex-1 line-clamp-1">{product.name}</p>
                 <Check size={14} className="text-orange-400 shrink-0" />
@@ -1329,7 +1370,7 @@ export default function InformationProduct() {
                 {compareList.map(p => (
                   <div key={p.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-xs">
                     <span className="text-white/70 max-w-[100px] truncate">{p.name}</span>
-                    <button onClick={() => setCompareList(prev => prev.filter(c => c.id !== p.id))} className="text-white/20 hover:text-red-400 ml-1"><X size={10} /></button>
+                    <button onClick={() => setCompareList(prev => prev.filter(c => c.id !== p.id))} className="text-white/20 hover:text-red-400 ml-1 focus:outline-none"><X size={10} /></button>
                   </div>
                 ))}
               </div>
@@ -1357,7 +1398,7 @@ export default function InformationProduct() {
               <button
                 onClick={() => { setShowAddCompare(false); if (compareList.length > 0) setShowCompare(true); }}
                 disabled={compareList.length === 0}
-                className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-sm font-semibold transition">
+                className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-sm font-semibold transition focus:outline-none">
                 So sánh ({compareList.length})
               </button>
             </div>
@@ -1396,7 +1437,7 @@ function AddCompareSearch({ allProducts, currentId, compareList, onToggle }) {
         <input value={q} onChange={e => setQ(e.target.value)}
           placeholder="Tìm sản phẩm để so sánh..."
           className="bg-transparent text-xs outline-none flex-1 text-white placeholder:text-white/20" />
-        {q && <button onClick={() => setQ("")}><X size={11} className="text-white/30 hover:text-white" /></button>}
+        {q && <button onClick={() => setQ("")}><X size={11} className="text-white/30 hover:text-white focus:outline-none" /></button>}
       </div>
       <div className="flex flex-col gap-1">
         {filtered.length === 0
@@ -1498,7 +1539,7 @@ function CompareModal({ current, compareList, onClose, navigate }) {
             <GitCompare size={17} className="text-orange-400" />
             <h2 className="font-bold text-base">So sánh sản phẩm</h2>
           </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white transition"><X size={18} /></button>
+          <button onClick={onClose} className="text-white/30 hover:text-white transition focus:outline-none"><X size={18} /></button>
         </div>
 
         <div className="overflow-auto flex-1">
@@ -1571,7 +1612,7 @@ function CompareModal({ current, compareList, onClose, navigate }) {
         </div>
 
         <div className="px-6 py-4 border-t border-white/10 shrink-0 flex justify-end">
-          <button onClick={onClose} className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Đóng</button>
+          <button onClick={onClose} className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition focus:outline-none">Đóng</button>
         </div>
       </div>
     </div>
