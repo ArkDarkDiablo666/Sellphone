@@ -1259,7 +1259,7 @@ export default function Staff() {
                     <PwInput placeholder="Mật khẩu mới" value={passForm.newPass} show={showPass.newPass} onToggle={()=>setShowPass(p=>({...p,newPass:!p.newPass}))} onChange={v=>setPassForm(p=>({...p,newPass:v}))} error={errors.newPass}/>
                     <PwInput placeholder="Nhập lại mật khẩu mới" value={passForm.confirm} show={showPass.confirm} onToggle={()=>setShowPass(p=>({...p,confirm:!p.confirm}))} onChange={v=>setPassForm(p=>({...p,confirm:v}))} error={errors.confirm}/>
                     <div className="flex gap-2 mt-1">
-                      <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> Lưu</button>
+                      <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> Lưu</button>
                       <button onClick={()=>{setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});}} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm transition"><X size={14}/> Hủy</button>
                     </div>
                   </div>

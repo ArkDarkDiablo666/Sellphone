@@ -1255,7 +1255,9 @@ def create_order(request):
                 try:    vid = int(raw_vid)
                 except: return Response({"message": "Sản phẩm không hợp lệ. Vui lòng xóa giỏ hàng và thêm lại."}, status=status.HTTP_400_BAD_REQUEST)
 
-                # [FIX #5] select_for_update để lock variant row trong transaction
+                # [FIX RACE CONDITION] select_for_update(nowait=False) lock row độc quyền
+                # Nếu transaction khác đang giữ lock → đợi giải phóng rồi mới đọc
+                # Đảm bảo 2 request đồng thời không đọc cùng stock value
                 variant = ProductVariant.objects.select_for_update().select_related('ProductID').filter(VariantID=vid).first()
                 if not variant:
                     return Response({"message": f"Sản phẩm #{vid} không còn tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1264,11 +1266,17 @@ def create_order(request):
                 if qty <= 0:
                     return Response({"message": "Số lượng sản phẩm phải lớn hơn 0"}, status=status.HTTP_400_BAD_REQUEST)
 
-                # [FIX #5] Re-check stock tại thời điểm đặt hàng (đã lock row)
+                # [FIX RACE CONDITION] Kiểm tra stock SAU KHI đã lock row
+                # Tại thời điểm này không có transaction nào khác có thể đọc/ghi variant này
                 if variant.StockQuantity < qty:
                     pname = variant.ProductID.ProductName
                     color = f" ({variant.Color})" if variant.Color else ""
-                    return Response({"message": f"'{pname}{color}' chỉ còn {variant.StockQuantity} sản phẩm trong kho"}, status=status.HTTP_400_BAD_REQUEST)
+                    avail = variant.StockQuantity
+                    if avail == 0:
+                        msg = f"'{pname}{color}' đã hết hàng"
+                    else:
+                        msg = f"'{pname}{color}' chỉ còn {avail} sản phẩm trong kho"
+                    return Response({"message": msg}, status=status.HTTP_400_BAD_REQUEST)
 
                 # [FIX #3] Dùng giá từ DB, không dùng giá frontend gửi lên
                 db_price = float(variant.Price)
@@ -1316,10 +1324,19 @@ def create_order(request):
             for vi in validated_items:
                 variant = vi['variant']; qty = vi['qty']
                 OrderDetail.objects.create(OrderID=order, VariantID=variant, Quantity=qty, UnitPrice=vi['price'])
-                # [FIX #5] Dùng F() expression để trừ stock atomically
-                ProductVariant.objects.filter(VariantID=variant.VariantID).update(
-                    StockQuantity=F('StockQuantity') - qty
-                )
+                # [FIX RACE CONDITION] Trừ stock với điều kiện stock >= qty
+                # Dùng F() + filter stock >= qty để chắc chắn không xuống âm
+                # Nếu rows_updated == 0 → có race condition xảy ra → rollback toàn bộ transaction
+                rows_updated = ProductVariant.objects.filter(
+                    VariantID=variant.VariantID,
+                    StockQuantity__gte=qty  # Chỉ update nếu stock còn đủ
+                ).update(StockQuantity=F('StockQuantity') - qty)
+
+                if rows_updated == 0:
+                    # Race condition: transaction khác đã trừ stock trước
+                    pname = variant.ProductID.ProductName
+                    color = f" ({variant.Color})" if variant.Color else ""
+                    raise Exception(f"'{pname}{color}' vừa hết hàng, vui lòng thử lại")
 
             # [FIX #4] Tăng used_count atomically sau khi đã xác nhận voucher hợp lệ
             if voucher:
@@ -1367,8 +1384,11 @@ def cancel_order(request):
         return Response({"message": f"Không thể hủy đơn hàng {label}"}, status=status.HTTP_400_BAD_REQUEST)
     try:
         with transaction.atomic():
-            for d in OrderDetail.objects.select_related('VariantID').filter(OrderID=o):
-                d.VariantID.StockQuantity += d.Quantity; d.VariantID.save()
+            for d in OrderDetail.objects.filter(OrderID=o):
+                # [FIX] Dùng F() để cộng stock atomically, tránh race condition
+                ProductVariant.objects.filter(VariantID=d.VariantID_id).update(
+                    StockQuantity=F('StockQuantity') + d.Quantity
+                )
             o.Status = 'Cancelled'
             try: o.StatusNote = 'Khách hàng hủy đơn'
             except: pass
@@ -1414,10 +1434,18 @@ def update_order_status(request):
     try:
         with transaction.atomic():
             if new_status == 'Cancelled':
-                for d in OrderDetail.objects.select_related('VariantID').filter(OrderID=o):
-                    d.VariantID.StockQuantity += d.Quantity; d.VariantID.save()
+                for d in OrderDetail.objects.filter(OrderID=o):
+                    # [FIX] Dùng F() để cộng stock atomically
+                    ProductVariant.objects.filter(VariantID=d.VariantID_id).update(
+                        StockQuantity=F('StockQuantity') + d.Quantity
+                    )
             o.Status = new_status
-            try: o.StatusNote = note
+            try:
+                # [FIX] Khi admin hủy đơn → ghi rõ "Nhà bán hủy đơn" để khách hàng biết
+                if new_status == 'Cancelled':
+                    o.StatusNote = note if note else 'Nhà bán hủy đơn'
+                else:
+                    o.StatusNote = note
             except: pass
             o.save()
     except Exception as e:
@@ -1929,8 +1957,8 @@ MOMO_CONFIG = {
 }
 
 VNPAY_CONFIG = {
-    "tmn_code":    "DEMO1234",
-    "hash_secret": "ABCDEFGHIJKLMNOP",
+    "tmn_code":    "SQIUFSBH",
+    "hash_secret": "AG0866KYZ7XEOJ5IEYBNJ9595KT4Y4UB",
     "url":         "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
     "return_url":  "http://localhost:3000/payment/vnpay-return",
 }
@@ -1980,11 +2008,46 @@ def momo_return(request):
 def vnpay_create(request):
     import hmac, hashlib, urllib.parse
     order_id = request.data.get("order_id"); amount = request.data.get("amount")
-    if not order_id or not amount: return Response({"message": "Thiếu order_id hoặc amount"}, status=status.HTTP_400_BAD_REQUEST)
-    now = datetime.datetime.now(); txn_ref = f"{order_id}-{int(now.timestamp())}"
-    params = {"vnp_Version": "2.1.0", "vnp_Command": "pay", "vnp_TmnCode": VNPAY_CONFIG["tmn_code"], "vnp_Amount": str(int(amount) * 100), "vnp_CurrCode": "VND", "vnp_TxnRef": txn_ref, "vnp_OrderInfo": f"Thanh toan don hang {order_id}", "vnp_OrderType": "other", "vnp_Locale": "vn", "vnp_ReturnUrl": VNPAY_CONFIG["return_url"], "vnp_IpAddr": request.META.get("REMOTE_ADDR", "127.0.0.1"), "vnp_CreateDate": now.strftime("%Y%m%d%H%M%S")}
-    sorted_params = sorted(params.items()); query_str = urllib.parse.urlencode(sorted_params)
-    sig = hmac.new(VNPAY_CONFIG["hash_secret"].encode("utf-8"), query_str.encode("utf-8"), hashlib.sha512).hexdigest()
+    if not order_id or not amount:
+        return Response({"message": "Thiếu order_id hoặc amount"}, status=status.HTTP_400_BAD_REQUEST)
+    # [FIX] Dùng GMT+7 cho vnp_CreateDate theo yêu cầu VNPAY
+    import pytz
+    tz_vn   = pytz.timezone("Asia/Ho_Chi_Minh")
+    now     = datetime.datetime.now(tz_vn)
+    txn_ref = f"{order_id}-{int(now.timestamp())}"
+    params  = {
+        "vnp_Version":    "2.1.0",
+        "vnp_Command":    "pay",
+        "vnp_TmnCode":    VNPAY_CONFIG["tmn_code"],
+        "vnp_Amount":     str(int(float(amount)) * 100),
+        "vnp_CurrCode":   "VND",
+        "vnp_TxnRef":     txn_ref,
+        "vnp_OrderInfo":  f"Thanh toan don hang {order_id}",
+        "vnp_OrderType":  "other",
+        "vnp_Locale":     "vn",
+        "vnp_ReturnUrl":  VNPAY_CONFIG["return_url"],
+        "vnp_IpAddr":     request.META.get("REMOTE_ADDR", "127.0.0.1"),
+        "vnp_CreateDate": now.strftime("%Y%m%d%H%M%S"),
+        "vnp_ExpireDate": (now + datetime.timedelta(minutes=15)).strftime("%Y%m%d%H%M%S"),
+    }
+    # [FIX] Theo tài liệu chính thức VNPAY (PHP demo):
+    # - Sort params theo alphabet
+    # - Cả hashData lẫn queryString đều dùng urlencode (quote_plus) cho cả KEY lẫn VALUE
+    # - vnp_Command phải là "pay" (không phải "default")
+    sorted_params = sorted(params.items())
+    hash_data = ""
+    query_str = ""
+    for i, (k, v) in enumerate(sorted_params):
+        sep = "&" if i > 0 else ""
+        encoded_k = urllib.parse.quote_plus(str(k))
+        encoded_v = urllib.parse.quote_plus(str(v))
+        hash_data += f"{sep}{encoded_k}={encoded_v}"
+        query_str += f"{sep}{encoded_k}={encoded_v}"
+    sig     = hmac.new(
+        VNPAY_CONFIG["hash_secret"].encode("utf-8"),
+        hash_data.encode("utf-8"),
+        hashlib.sha512
+    ).hexdigest()
     pay_url = f"{VNPAY_CONFIG['url']}?{query_str}&vnp_SecureHash={sig}"
     return Response({"pay_url": pay_url}, status=status.HTTP_200_OK)
 

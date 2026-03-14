@@ -234,29 +234,241 @@ function DashRevenueChart() {
 }
 
 function DashCompare() {
-  const [mode,  setMode]  = useState("month");
-  const [input, setInput] = useState("2024-01,2024-06,2024-12");
+  const today    = new Date();
+  const thisYear = today.getFullYear();
+  const years    = Array.from({ length: 5 }, (_, i) => thisYear - i);
+  const months   = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  // Tạo danh sách ngày trong tháng
+  const getDays = (y, m) => new Date(y, m, 0).getDate();
+
+  const [mode, setMode] = useState("month");
+
+  // ── Chọn NGÀY: dạng range từ ngày A đến ngày B
+  const [dayFrom, setDayFrom] = useState({ y: thisYear, m: today.getMonth() + 1, d: 1 });
+  const [dayTo,   setDayTo]   = useState({ y: thisYear, m: today.getMonth() + 1, d: today.getDate() });
+  const [dayError, setDayError] = useState("");
+
+  // Khi đổi "Từ ngày" → tự động đẩy "Đến ngày" nếu bị nhỏ hơn
+  const handleSetDayFrom = (updater) => {
+    setDayFrom(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const fromTs = new Date(next.y, next.m - 1, next.d);
+      const toTs   = new Date(dayTo.y, dayTo.m - 1, dayTo.d);
+      if (fromTs > toTs) setDayTo(next);
+      setDayError("");
+      return next;
+    });
+    setUrl(null);
+  };
+
+  const handleSetDayTo = (updater) => {
+    setDayTo(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const fromTs = new Date(dayFrom.y, dayFrom.m - 1, dayFrom.d);
+      const toTs   = new Date(next.y, next.m - 1, next.d);
+      if (toTs < fromTs) {
+        setDayError("Ngày kết thúc phải sau ngày bắt đầu");
+      } else if (toTs.getTime() === fromTs.getTime()) {
+        setDayError("Từ ngày và Đến ngày không được trùng nhau");
+      } else {
+        setDayError("");
+      }
+      return next;
+    });
+    setUrl(null);
+  };
+
+  // ── Chọn THÁNG: chọn nhiều tháng (tối đa 6)
+  const [selMonths, setSelMonths] = useState([
+    `${thisYear}-${String(today.getMonth()).padStart(2,"0") || "01"}`,
+    `${thisYear}-${String(today.getMonth() + 1).padStart(2,"0")}`,
+  ]);
+
+  // ── Chọn NĂM: chọn nhiều năm (tối đa 5)
+  const [selYears, setSelYears] = useState([String(thisYear - 1), String(thisYear)]);
+
   const [url,   setUrl]   = useState(null);
   const { data, loading } = useDashFetch(url);
   const rows = data?.data || [];
-  const placeholders = { day: "2024-06-01, 2024-06-15", month: "2024-01, 2024-06", year: "2022, 2023, 2024" };
+
+  const toggleMonth = (val) => {
+    setSelMonths(p => p.includes(val) ? p.filter(x => x !== val) : p.length < 6 ? [...p, val] : p);
+  };
+  const toggleYear = (val) => {
+    setSelYears(p => p.includes(val) ? p.filter(x => x !== val) : p.length < 5 ? [...p, val] : p);
+  };
+
+  const handleCompare = () => {
+    let values = "";
+    if (mode === "day") {
+      const fromTs = new Date(dayFrom.y, dayFrom.m - 1, dayFrom.d);
+      const toTs   = new Date(dayTo.y,   dayTo.m - 1,   dayTo.d);
+      if (fromTs > toTs) { setDayError("Ngày bắt đầu phải trước ngày kết thúc"); return; }
+      if (fromTs.getTime() === toTs.getTime()) { setDayError("Từ ngày và Đến ngày không được trùng nhau"); return; }
+      setDayError("");
+      const pad = (n) => String(n).padStart(2, "0");
+      const from = `${dayFrom.y}-${pad(dayFrom.m)}-${pad(dayFrom.d)}`;
+      const to   = `${dayTo.y}-${pad(dayTo.m)}-${pad(dayTo.d)}`;
+      // Tạo list ngày từ from → to
+      const start = new Date(from); const end = new Date(to);
+      const days = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1))
+        days.push(d.toISOString().slice(0, 10));
+      if (days.length < 2) return;
+      values = days.join(",");
+    } else if (mode === "month") {
+      if (selMonths.length < 2) return;
+      values = [...selMonths].sort().join(",");
+    } else {
+      if (selYears.length < 2) return;
+      values = [...selYears].sort().join(",");
+    }
+    setUrl(`/api/admin/dashboard/revenue/compare/?mode=${mode}&values=${encodeURIComponent(values)}`);
+  };
+
+  const pad = (n) => String(n).padStart(2, "0");
 
   return (
     <div>
       <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest mb-4">So sánh khoảng thời gian</h2>
       <div className="rounded-2xl border border-white/5 p-5 flex flex-col gap-5" style={{ background: "#111" }}>
-        <div className="flex flex-wrap items-center gap-3">
-          <DashTabs tabs={[{label:"Ngày",value:"day"},{label:"Tháng",value:"month"},{label:"Năm",value:"year"}]} value={mode} onChange={(v) => { setMode(v); setInput(""); }} />
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={`VD: ${placeholders[mode]}`}
-            className="flex-1 min-w-48 rounded-xl px-4 py-1.5 text-xs border outline-none"
-            style={{ background: "rgba(255,255,255,0.05)", borderColor: "rgba(255,255,255,0.1)", color: "white" }} />
-          <button onClick={() => setUrl(`/api/admin/dashboard/revenue/compare/?mode=${mode}&values=${encodeURIComponent(input.trim())}`)}
-            className="px-4 py-1.5 rounded-xl text-xs font-semibold transition" style={{ background: ORANGE, color: "white" }}>
-            So sánh
-          </button>
-        </div>
-        {loading && <div className="h-48 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>}
-        {!loading && rows.length > 0 && (
+
+        {/* Tab mode */}
+        <DashTabs
+          tabs={[{label:"Theo ngày",value:"day"},{label:"Theo tháng",value:"month"},{label:"Theo năm",value:"year"}]}
+          value={mode}
+          onChange={(v) => { setMode(v); setUrl(null); }}
+        />
+
+        {/* ── NGÀY: chọn khoảng từ ngày → đến ngày ── */}
+        {mode === "day" && (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-end gap-4">
+              {[["Từ ngày", dayFrom, handleSetDayFrom], ["Đến ngày", dayTo, handleSetDayTo]].map(([label, val, setter]) => (
+                <div key={label} className="flex flex-col gap-1.5">
+                  <p className="text-[10px] text-white/40 font-medium">{label}</p>
+                  <div className="flex items-center gap-2">
+                    {/* Năm */}
+                    <select value={val.y} onChange={e => setter(p => ({...p, y: +e.target.value}))}
+                      className="rounded-lg px-2 py-1.5 text-xs border outline-none appearance-none"
+                      style={{ background: "#1a1a1a", borderColor: "rgba(255,255,255,0.1)", color: "white" }}>
+                      {years.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                    {/* Tháng */}
+                    <select value={val.m} onChange={e => setter(p => ({...p, m: +e.target.value, d: 1}))}
+                      className="rounded-lg px-2 py-1.5 text-xs border outline-none appearance-none"
+                      style={{ background: "#1a1a1a", borderColor: "rgba(255,255,255,0.1)", color: "white" }}>
+                      {months.map(m => <option key={m} value={m}>Tháng {m}</option>)}
+                    </select>
+                    {/* Ngày */}
+                    <select value={val.d} onChange={e => setter(p => ({...p, d: +e.target.value}))}
+                      className="rounded-lg px-2 py-1.5 text-xs border outline-none appearance-none"
+                      style={{ background: "#1a1a1a", borderColor: "rgba(255,255,255,0.1)", color: "white" }}>
+                      {Array.from({ length: getDays(val.y, val.m) }, (_, i) => i + 1).map(d =>
+                        <option key={d} value={d}>Ngày {d}</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+              ))}
+              <button onClick={handleCompare} disabled={!!dayError}
+                className="px-4 py-2 rounded-xl text-xs font-semibold transition disabled:opacity-40"
+                style={{ background: ORANGE, color: "white" }}>
+                So sánh
+              </button>
+            </div>
+            {dayError && (
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <span>⚠</span> {dayError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── THÁNG: chọn nhiều tháng ── */}
+        {mode === "month" && (
+          <div className="flex flex-col gap-3">
+            <p className="text-[10px] text-white/40">Chọn từ 2–6 tháng để so sánh</p>
+            {years.slice(0, 3).map(y => (
+              <div key={y}>
+                <p className="text-[10px] text-white/30 mb-1.5 font-medium">{y}</p>
+                <div className="flex flex-wrap gap-2">
+                  {months.map(m => {
+                    const val = `${y}-${pad(m)}`;
+                    const sel = selMonths.includes(val);
+                    return (
+                      <button key={val} onClick={() => toggleMonth(val)}
+                        className="px-3 py-1 rounded-lg text-xs font-medium transition border"
+                        style={{
+                          background: sel ? `${ORANGE}22` : "rgba(255,255,255,0.04)",
+                          borderColor: sel ? ORANGE : "rgba(255,255,255,0.08)",
+                          color: sel ? ORANGE : "rgba(255,255,255,0.5)",
+                        }}>
+                        T{m}/{y}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-[10px] text-white/30">Đã chọn: <span style={{color:ORANGE}}>{selMonths.length}</span>/6</p>
+              <button onClick={handleCompare} disabled={selMonths.length < 2}
+                className="px-4 py-1.5 rounded-xl text-xs font-semibold transition disabled:opacity-40"
+                style={{ background: ORANGE, color: "white" }}>
+                So sánh
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── NĂM: chọn nhiều năm ── */}
+        {mode === "year" && (
+          <div className="flex flex-col gap-3">
+            <p className="text-[10px] text-white/40">Chọn từ 2–5 năm để so sánh</p>
+            <div className="flex flex-wrap gap-2">
+              {years.map(y => {
+                const val = String(y);
+                const sel = selYears.includes(val);
+                return (
+                  <button key={y} onClick={() => toggleYear(val)}
+                    className="px-5 py-2 rounded-xl text-sm font-semibold transition border"
+                    style={{
+                      background: sel ? `${ORANGE}22` : "rgba(255,255,255,0.04)",
+                      borderColor: sel ? ORANGE : "rgba(255,255,255,0.08)",
+                      color: sel ? ORANGE : "rgba(255,255,255,0.5)",
+                    }}>
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-3">
+              <p className="text-[10px] text-white/30">Đã chọn: <span style={{color:ORANGE}}>{selYears.length}</span>/5</p>
+              <button onClick={handleCompare} disabled={selYears.length < 2}
+                className="px-4 py-1.5 rounded-xl text-xs font-semibold transition disabled:opacity-40"
+                style={{ background: ORANGE, color: "white" }}>
+                So sánh
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── KẾT QUẢ ── */}
+        {url === null && (
+          <div className="h-24 flex items-center justify-center text-white/20 text-sm">
+            Chọn khoảng thời gian và nhấn <span className="mx-1 text-orange-400 font-medium">So sánh</span> để xem kết quả
+          </div>
+        )}
+        {url !== null && loading && <div className="h-48 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>}
+        {url !== null && !loading && rows.length === 0 && (
+          <div className="h-48 flex flex-col items-center justify-center gap-2 text-white/20 text-sm">
+            <span className="text-2xl">📭</span>
+            Không có dữ liệu cho khoảng thời gian này
+          </div>
+        )}
+        {url !== null && !loading && rows.length > 0 && (
           <>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={rows} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
@@ -1089,7 +1301,28 @@ const handleDeleteProduct = (productId) => {
   const deactivateVoucher = async(id)=>{ const r=await authFetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}, "admin"); if(r.ok)loadVouchers(); };
 
   const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}, "admin"); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleCancelOrder = (orderId) => { setConfirmModal({ message: "Hủy đơn hàng này?", onConfirm: async () => { setUpdatingOrder(orderId); try{ const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}, "admin"); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} } }); };
+  const handleCancelOrder = (orderId) => {
+    setConfirmModal({
+      title: "Hủy đơn hàng",
+      message: `Bạn có chắc muốn hủy đơn hàng #${orderId}? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        setUpdatingOrder(orderId);
+        try {
+          const r = await authFetch(`${API}/api/order/update-status/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId, status: "Cancelled", note: "Admin hủy đơn" }),
+          }, "admin");
+          if (r.ok) {
+            setOrderList(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled" } : o));
+            if (orderDetail?.id === orderId) setOrderDetail(d => ({ ...d, status: "Cancelled" }));
+            toast.success("Đã hủy đơn hàng thành công!");
+          } else { const d = await r.json(); toast.error(d.message); }
+        } catch { toast.error("Lỗi kết nối"); }
+        finally { setUpdatingOrder(null); }
+      },
+    });
+  };
   const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await authFetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}, "admin"); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.success(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
 
   const loadImportVariants = async(pid)=>{ if(!pid)return; setImportLoading(true); try{ const r=await fetch(`${API}/api/product/${pid}/variants/`); const d=await r.json(); if(r.ok){setImportVariants(d.variants||[]);setImportQty({});} }finally{setImportLoading(false);} };
@@ -1769,7 +2002,7 @@ const handleDeleteProduct = (productId) => {
                         <input placeholder="Ghi chú cho khách hàng (tùy chọn)" value={statusNote} onChange={e=>setStatusNote(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition mb-3"/>
                         <div className="flex gap-2">
                           <button onClick={()=>handleUpdateOrderStatus(orderDetail.id,ORDER_STATUS_MAP[orderDetail.status].next)} disabled={updatingOrder===orderDetail.id} className="flex-1 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">{updatingOrder===orderDetail.id?"Đang cập nhật...":ORDER_STATUS_MAP[orderDetail.status].nextLabel}</button>
-                          {orderDetail.status==="Pending"&&<button onClick={()=>handleCancelOrder(orderDetail.id)} className="px-4 py-2 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 text-sm transition">Hủy đơn</button>}
+                          {["Pending","Processing"].includes(orderDetail.status) && <button onClick={()=>handleCancelOrder(orderDetail.id)} disabled={updatingOrder===orderDetail.id} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition disabled:opacity-50">Hủy đơn</button>}
                         </div>
                       </div>
                     )}
@@ -1930,7 +2163,7 @@ const handleDeleteProduct = (productId) => {
               {pcProductId&&pcLoaded&&(
                 <>
                   <div className="bg-[#161616] border border-white/5 rounded-2xl p-5"><p className="text-xs text-white/40 mb-4 uppercase tracking-wider">Nội dung mô tả (Block Editor)</p><Blockeditor blocks={pcBlocks} onChange={setPcBlocks} mediaFiles={pcMediaFiles} onMediaChange={setPcMediaFiles}/></div>
-                  <button onClick={saveProductContent} disabled={pcSaving} className="py-3 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-50 font-semibold text-sm transition">{pcSaving?"Đang lưu...":"Lưu mô tả sản phẩm"}</button>
+                  <button onClick={saveProductContent} disabled={pcSaving} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">{pcSaving?"Đang lưu...":"Lưu mô tả sản phẩm"}</button>
                 </>
               )}
               {pcProductId&&!pcLoaded&&<div className="text-center py-10 text-white/20 text-sm">Đang tải nội dung...</div>}

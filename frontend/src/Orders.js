@@ -6,7 +6,7 @@ import {
   ArrowLeft, Package, ChevronRight, Clock, CheckCircle2,
   Truck, MapPin, XCircle, RefreshCw, ShoppingBag, Check,
   RotateCcw, Upload, X, FileVideo, Image, AlertCircle, Info,
-  Loader2, ArrowRight, CreditCard, ChevronDown,
+  Loader2, ArrowRight, CreditCard, ChevronDown, AlertTriangle,
 } from "lucide-react";
 
 const API = "http://localhost:8000";
@@ -580,7 +580,7 @@ function ReturnForm({ order, onSuccess, onCancel }) {
           <p className="text-xs text-white/40">
             {files.length} file · {totalMB}MB / 500MB
             <span className="ml-2 inline-block h-1.5 w-24 bg-white/10 rounded-full align-middle overflow-hidden">
-              <span className="block h-full bg-purple-500 rounded-full transition-all"
+              <span className="block h-full bg-orange-500 rounded-full transition-all"
                 style={{ width: `${Math.min((parseFloat(totalMB)/500)*100, 100)}%` }} />
             </span>
           </p>
@@ -607,7 +607,7 @@ function ReturnForm({ order, onSuccess, onCancel }) {
 
       <div className="flex gap-2">
         <button onClick={submit} disabled={loading}
-          className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-sm font-medium transition text-white">
+          className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-sm font-medium transition text-white">
           {loading ? "Đang gửi..." : "Gửi yêu cầu trả hàng"}
         </button>
         <button onClick={onCancel}
@@ -696,8 +696,8 @@ export default function Orders({ embedded = false }) {
         if (!res || res === AUTH_REDIRECTED) return;
         const data = await res.json();
         if (res.ok) {
-          setOrders(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled" } : o));
-          if (detail?.id === orderId) setDetail(d => ({ ...d, status: "Cancelled" }));
+          setOrders(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled", status_note: "Khách hàng hủy đơn" } : o));
+          if (detail?.id === orderId) setDetail(d => ({ ...d, status: "Cancelled", status_note: "Khách hàng hủy đơn" }));
           toast.success("Đã hủy đơn hàng thành công!");
         } else toast.error(data.message);
       },
@@ -710,6 +710,31 @@ export default function Orders({ embedded = false }) {
 
     return (
       <div className={embedded ? "" : "min-h-screen text-white"} style={embedded ? {} : { background: "#1C1C1E" }}>
+        {/* Confirm Modal — cần render ở cả detail lẫn list view */}
+        {confirmModal && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
+            <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={18} className="text-red-400" />
+                </div>
+                <h3 className="font-semibold text-white">Xác nhận hủy đơn</h3>
+              </div>
+              <p className="text-sm text-white/60 mb-6">{confirmModal.message}</p>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmModal(null)}
+                  className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">
+                  Không hủy
+                </button>
+                <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                  className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">
+                  Xác nhận hủy
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Navbar */}
         {!embedded && (
           <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
@@ -755,11 +780,29 @@ export default function Orders({ embedded = false }) {
           <div className="rounded-2xl border border-white/5 p-5 mb-4" style={{ background: "#161616" }}>
             <p className="text-sm font-semibold mb-1">Trạng thái đơn hàng</p>
             <OrderTimeline status={detail.status} />
-            {detail.status_note && (
-              <p className="text-xs text-white/40 mt-3 bg-white/4 rounded-xl px-3 py-2 italic">
+            {detail.status === "Cancelled" ? (
+              <div className="mt-3 rounded-xl px-3 py-2.5 flex items-start gap-2"
+                style={{ background: "rgba(255,59,48,0.07)", border: "1px solid rgba(255,59,48,0.2)" }}>
+                <XCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-medium text-red-400">
+                    {detail.status_note === "Nhà bán hủy đơn"
+                      ? "🏪 Nhà bán đã hủy đơn hàng này"
+                      : detail.status_note === "Khách hàng hủy đơn"
+                      ? "👤 Bạn đã hủy đơn hàng này"
+                      : "Đơn hàng đã bị hủy"}
+                  </p>
+                  {detail.status_note && !["Nhà bán hủy đơn","Khách hàng hủy đơn"].includes(detail.status_note) && (
+                    <p className="text-xs text-white/40 mt-0.5 italic">Lý do: {detail.status_note}</p>
+                  )}
+                </div>
+              </div>
+            ) : detail.status_note ? (
+              <p className="text-xs text-white/40 mt-3 rounded-xl px-3 py-2 italic"
+                style={{ background: "rgba(255,255,255,0.04)" }}>
                 💬 {detail.status_note}
               </p>
-            )}
+            ) : null}
           </div>
 
           {/* Delivery date info */}
@@ -910,7 +953,7 @@ export default function Orders({ embedded = false }) {
           {/* Trả hàng */}
           {canReturn && (
             <button onClick={() => setShowReturnForm(true)}
-              className="w-full py-3 rounded-xl border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 text-sm font-medium transition flex items-center justify-center gap-2">
+              className="w-full py-3 rounded-xl border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 text-sm font-medium transition flex items-center justify-center gap-2">
               <RotateCcw size={14} /> Yêu cầu trả hàng (trong 7 ngày)
             </button>
           )}
@@ -940,11 +983,23 @@ export default function Orders({ embedded = false }) {
       {confirmModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
-          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
+          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                <AlertTriangle size={18} className="text-red-400" />
+              </div>
+              <h3 className="font-semibold text-white">Xác nhận hủy đơn</h3>
+            </div>
+            <p className="text-sm text-white/60 mb-6">{confirmModal.message}</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
-              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+              <button onClick={() => setConfirmModal(null)}
+                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">
+                Không hủy
+              </button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">
+                Xác nhận hủy
+              </button>
             </div>
           </div>
         </div>

@@ -351,7 +351,7 @@ export default function Information() {
                           <PasswordInput placeholder="Mật khẩu mới"          value={passForm.newPass} show={showPass.newPass} onToggle={() => setShowPass(p => ({ ...p, newPass: !p.newPass }))} onChange={(v) => setPassForm(p => ({ ...p, newPass: v }))} error={errors.newPass} />
                           <PasswordInput placeholder="Nhập lại mật khẩu mới" value={passForm.confirm} show={showPass.confirm} onToggle={() => setShowPass(p => ({ ...p, confirm: !p.confirm }))} onChange={(v) => setPassForm(p => ({ ...p, confirm: v }))} error={errors.confirm} />
                           <div className="flex gap-2 mt-1">
-                            <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black text-xs font-medium hover:opacity-80 transition"><Check size={12} /> Lưu</button>
+                            <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium transition disabled:opacity-50"><Check size={12} /> Lưu</button>
                             <button onClick={() => { setEditPass(false); setPassForm({ current: "", newPass: "", confirm: "" }); setErrors({}); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition"><X size={12} /> Hủy</button>
                           </div>
                         </div>
@@ -419,7 +419,7 @@ function EditableRow({ label, value, isEditing, inputValue, onInputChange, onEdi
           <div className="flex-1 flex items-center gap-2">
             <input value={inputValue} onChange={(e) => onInputChange(e.target.value)}
               className={`flex-1 bg-white/5 border rounded-lg px-3 py-1.5 text-sm outline-none focus:border-white/30 transition ${error ? "border-red-500/50" : "border-white/10"}`} />
-            <button onClick={onSave} disabled={saving} className="p-1.5 rounded-lg bg-white text-black hover:opacity-80 transition"><Check size={14} /></button>
+            <button onClick={onSave} disabled={saving} className="p-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition disabled:opacity-50"><Check size={14} /></button>
             <button onClick={onCancel} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition"><X size={14} /></button>
           </div>
         ) : (

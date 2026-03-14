@@ -3,7 +3,6 @@ Django settings for backend project.
 """
 
 from pathlib import Path
-from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -23,10 +22,13 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "phone",
     "rest_framework",
+    # [REMOVED] rest_framework_simplejwt — không dùng SimpleJWT
+    # [REMOVED] rest_framework_simplejwt.token_blacklist
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],   # ← dòng quan trọng nhất
+    # [FIX] Xóa JWTAuthentication — dùng PyJWT thủ công qua permissions.py
+    'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
@@ -34,7 +36,6 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
 }
-
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -46,6 +47,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# [REMOVED] SIMPLE_JWT config — không còn dùng SimpleJWT
 
 ROOT_URLCONF = "backend.urls"
 
@@ -98,16 +101,33 @@ CACHES = {
     }
 }
 
+# [FIX] Thêm django.server logger để hiển thị API request logs trong terminal
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
     'loggers': {
-        'django':         {'handlers': ['console'], 'level': 'INFO'},
-        'django.request': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
-        'django.server':  {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE     = "UTC"
 USE_I18N      = True
@@ -126,3 +146,35 @@ EMAIL_USE_TLS       = True
 EMAIL_HOST_USER     = 'ark666diablo@gmail.com'
 EMAIL_HOST_PASSWORD = 'jcxkdrngdwcvaxse'
 DEFAULT_FROM_EMAIL  = 'ark666diablo@gmail.com'
+
+# ══════════════════════════════════════════════════════════════
+# PAYMENT CONFIG
+# ══════════════════════════════════════════════════════════════
+
+# ── MoMo Sandbox ─────────────────────────────────────────────
+# Thông tin test MoMo (môi trường sandbox):
+#   Không cần thẻ thật — MoMo sandbox tự mô phỏng thanh toán thành công/thất bại
+#   Sau khi redirect sang MoMo test, chọn "Thanh toán thành công" hoặc "Thất bại"
+MOMO_CONFIG = {
+    "partner_code": "MOMO",
+    "access_key":   "F8BBA842ECF85",
+    "secret_key":   "K951B6PE1waDMi640xX08PD3vg6EkVlz",
+    "endpoint":     "https://test-payment.momo.vn/v2/gateway/api/create",
+    "redirect_url": "http://localhost:3000/payment/momo-return",
+    "ipn_url":      "http://localhost:8000/api/payment/momo/ipn/",
+}
+
+# ── VNPAY Sandbox ─────────────────────────────────────────────
+# [FIX] Cập nhật TMN Code và Hash Secret thật từ portal VNPAY sandbox
+# Thông tin thẻ test VNPAY:
+#   Ngân hàng   : NCB
+#   Số thẻ      : 9704198526191432198
+#   Tên chủ thẻ : NGUYEN VAN A
+#   Ngày PH     : 07/15
+#   Mật khẩu OTP: 123456
+VNPAY_CONFIG = {
+    "tmn_code":    "SQIUFSBH",
+    "hash_secret": "AG0866KYZ7XEOJ5IEYBNJ9595KT4Y4UB",
+    "url":         "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+    "return_url":  "http://localhost:3000/payment/vnpay-return",
+}
