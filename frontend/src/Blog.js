@@ -79,6 +79,7 @@ export function BlogDetail() {
   const handleLogout = () => {
     localStorage.removeItem("user");
     setConfirmLogout(false);
+    sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
     navigate("/login");
   };
 
@@ -344,6 +345,7 @@ export default function Blog() {
   const handleLogout = () => {
     localStorage.removeItem("user");
     setConfirmLogout(false);
+    sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
     navigate("/login");
   };
 

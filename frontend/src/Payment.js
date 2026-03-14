@@ -389,6 +389,7 @@ export default function Payment() {
   const navigate = useNavigate();
   const { selectedItems, subtotal, discount, total, voucher, clearCart } = useCart();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const { toast, toasts, removeToast } = useToast();
 
   const [form,         setForm]         = useState({ name: user.fullName || user.full_name || "", phone: "", note: "" });
   const [addrObj,      setAddrObj]      = useState(emptyAddr());
@@ -403,6 +404,7 @@ export default function Payment() {
   const [placing,      setPlacing]      = useState(false);
   const [success,      setSuccess]      = useState(false);
   const [orderId,      setOrderId]      = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
 
   useEffect(() => {
     if (!user.id) { navigate("/login"); return; }
@@ -502,16 +504,23 @@ export default function Payment() {
     } catch { toast.error("Lỗi kết nối"); }
   };
 
-  const deleteAddr = async (id) => {
-    if (!window.confirm("Xóa địa chỉ này?")) return;
-    const res = await fetch(`${API}/api/customer/address/delete/`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, customer_id: user.id }),
+  const deleteAddr = (id) => {
+    setConfirmModal({
+      message: "Xóa địa chỉ này?",
+      onConfirm: async () => {
+        const res = await fetch(`${API}/api/customer/address/delete/`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, customer_id: user.id }),
+        });
+        if (res.ok) {
+          setAddresses((p) => p.filter((a) => a.id !== id));
+          if (selectedAddr === id) setSelectedAddr(null);
+          toast.success("Đã xóa địa chỉ!");
+        } else {
+          toast.error("Xóa địa chỉ thất bại");
+        }
+      },
     });
-    if (res.ok) {
-      setAddresses((p) => p.filter((a) => a.id !== id));
-      if (selectedAddr === id) setSelectedAddr(null);
-    }
   };
 
   // ── SUCCESS ──────────────────────────────────────────────────
@@ -551,6 +560,21 @@ export default function Payment() {
 
   return (
     <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+      {confirmModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NAV */}
       <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
         style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>

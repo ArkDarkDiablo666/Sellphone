@@ -1,6 +1,7 @@
 import { useState } from "react";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -9,6 +10,7 @@ export default function Forgotpassword() {
   const [error, setError]     = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { toast, toasts, removeToast } = useToast();
 
   const handleSendOTP = async () => {
     setError("");
@@ -32,11 +34,10 @@ export default function Forgotpassword() {
       }
 
       const data = await res.json();
-      setError(data.message || "Có lỗi xảy ra");
+      toast.error(data.message || "Có lỗi xảy ra");
 
-    } catch (err) {
-      console.log("Lỗi fetch:", err);
-      setError("Không thể kết nối server");
+    } catch {
+      toast.error("Không thể kết nối server");
     } finally {
       setLoading(false);
     }
@@ -46,6 +47,7 @@ export default function Forgotpassword() {
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
       <img src={bg} alt="" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
         <div className="w-1/2">

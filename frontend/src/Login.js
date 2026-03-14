@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaFacebookF } from "react-icons/fa";
@@ -21,6 +21,14 @@ export default function Login() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState({});
   const { toasts, removeToast, toast } = useToast();
+
+  useEffect(() => {
+    const msg = sessionStorage.getItem("logout_toast");
+    if (msg) {
+      sessionStorage.removeItem("logout_toast");
+      setTimeout(() => toast.info(msg), 100);
+    }
+  }, []); // eslint-disable-line
 
   const [form, setForm] = useState({
     fullname: "",
@@ -88,6 +96,7 @@ export default function Login() {
             avatar:    data.customer.avatar || "",
             loginType: "normal",
           });
+          sessionStorage.setItem("login_toast", `Chào mừng trở lại, ${data.customer.full_name}!`);
           navigate("/");
         } else {
           if (data.field === "email")       setErrors({ email: data.message });
@@ -131,6 +140,7 @@ export default function Login() {
             avatar:    data.customer.avatar || "",
             loginType: "normal",
           });
+          sessionStorage.setItem("login_toast", `Đăng ký thành công! Chào mừng, ${data.customer.full_name}!`);
           navigate("/");
         } else {
           setErrors({ general: data.message });
@@ -159,6 +169,7 @@ export default function Login() {
           const data = await res.json();
           if (res.ok) {
             saveUser({ id: data.customer.id, fullName: profile.name, email: profile.email, avatar: profile.picture, loginType: "google" });
+            sessionStorage.setItem("login_toast", `Chào mừng trở lại, ${profile.name}!`);
             navigate("/");
           } else { toast.error(data.message); }
         } else {
@@ -170,6 +181,7 @@ export default function Login() {
           const data = await res.json();
           if (res.ok) {
             saveUser({ id: data.customer.id, fullName: profile.name, email: profile.email, avatar: profile.picture, loginType: "google" });
+            sessionStorage.setItem("login_toast", `Đăng ký thành công! Chào mừng, ${profile.name}!`);
             navigate("/");
           } else { toast.error(data.message); }
         }
@@ -201,6 +213,7 @@ export default function Login() {
         const data = await res.json();
         if (res.ok) {
           saveUser({ id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" });
+          sessionStorage.setItem("login_toast", `Chào mừng trở lại, ${full_name}!`);
           navigate("/");
         } else { toast.error(data.message); }
       } else {
@@ -212,6 +225,7 @@ export default function Login() {
         const data = await res.json();
         if (res.ok) {
           saveUser({ id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" });
+          sessionStorage.setItem("login_toast", `Đăng ký thành công! Chào mừng, ${full_name}!`);
           navigate("/");
         } else { toast.error(data.message); }
       }
@@ -222,6 +236,7 @@ export default function Login() {
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
       <img src={bg} alt="background" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
         {/* Left */}

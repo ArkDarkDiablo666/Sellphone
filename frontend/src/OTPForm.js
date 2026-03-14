@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -12,6 +13,7 @@ export default function OTPForm() {
   const [canResend, setCanResend] = useState(false);
   const inputRefs = useRef([]);
   const navigate  = useNavigate();
+  const { toast, toasts, removeToast } = useToast();
 
   // ===== ĐẾM NGƯỢC 60 GIÂY =====
   useEffect(() => {
@@ -54,12 +56,12 @@ export default function OTPForm() {
       if (res.ok) {
         navigate("/login/forgot_password/otp/reset_password");
       } else {
-        setError(data.message);
+        toast.error(data.message);
         setOtp(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
       }
     } catch {
-      setError("Không thể kết nối server");
+      toast.error("Không thể kết nối server");
     } finally {
       setLoading(false);
     }
@@ -83,13 +85,14 @@ export default function OTPForm() {
         setCountdown(60);
         setCanResend(false);
         inputRefs.current[0]?.focus();
+        toast.success("Đã gửi lại mã OTP!");
         return;
       }
 
       const data = await res.json();
-      setError(data.message);
+      toast.error(data.message);
     } catch {
-      setError("Không thể kết nối server");
+      toast.error("Không thể kết nối server");
     }
   };
 
@@ -97,6 +100,7 @@ export default function OTPForm() {
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
       <img src={bg} alt="" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
         <div className="w-1/2">

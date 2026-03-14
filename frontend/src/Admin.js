@@ -869,6 +869,14 @@ export default function Admin() {
       .finally(()=>setLoading(false));
   },[]); // eslint-disable-line
 
+  useEffect(() => {
+    const msg = sessionStorage.getItem("login_toast");
+    if (msg) {
+      sessionStorage.removeItem("login_toast");
+      setTimeout(() => toast.success(msg), 100);
+    }
+  }, []); // eslint-disable-line
+
   useEffect(()=>{ if(activeTab==="staff")           loadStaff();      },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="product")         loadProducts();   },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="orders")          loadOrders();     },[activeTab]); // eslint-disable-line
@@ -1092,7 +1100,7 @@ const handleDeleteProduct = (productId) => {
   const loadProductContent = async(pid)=>{ if(!pid)return; setPcLoaded(false); try{const r=await fetch(`${API}/api/product/${pid}/content/`);const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);} };
   const saveProductContent = async()=>{ if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await fetch(`${API}/api/product/content/save/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok)toast.success(d.message); else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);} };
 
-  const handleLogout = ()=>{ localStorage.removeItem("admin_user"); navigate("/admin/login"); };
+  const handleLogout = ()=>{ localStorage.removeItem("admin_user"); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/admin/login"); };
 
   const ORDER_STATUS_MAP = {
     Pending:    { label:"Chờ xác nhận",   color:"#ff9500", next:"Processing", nextLabel:"Xác nhận xử lý"  },

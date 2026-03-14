@@ -642,13 +642,15 @@ function PayMethodLabel({ method }) {
 export default function Orders({ embedded = false }) {
   const navigate   = useNavigate();
   const user       = JSON.parse(localStorage.getItem("user") || "{}");
+  const { toast, toasts, removeToast } = useToast();
 
   const [orders,         setOrders]         = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [detail,         setDetail]         = useState(null);
   const [returnReq,      setReturnReq]      = useState(null);
   const [showReturnForm, setShowReturnForm] = useState(false);
-  const [paidOpened,     setPaidOpened]     = useState(false); // tab thanh toán đã mở
+  const [paidOpened,     setPaidOpened]     = useState(false);
+  const [confirmModal,   setConfirmModal]   = useState(null);
 
   useEffect(() => {
     if (!user.id) { navigate("/login"); return; }
@@ -679,17 +681,22 @@ export default function Orders({ embedded = false }) {
     loadReturnReq(order.id);
   };
 
-  const cancelOrder = async (orderId) => {
-    if (!window.confirm("Bạn có chắc muốn hủy đơn hàng này?")) return;
-    const res  = await fetch(`${API}/api/order/cancel/`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order_id: orderId, customer_id: user.id }),
+  const cancelOrder = (orderId) => {
+    setConfirmModal({
+      message: "Bạn có chắc muốn hủy đơn hàng này?",
+      onConfirm: async () => {
+        const res  = await fetch(`${API}/api/order/cancel/`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: orderId, customer_id: user.id }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setOrders(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled" } : o));
+          if (detail?.id === orderId) setDetail(d => ({ ...d, status: "Cancelled" }));
+          toast.success("Đã hủy đơn hàng thành công!");
+        } else toast.error(data.message);
+      },
     });
-    const data = await res.json();
-    if (res.ok) {
-      setOrders(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled" } : o));
-      if (detail?.id === orderId) setDetail(d => ({ ...d, status: "Cancelled" }));
-    } else toast.error(data.message);
   };
 
   // ── CHI TIẾT ────────────────────────────────────────────────
@@ -923,6 +930,21 @@ export default function Orders({ embedded = false }) {
   // ── DANH SÁCH ───────────────────────────────────────────────
   return (
     <div className={embedded ? "" : "min-h-screen text-white"} style={embedded ? {} : { background: "#1C1C1E" }}>
+      {!embedded && <ToastContainer toasts={toasts} removeToast={removeToast} />}
+
+      {confirmModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!embedded && (
         <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
           style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>

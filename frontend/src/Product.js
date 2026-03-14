@@ -8,6 +8,7 @@ import {
 import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -69,6 +70,7 @@ const STORAGE_OPTIONS = ["64GB","128GB","256GB","512GB","1TB","2TB"];
 export default function Product() {
   const navigate = useNavigate();
   const { totalCount, voucher: cartVoucher } = useCart();
+  const { toast, toasts, removeToast } = useToast();
   const [user,         setUser]         = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [confirmLogout,setConfirmLogout]= useState(false);
@@ -201,6 +203,7 @@ export default function Product() {
 
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* LOGOUT DIALOG */}
       {confirmLogout && (
@@ -470,12 +473,12 @@ export default function Product() {
                   });
                 }
                 if (combos.length === 0 && !variants.length) {
-                  return [<ProductCard key={p.id} product={p} comboVariant={null} voucherList={voucherList} cartVoucher={cartVoucher} navigate={navigate} />];
+                  return [<ProductCard key={p.id} product={p} comboVariant={null} voucherList={voucherList} cartVoucher={cartVoucher} navigate={navigate} toast={toast} />];
                 }
                 if (combos.length === 0) return [];
                 return combos.map(comboV => (
                   <ProductCard key={`${p.id}_${comboV.ram || ""}|${comboV.storage || ""}`}
-                    product={p} comboVariant={comboV} voucherList={voucherList} cartVoucher={cartVoucher} navigate={navigate} />
+                    product={p} comboVariant={comboV} voucherList={voucherList} cartVoucher={cartVoucher} navigate={navigate} toast={toast} />
                 ));
               })}
             </div>
@@ -486,7 +489,7 @@ export default function Product() {
     </div>
   );
 }
-function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navigate }) {
+function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navigate, toast }) {
   const variants   = p.variants || [];
   const comboKey   = comboVariant ? `${comboVariant.ram || ""}|${comboVariant.storage || ""}` : null;
   const comboLabel = comboVariant ? [comboVariant.ram, comboVariant.storage].filter(Boolean).join(" · ") : null;
@@ -529,14 +532,12 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
   };
 
   const { addItem } = useCart();
-  const [cartAnim, setCartAnim] = useState(false);
   const handleAddToCart = (e) => {
     e.stopPropagation();
     const target = displayVariant || variants[0];
     if (!target) return;
     addItem(p, target, 1);
-    setCartAnim(true);
-    setTimeout(() => setCartAnim(false), 600);
+    toast.success("Đã thêm vào giỏ hàng!");
   };
 
   const displayImage = displayVariant?.image || p.image || null;

@@ -156,7 +156,7 @@ export default function Information() {
     } finally { setSaving(false); }
   };
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
+  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
 
   if (loading) return (
     <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">

@@ -574,12 +574,13 @@ export default function CartPage() {
   const {
     items, removeItem, updateQty, toggleSelect, toggleAll,
     voucher, setVoucher, selectedItems, subtotal, discount, total,
-    getDiscountedPrice, totalCount, calcDiscount
+    getDiscountedPrice, totalCount, calcDiscount, clearCart,
   } = useCart();
 
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -642,7 +643,7 @@ export default function CartPage() {
     setTimeout(() => setVToast(null), 3500);
   };
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
+  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
 
   const applyVoucherObj = (v, force = false) => {
     if (!force) {
@@ -700,7 +701,21 @@ export default function CartPage() {
   return (
     <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
 
-      {/* TOAST */}
+      {/* CONFIRM MODAL */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VOUCHER TOAST */}
       {vToast && (
         <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[10000] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium
           ${vToast.type === "success" ? "bg-green-500/20 border border-green-500/40 text-green-300" : "bg-red-500/20 border border-red-500/40 text-red-300"}`}>
@@ -846,7 +861,10 @@ export default function CartPage() {
                   <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} className="accent-orange-500 w-4 h-4" />
                   <span className="text-sm text-white/60">Chọn tất cả ({items.length} sản phẩm)</span>
                 </label>
-                <button onClick={() => { if (window.confirm("Xóa tất cả sản phẩm khỏi giỏ hàng?")) { localStorage.removeItem("cart_items"); window.location.reload(); } }}
+                <button onClick={() => setConfirmModal({
+                    message: "Xóa tất cả sản phẩm khỏi giỏ hàng?",
+                    onConfirm: () => { clearCart(); },
+                  })}
                   className="text-xs text-white/30 hover:text-red-400 transition flex items-center gap-1">
                   <Trash2 size={12} /> Xóa tất cả
                 </button>

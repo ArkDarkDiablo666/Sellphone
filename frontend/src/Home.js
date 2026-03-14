@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -49,12 +50,11 @@ function getBestHome(variant, productId, categoryId, voucherList, cartVoucher) {
 }
 
 // ── Product card — giống hệt Product.jsx ─────────────────────
-function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
+function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast }) {
   const navigate = useNavigate();
   const variants = product.variants || [];
   const [activeColor, setActiveColor] = useState(null);
   const { addItem } = useCart();
-  const [cartAnim, setCartAnim] = useState(false);
 
   const handleAddToCart = (e) => {
     e.stopPropagation();
@@ -63,8 +63,7 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher }) {
       : variants.length > 0 ? [...variants].sort((a, b) => parseFloat(a.price||0) - parseFloat(b.price||0))[0] : null;
     if (!target) return;
     addItem(product, target, 1);
-    setCartAnim(true);
-    setTimeout(() => setCartAnim(false), 600);
+    toast.success("Đã thêm vào giỏ hàng!");
   };
 
   // unique colors
@@ -198,6 +197,7 @@ function FeaturedProducts({ navigate }) {
   const [loading,  setLoading]  = useState(true);
   const [voucherList, setVoucherList] = useState([]);
   const { voucher: cartVoucher } = useCart();
+  const { toast } = useToast();
 
   useEffect(() => {
     setLoading(true);
@@ -265,6 +265,7 @@ function FeaturedProducts({ navigate }) {
               onClick={() => navigate(`/product/${p.id}`)}
               voucherList={voucherList}
               cartVoucher={cartVoucher}
+              toast={toast}
             />
           ))}
         </div>
@@ -277,6 +278,7 @@ function FeaturedProducts({ navigate }) {
 export default function Home() {
   const navigate = useNavigate();
   const { totalCount } = useCart();
+  const { toast, toasts, removeToast } = useToast();
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -307,11 +309,22 @@ export default function Home() {
   const handleLogout = () => {
     localStorage.removeItem("user");
     setConfirmLogout(false);
+    sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
     navigate("/login");
   };
 
+  // Hiển thị toast sau khi đăng nhập / đăng ký thành công
+  useEffect(() => {
+    const msg = sessionStorage.getItem("login_toast");
+    if (msg) {
+      sessionStorage.removeItem("login_toast");
+      setTimeout(() => toast.success(msg), 100);
+    }
+  }, []); // eslint-disable-line
+
   return (
     <div className="relative min-h-screen text-white overflow-hidden">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* Background */}
       <div className="absolute inset-0 bg-cover bg-center scale-105"

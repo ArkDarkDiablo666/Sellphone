@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -569,8 +570,8 @@ function ReviewCommentSection({ productId, user, navigate }) {
 export default function InformationProduct() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const [addToast, setAddToast] = useState(false);
   const navigate = useNavigate();
+  const { toast, toasts, removeToast } = useToast();
   const { addItem, setShow, voucher, fetchBestVoucherForProduct, totalCount } = useCart();
 
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
@@ -760,7 +761,7 @@ export default function InformationProduct() {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
+  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
 
   useEffect(() => {
     if (!variants.length) return;
@@ -811,7 +812,7 @@ export default function InformationProduct() {
       qty
     );
     if (buyNow) { setShow(false); navigate("/cart"); }
-    else { setAddToast(true); setTimeout(() => setAddToast(false), 2500); }
+    else { toast.success("Đã thêm vào giỏ hàng thành công!"); }
   };
 
   const specsGroups = selectedVariant ? [
@@ -839,14 +840,7 @@ export default function InformationProduct() {
 
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
-
-      {addToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[10000] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-medium bg-green-500/20 border border-green-500/40 text-green-300 backdrop-blur-md">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          Đã thêm vào giỏ hàng thành công!
-          <button onClick={() => navigate("/cart")} className="ml-2 text-xs text-white/60 hover:text-white underline focus:outline-none">Xem giỏ</button>
-        </div>
-      )}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">

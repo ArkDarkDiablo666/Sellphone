@@ -1799,7 +1799,7 @@ def dashboard_overview(request):
     last_month_rev = rev(qs.filter(OrderDate__year=last_month.year, OrderDate__month=last_month.month))
     last_year_rev  = rev(qs.filter(OrderDate__year=today.year - 1))
     def pct(current, previous): return None if previous == 0 else round((current - previous) / previous * 100, 1)
-    return Response({"today": {"revenue": today_rev, "orders": qs.filter(OrderDate__date=today).count(), "vs_yesterday": pct(today_rev, yesterday_rev)}, "this_month": {"revenue": month_rev, "orders": qs.filter(OrderDate__year=today.year, OrderDate__month=today.month).count(), "vs_last_month": pct(month_rev, last_month_rev)}, "this_year": {"revenue": year_rev, "vs_last_year": pct(year_rev, last_year_rev)}, "all_time": {"revenue": total_rev, "orders": Order.objects.count()}})
+    return Response({"today": {"revenue": today_rev, "orders": qs.filter(OrderDate__date=today).count(), "vs_yesterday": pct(today_rev, yesterday_rev)}, "this_month": {"revenue": month_rev, "orders": qs.filter(OrderDate__year=today.year, OrderDate__month=today.month).count(), "vs_last_month": pct(month_rev, last_month_rev)}, "this_year": {"revenue": year_rev, "vs_last_year": pct(year_rev, last_year_rev)}, "all_time": {"revenue": total_rev, "orders": qs.count()}})
 
 
 @api_view(['GET'])
@@ -1895,6 +1895,7 @@ def home_best_sellers(request):
     limit = int(request.query_params.get('limit', 8))
     sold_pids = (
         OrderDetail.objects
+        .filter(OrderID__Status__in=['Delivered', 'Shipping', 'Processing'])
         .values('VariantID__ProductID')
         .annotate(total_sold=Sum('Quantity'))
         .order_by('-total_sold')

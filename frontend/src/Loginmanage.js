@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, useToast } from "./Toast";
 
 const API = "http://localhost:8000";
 
@@ -14,6 +15,15 @@ export default function Loginmanage() {
   const [errors, setErrors]     = useState({});
   const [form, setForm]         = useState({ username: "", password: "" });
   const navigate = useNavigate();
+  const { toast, toasts, removeToast } = useToast();
+
+  useEffect(() => {
+    const msg = sessionStorage.getItem("logout_toast");
+    if (msg) {
+      sessionStorage.removeItem("logout_toast");
+      setTimeout(() => toast.info(msg), 100);
+    }
+  }, []); // eslint-disable-line
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -51,18 +61,23 @@ export default function Loginmanage() {
           loginType: "admin",
         });
         // Điều hướng theo Role
-        if (data.admin.role === "Admin")       navigate("/admin");
-        else if (data.admin.role === "Staff")  navigate("/staff");
+        if (data.admin.role === "Admin") {
+          sessionStorage.setItem("login_toast", `Chào mừng trở lại, ${data.admin.full_name}!`);
+          navigate("/admin");
+        } else if (data.admin.role === "Staff") {
+          sessionStorage.setItem("login_toast", `Chào mừng trở lại, ${data.admin.full_name}!`);
+          navigate("/staff");
+        }
       } else {
         // 403 = không có quyền truy cập
         if (res.status === 403) {
-          setErrors({ general: data.message });
+          toast.error(data.message);
         } else if (data.field === "username")  setErrors({ username: data.message });
         else if (data.field === "password")    setErrors({ password: data.message });
-        else                                   setErrors({ general: data.message });
+        else                                   toast.error(data.message);
       }
     } catch {
-      setErrors({ general: "Không thể kết nối server" });
+      toast.error("Không thể kết nối server");
     }
   };
 
@@ -70,6 +85,7 @@ export default function Loginmanage() {
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
       <img src={bg} alt="background" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
 
@@ -90,10 +106,6 @@ export default function Loginmanage() {
           {/* FORM */}
           <form onSubmit={handleSubmit} className="w-full">
             <div className="flex flex-col gap-[14px]">
-
-              {errors.general && (
-                <p className="text-red-400 text-sm text-center">{errors.general}</p>
-              )}
 
               {/* TÊN TÀI KHOẢN */}
               <div>

@@ -436,6 +436,7 @@ function Divider() { return <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0
 // RICH TEXT EDITOR — đầy đủ: màu chữ, nền chữ, bảng + nền ô
 // ============================================================
 function RichEditor({ value, onChange }) {
+  const { toast } = useToast();
   const editorRef       = useRef(null);
   const [showTxtClr,  setShowTxtClr]  = useState(false);
   const [showBgClr,   setShowBgClr]   = useState(false);
@@ -745,6 +746,7 @@ export default function Staff() {
   const { toasts, removeToast, toast }    = useToast();
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmModal, setConfirmModal]   = useState(null);
   const [saving, setSaving]               = useState(false);
   const [errors, setErrors]               = useState({});
 
@@ -867,6 +869,14 @@ export default function Staff() {
       .finally(()=>setLoading(false));
   },[]); // eslint-disable-line
 
+  useEffect(() => {
+    const msg = sessionStorage.getItem("login_toast");
+    if (msg) {
+      sessionStorage.removeItem("login_toast");
+      setTimeout(() => toast.success(msg), 100);
+    }
+  }, []); // eslint-disable-line
+
   useEffect(()=>{ if(activeTab==="staff")           loadStaff();      },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="product")         loadProducts();   },[activeTab]); // eslint-disable-line
   useEffect(()=>{ if(activeTab==="orders")          loadOrders();     },[activeTab]); // eslint-disable-line
@@ -955,101 +965,109 @@ export default function Staff() {
   }
 };
 
-const handleSaveEditProduct = async (productId) => {
-  setEditProductSaving(true);
-  try {
-    const fd = new FormData();
-    fd.append("product_id", productId);
-    if (editProductData.name)        fd.append("product_name", editProductData.name);
-    if (editProductData.brand !== undefined) fd.append("brand", editProductData.brand);
-    if (editProductData.description !== undefined) fd.append("description", editProductData.description);
-    if (editProductData.categoryId)  fd.append("category_id", editProductData.categoryId);
-    (editProductData.newImages || []).forEach(f => fd.append("images", f));
+  const handleSaveEditProduct = async (productId) => {
+    setEditProductSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("product_id", productId);
+      if (editProductData.name)        fd.append("product_name", editProductData.name);
+      if (editProductData.brand !== undefined) fd.append("brand", editProductData.brand);
+      if (editProductData.description !== undefined) fd.append("description", editProductData.description);
+      if (editProductData.categoryId)  fd.append("category_id", editProductData.categoryId);
+      (editProductData.newImages || []).forEach(f => fd.append("images", f));
 
-    const r = await fetch(`${API}/api/product/update/`, { method: "POST", body: fd });
-    const d = await r.json();
-    if (r.ok) {
-      setEditProductId(null);
-      setEditProductData({});
-      setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-      loadProducts();
-      toast.success("Cập nhật sản phẩm thành công!");
-    } else toast.error(d.message);
-  } finally {
-    setEditProductSaving(false);
-  }
-};
+      const r = await fetch(`${API}/api/product/update/`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok) {
+        setEditProductId(null);
+        setEditProductData({});
+        setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+        loadProducts();
+        toast.success("Cập nhật sản phẩm thành công!");
+      } else toast.error(d.message);
+    } finally {
+      setEditProductSaving(false);
+    }
+  };
 
-const handleSaveEditVariant = async (variantId, productId) => {
-  setEditVariantSaving(true);
-  try {
-    const fd = new FormData();
-    fd.append("variant_id", variantId);
-    const fields = ["color","storage","ram","price","stock","cpu","os",
-      "screenSize","screenTech","refreshRate","battery","chargingSpeed",
-      "frontCamera","rearCamera","weights","updates"];
-    fields.forEach(k => {
-      if (editVariantData[k] !== undefined) fd.append(k, editVariantData[k]);
+  const handleSaveEditVariant = async (variantId, productId) => {
+    setEditVariantSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("variant_id", variantId);
+      const fields = ["color","storage","ram","price","stock","cpu","os",
+        "screenSize","screenTech","refreshRate","battery","chargingSpeed",
+        "frontCamera","rearCamera","weights","updates"];
+      fields.forEach(k => {
+        if (editVariantData[k] !== undefined) fd.append(k, editVariantData[k]);
+      });
+      if (editVariantData.imageFile) fd.append("image", editVariantData.imageFile);
+
+      const r = await fetch(`${API}/api/product/update-variant/`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok) {
+        setEditVariantId(null);
+        setEditVariantData({});
+        setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+        loadProducts();
+        toast.success("Cập nhật biến thể thành công!");
+      } else toast.error(d.message);
+    } finally {
+      setEditVariantSaving(false);
+    }
+  };
+
+  const handleDeleteVariant = (variantId, productId) => {
+    setConfirmModal({ message: "Xóa biến thể này?", onConfirm: async () => {
+      const r = await fetch(`${API}/api/product/delete-variant/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ variant_id: variantId })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+        loadProducts();
+        toast.success("Đã xóa biến thể!");
+      } else toast.error(d.message);
+    }});
+  };
+
+  const handleDeleteProductImage = (imageId, productId) => {
+    setConfirmModal({ message: "Xóa ảnh này?", onConfirm: async () => {
+      const r = await fetch(`${API}/api/product/delete-image/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_id: imageId })
+      });
+      if (r.ok) {
+        setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+        toast.success("Đã xóa ảnh!");
+      } else { const d = await r.json(); toast.error(d.message); }
+    }});
+  };
+
+  const handleSetPrimaryImage = async (imageId, productId) => {
+    const r = await fetch(`${API}/api/product/set-primary-image/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_id: imageId, product_id: productId })
     });
-    if (editVariantData.imageFile) fd.append("image", editVariantData.imageFile);
-
-    const r = await fetch(`${API}/api/product/update-variant/`, { method: "POST", body: fd });
-    const d = await r.json();
     if (r.ok) {
-      setEditVariantId(null);
-      setEditVariantData({});
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-      loadProducts();
-      toast.success("Cập nhật biến thể thành công!");
-    } else toast.error(d.message);
-  } finally {
-    setEditVariantSaving(false);
-  }
-};
+    }
+  };
 
-const handleDeleteVariant = async (variantId, productId) => {
-  if (!window.confirm("Xóa biến thể này?")) return;
-  const r = await fetch(`${API}/api/product/delete-variant/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ variant_id: variantId })
-  });
-  const d = await r.json();
-  if (r.ok) {
-    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-    loadProducts();
-  } else toast.error(d.message);
-};
-
-const handleDeleteProductImage = async (imageId, productId) => {
-  if (!window.confirm("Xóa ảnh này?")) return;
-  const r = await fetch(`${API}/api/product/delete-image/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_id: imageId })
-  });
-  if (r.ok) {
-    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-  } else { const d = await r.json(); toast.error(d.message); }
-};
-
-const handleSetPrimaryImage = async (imageId, productId) => {
-  const r = await fetch(`${API}/api/product/set-primary-image/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_id: imageId, product_id: productId })
-  });
-  if (r.ok) {
-    setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-  }
-};
-
-const handleDeleteProduct = async (productId) => {
-  if (!window.confirm("Xóa sản phẩm này? Hành động không thể hoàn tác.")) return;
-  const r = await fetch(`${API}/api/product/delete/`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ product_id: productId })
-  });
-  if (r.ok) { loadProducts(); setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; }); }
-  else { const d = await r.json(); toast.error(d.message); }
-};
+  const handleDeleteProduct = (productId) => {
+    setConfirmModal({ message: "Xóa sản phẩm này? Hành động không thể hoàn tác.", onConfirm: async () => {
+      const r = await fetch(`${API}/api/product/delete/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: productId })
+      });
+      if (r.ok) {
+        loadProducts();
+        setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; });
+        toast.success("Đã xóa sản phẩm!");
+      } else { const d = await r.json(); toast.error(d.message); }
+    }});
+  };
 
   const handleSaveVoucher = async()=>{
     if(!newVoucher.code.trim()){toast.error("Vui lòng nhập mã voucher");return;}
@@ -1066,7 +1084,7 @@ const handleDeleteProduct = async (productId) => {
   const deactivateVoucher = async(id)=>{ const r=await fetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); if(r.ok)loadVouchers(); };
 
   const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleCancelOrder = async(orderId)=>{ if(!window.confirm("Hủy đơn hàng này?"))return; setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
+  const handleCancelOrder = (orderId)=>{ setConfirmModal({ message:"Hủy đơn hàng này?", onConfirm: async()=>{ setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); toast.success("Đã hủy đơn hàng!"); } else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} } }); };
   const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await fetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.error(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
 
   const loadImportVariants = async(pid)=>{ if(!pid)return; setImportLoading(true); try{ const r=await fetch(`${API}/api/product/${pid}/variants/`); const d=await r.json(); if(r.ok){setImportVariants(d.variants||[]);setImportQty({});} }finally{setImportLoading(false);} };
@@ -1082,12 +1100,12 @@ const handleDeleteProduct = async (productId) => {
   const changeRole = async(staffId,newRole)=>{ try{const r=await fetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})});if(r.ok)loadStaff();}catch{toast.error("Lỗi cập nhật quyền");} };
 
   const savePost = async()=>{ if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;} setPostSaving(true); try{ const fd=new FormData(); fd.append("title",postForm.title); fd.append("category",postForm.category); fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin"); fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r))); Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); if(editingPost)fd.append("post_id",editingPost.id); const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`; const r=await fetch(url,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);} };
-  const deletePost = async(postId)=>{ if(!window.confirm("Xóa bài viết này?"))return; const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();toast.error(d.message);} };
+  const deletePost = (postId)=>{ setConfirmModal({ message:"Xóa bài viết này?", onConfirm: async()=>{ const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok){ setPostList(p=>p.filter(x=>x.id!==postId)); toast.success("Đã xóa bài viết!"); } else{const d=await r.json();toast.error(d.message);} } }); };
 
   const loadProductContent = async(pid)=>{ if(!pid)return; setPcLoaded(false); try{const r=await fetch(`${API}/api/product/${pid}/content/`);const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);} };
   const saveProductContent = async()=>{ if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await fetch(`${API}/api/product/content/save/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok)toast.success("✅ "+d.message); else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);} };
 
-  const handleLogout = ()=>{ localStorage.removeItem("admin_user"); navigate("/admin/login"); };
+  const handleLogout = ()=>{ localStorage.removeItem("admin_user"); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/admin/login"); };
 
   const ORDER_STATUS_MAP = {
     Pending:    { label:"Chờ xác nhận",   color:"#ff9500", next:"Processing", nextLabel:"Xác nhận xử lý"  },
@@ -1146,6 +1164,19 @@ const handleDeleteProduct = async (productId) => {
         }
       `}</style>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+      {confirmModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
