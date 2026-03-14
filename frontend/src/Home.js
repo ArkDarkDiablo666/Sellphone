@@ -7,6 +7,7 @@ import {
   ShoppingCart, ChevronDown, Search, ChevronRight, Package
 } from "lucide-react";
 import { SearchModal } from "./Searchbar";
+import { isLoggedIn, clearSession } from "./authUtils";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
 
@@ -307,7 +308,7 @@ export default function Home() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
+    clearSession("user");
     setConfirmLogout(false);
     sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
     navigate("/login");
@@ -378,7 +379,7 @@ export default function Home() {
           <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
             <Search size={20} />
           </button>
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative focus:outline-none">
+          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative focus:outline-none">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">

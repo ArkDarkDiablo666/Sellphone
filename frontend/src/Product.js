@@ -9,6 +9,7 @@ import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
+import { isLoggedIn, clearSession } from "./authUtils";
 
 const API = "http://localhost:8000";
 
@@ -111,7 +112,7 @@ export default function Product() {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); navigate("/login"); };
+  const handleLogout = () => { clearSession("user"); setConfirmLogout(false); navigate("/login"); };
 
   useEffect(() => {
     setLoading(true);
@@ -281,7 +282,7 @@ export default function Product() {
             <Search size={20} />
           </button>
 
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
+          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">

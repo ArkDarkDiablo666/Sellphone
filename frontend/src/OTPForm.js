@@ -3,26 +3,30 @@ import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 
-const API = "http://localhost:8000";
+const API          = "http://localhost:8000";
+const MAX_ATTEMPTS = 5;   // [FIX] Tối đa 5 lần nhập sai
+const RESEND_WAIT  = 60;  // giây
 
 export default function OTPForm() {
-  const [otp, setOtp]             = useState(["", "", "", "", "", ""]);
-  const [error, setError]         = useState("");
-  const [loading, setLoading]     = useState(false);
-  const [countdown, setCountdown] = useState(60);
-  const [canResend, setCanResend] = useState(false);
+  const [otp,         setOtp]         = useState(["", "", "", "", "", ""]);
+  const [error,       setError]       = useState("");
+  const [loading,     setLoading]     = useState(false);
+  const [countdown,   setCountdown]   = useState(RESEND_WAIT);
+  const [canResend,   setCanResend]   = useState(false);
+  const [attempts,    setAttempts]    = useState(0);   // [FIX] đếm lần sai
+  const [isLocked,    setIsLocked]    = useState(false); // [FIX] khóa sau MAX_ATTEMPTS
   const inputRefs = useRef([]);
   const navigate  = useNavigate();
   const { toast, toasts, removeToast } = useToast();
 
-  // ===== ĐẾM NGƯỢC 60 GIÂY =====
+  // ── Đếm ngược 60 giây ─────────────────────────────────────
   useEffect(() => {
     if (countdown <= 0) { setCanResend(true); return; }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // ===== NHẬP OTP TỰ ĐỘNG CHUYỂN Ô =====
+  // ── Nhập OTP tự động chuyển ô ─────────────────────────────
   const handleChange = (value, index) => {
     if (!/^[0-9]?$/.test(value)) return;
     const newOtp = [...otp];
@@ -33,13 +37,30 @@ export default function OTPForm() {
   };
 
   const handleKeyDown = (e, index) => {
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
+    if (e.key === "Backspace" && !otp[index] && index > 0)
       inputRefs.current[index - 1]?.focus();
-    }
   };
 
-  // ===== XÁC NHẬN OTP =====
+  const handlePaste = (e) => {
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!pasted) return;
+    e.preventDefault();
+    const newOtp = [...otp];
+    for (let i = 0; i < 6; i++) newOtp[i] = pasted[i] || "";
+    setOtp(newOtp);
+    const nextEmpty = newOtp.findIndex(v => !v);
+    const focusIdx  = nextEmpty === -1 ? 5 : nextEmpty;
+    inputRefs.current[focusIdx]?.focus();
+  };
+
+  // ── Xác nhận OTP ──────────────────────────────────────────
   const handleVerify = async () => {
+    // [FIX] Chặn nếu đã bị khóa
+    if (isLocked) {
+      setError("Quá nhiều lần thử sai. Vui lòng yêu cầu mã OTP mới.");
+      return;
+    }
+
     const otpCode = otp.join("");
     if (otpCode.length < 6) { setError("Vui lòng nhập đủ 6 số"); return; }
 
@@ -56,23 +77,33 @@ export default function OTPForm() {
       if (res.ok) {
         navigate("/login/forgot_password/otp/reset_password");
       } else {
-        toast.error(data.message);
+        // [FIX] Tăng bộ đếm lần sai
+        const newAttempts = attempts + 1;
+        setAttempts(newAttempts);
+
+        if (newAttempts >= MAX_ATTEMPTS) {
+          setIsLocked(true);
+          setError(`Sai quá ${MAX_ATTEMPTS} lần. Vui lòng yêu cầu mã OTP mới để tiếp tục.`);
+        } else {
+          setError(`${data.message} (Còn ${MAX_ATTEMPTS - newAttempts} lần thử)`);
+        }
+
         setOtp(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
       }
-    } catch {
-      toast.error("Không thể kết nối server");
-    } finally {
-      setLoading(false);
-    }
+    } catch { toast.error("Không thể kết nối server"); }
+    finally { setLoading(false); }
   };
 
-  // ===== GỬI LẠI OTP =====
+  // ── Gửi lại OTP ───────────────────────────────────────────
   const handleResend = async () => {
     if (!canResend) return;
     const email = sessionStorage.getItem("reset_email");
     setError("");
     setOtp(["", "", "", "", "", ""]);
+    // [FIX] Reset bộ đếm khi gửi lại OTP mới
+    setAttempts(0);
+    setIsLocked(false);
 
     try {
       const res = await fetch(`${API}/api/auth/forgot-password/`, {
@@ -80,50 +111,57 @@ export default function OTPForm() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ email }),
       });
-
       if (res.ok || res.status === 500) {
-        setCountdown(60);
+        setCountdown(RESEND_WAIT);
         setCanResend(false);
         inputRefs.current[0]?.focus();
         toast.success("Đã gửi lại mã OTP!");
         return;
       }
-
       const data = await res.json();
       toast.error(data.message);
-    } catch {
-      toast.error("Không thể kết nối server");
-    }
+    } catch { toast.error("Không thể kết nối server"); }
   };
 
   return (
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
       <img src={bg} alt="" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
-      <div className="absolute inset-0 bg-black/60"></div>
+      <div className="absolute inset-0 bg-black/60" />
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
         <div className="w-1/2">
           <img src={bg} alt="" className="w-full h-full object-cover" />
         </div>
-
         <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col justify-center px-20 text-white">
           <h2 className="text-3xl font-semibold text-white mb-4">Nhập mã OTP</h2>
           <p className="text-gray-300 mb-2">Nhập mã OTP được gửi đến email của bạn.</p>
           <p className="text-blue-300 text-sm mb-8">{sessionStorage.getItem("reset_email")}</p>
+
+          {/* Cảnh báo bị khóa */}
+          {isLocked && (
+            <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30">
+              <p className="text-red-400 text-sm">
+                Đã nhập sai {MAX_ATTEMPTS} lần. Vui lòng gửi lại mã OTP mới.
+              </p>
+            </div>
+          )}
 
           {/* 6 Ô OTP */}
           <div className="flex gap-3 mb-4">
             {otp.map((digit, index) => (
               <input
                 key={index}
-                ref={(el) => (inputRefs.current[index] = el)}
+                ref={el => (inputRefs.current[index] = el)}
                 maxLength={1}
                 value={digit}
-                onChange={(e) => handleChange(e.target.value, index)}
-                onKeyDown={(e) => handleKeyDown(e, index)}
+                onChange={e => handleChange(e.target.value, index)}
+                onKeyDown={e => handleKeyDown(e, index)}
+                onPaste={handlePaste}
+                disabled={isLocked}  // [FIX] disable khi bị khóa
                 className={`w-14 h-14 text-center text-xl rounded-lg bg-transparent border
                   focus:ring-2 outline-none transition
+                  ${isLocked ? "opacity-40 cursor-not-allowed" : ""}
                   ${error ? "border-red-400 focus:ring-red-400/60" : "border-white/40 focus:ring-white/60"}`}
               />
             ))}
@@ -140,18 +178,19 @@ export default function OTPForm() {
             ) : (
               <p className="text-gray-400 text-sm">
                 Gửi lại sau <span className="text-white font-medium">{countdown}s</span>
+                {/* [FIX] Gợi ý gửi lại khi bị khóa */}
+                {isLocked && <span className="text-red-400 ml-2">— cần mã mới</span>}
               </p>
             )}
           </div>
 
           <button
             onClick={handleVerify}
-            disabled={loading}
+            disabled={loading || isLocked}
             className="w-full p-3 flex items-center justify-center rounded-full text-white text-sm font-medium
-                  bg-[rgba(255,149,0,0.7)] border border-[#ff9500]
-                  backdrop-blur-[2px]
-                  shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
-                  hover:bg-[rgba(255,149,0,0.9)] transition">
+              bg-[rgba(255,149,0,0.7)] border border-[#ff9500] backdrop-blur-[2px]
+              shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+              hover:bg-[rgba(255,149,0,0.9)] disabled:opacity-50 disabled:cursor-not-allowed transition">
             {loading ? "Đang xác nhận..." : "Xác nhận"}
           </button>
         </div>

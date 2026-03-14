@@ -1,20 +1,23 @@
 import json
 import datetime
+import os
 from django.contrib.auth.hashers import make_password, check_password
 import cloudinary
 import cloudinary.uploader
+# [FIX] Đọc Cloudinary credentials từ biến môi trường
 cloudinary.config(
-    cloud_name = "dag3scrwl",
-    api_key    = "997941784142674",
-    api_secret = "5QXdjv-HeiJEPPhEUcukPFIRyFU",
+    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "dag3scrwl"),
+    api_key    = os.environ.get("CLOUDINARY_API_KEY",    "997941784142674"),
+    api_secret = os.environ.get("CLOUDINARY_API_SECRET", "5QXdjv-HeiJEPPhEUcukPFIRyFU"),
 )
 import random
 from django.core.mail import send_mail
 from django.conf import settings
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
+from .permissions import IsAdminOrStaff, IsAdminOnly, IsAuthenticatedCustomer
 from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia
 import logging
 from django.db.models import Avg, Count, Sum, F, FloatField, ExpressionWrapper, Min, Max, Q, DecimalField
@@ -26,7 +29,50 @@ import io
 import time
 
 logger = logging.getLogger(__name__)
-otp_storage = {}
+otp_storage     = {}          # fallback in-memory; replaced by cache below
+OTP_ATTEMPTS    = {}          # [FIX #2] track brute-force attempts per email
+MAX_OTP_ATTEMPTS = 5
+OTP_EXPIRY_SECONDS = 300
+
+
+# [FIX #1.3] JWT token helper — dùng cho tất cả login responses
+def get_tokens_for_customer(customer):
+    """
+    Tạo JWT token cho Customer dùng PyJWT trực tiếp.
+    [FIX] Đổi từ simplejwt sang PyJWT để đồng nhất với Permissions.py
+    — Permissions._decode_token() dùng pyjwt.decode(SECRET_KEY) để verify,
+      nếu token được ký bằng simplejwt (SIGNING_KEY có thể khác) thì sẽ fail.
+    Token chứa: customer_id, type="customer", exp (8 giờ)
+    """
+    import jwt as pyjwt
+    from datetime import datetime, timezone, timedelta
+    from django.conf import settings
+    payload = {
+        "customer_id": customer.CustomerID,
+        "type":        "customer",
+        "iat":         datetime.now(timezone.utc),
+        "exp":         datetime.now(timezone.utc) + timedelta(hours=8),
+    }
+    return pyjwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def get_tokens_for_staff(staff):
+    """
+    Tạo JWT token cho Staff/Admin dùng PyJWT trực tiếp.
+    Không dùng SimpleJWT vì Staff không phải AbstractBaseUser.
+    permissions.py decode token này bằng _decode_token().
+    """
+    import jwt as pyjwt
+    from datetime import datetime, timezone, timedelta
+    from django.conf import settings
+    payload = {
+        "staff_id": staff.StaffID,
+        "role":     staff.Role,
+        "type":     "staff",
+        "iat":      datetime.now(timezone.utc),
+        "exp":      datetime.now(timezone.utc) + timedelta(hours=8),
+    }
+    return pyjwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -187,7 +233,7 @@ def register_normal(request):
         customer = create_customer(FullName=full_name, Email=email, Password=hash_password(password), LoginType='normal')
     except ValueError as e:
         return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    return Response({"message": "Đăng ký thành công", "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
+    return Response({"message": "Đăng ký thành công", "token": get_tokens_for_customer(customer), "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -202,7 +248,7 @@ def login_normal(request):
     if not check_password(password, existing.Password): return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
     avatar = existing.Avatar or ""
     if avatar.startswith("data:"): avatar = ""
-    return Response({"message": "Đăng nhập thành công", "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": avatar, "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
+    return Response({"message": "Đăng nhập thành công", "token": get_tokens_for_customer(existing), "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": avatar, "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -218,7 +264,7 @@ def register_google(request):
         customer = create_customer(FullName=full_name, Email=email, Password=None, GoogleID=google_id, Avatar=avatar, LoginType='google')
     except ValueError as e:
         return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    return Response({"message": "Đăng ký Google thành công", "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
+    return Response({"message": "Đăng ký Google thành công", "token": get_tokens_for_customer(customer), "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -229,7 +275,7 @@ def login_google(request):
     existing = Customer.objects.filter(Email=email).first()
     if not existing:                   return Response({"message": "Tài khoản Google chưa được đăng ký"}, status=status.HTTP_404_NOT_FOUND)
     if existing.LoginType != 'google': return Response({"message": email_exists_message(existing.LoginType)}, status=status.HTTP_400_BAD_REQUEST)
-    return Response({"message": "Đăng nhập Google thành công", "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": existing.Avatar or "", "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
+    return Response({"message": "Đăng nhập Google thành công", "token": get_tokens_for_customer(existing), "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": existing.Avatar or "", "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -246,7 +292,7 @@ def register_facebook(request):
         customer = create_customer(FullName=full_name, Email=email if email else f"fb_{facebook_id}@noemail.com", Password=None, FacebookID=facebook_id, Avatar=avatar, LoginType='facebook')
     except ValueError as e:
         return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    return Response({"message": "Đăng ký Facebook thành công", "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
+    return Response({"message": "Đăng ký Facebook thành công", "token": get_tokens_for_customer(customer), "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -257,7 +303,7 @@ def login_facebook(request):
     existing = Customer.objects.filter(Email=email).first()
     if not existing:                      return Response({"message": "Tài khoản Facebook chưa được đăng ký"}, status=status.HTTP_404_NOT_FOUND)
     if existing.LoginType != 'facebook':  return Response({"message": email_exists_message(existing.LoginType)}, status=status.HTTP_400_BAD_REQUEST)
-    return Response({"message": "Đăng nhập Facebook thành công", "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": existing.Avatar or "", "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
+    return Response({"message": "Đăng nhập Facebook thành công", "token": get_tokens_for_customer(existing), "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": existing.Avatar or "", "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -268,8 +314,11 @@ def forgot_password(request):
     if not existing:                      return Response({"message": "Email chưa được đăng ký"}, status=status.HTTP_404_NOT_FOUND)
     if existing.LoginType == 'google':    return Response({"message": "Email này đã đăng ký bằng Google, vui lòng đăng nhập bằng Google"}, status=status.HTTP_400_BAD_REQUEST)
     if existing.LoginType == 'facebook':  return Response({"message": "Email này đã đăng ký bằng Facebook, vui lòng đăng nhập bằng Facebook"}, status=status.HTTP_400_BAD_REQUEST)
+    # [FIX #2] Dùng Django cache thay vì in-memory dict (thread-safe, hỗ trợ Redis)
+    from django.core.cache import cache
     otp_code = str(random.randint(100000, 999999))
-    otp_storage[email] = otp_code
+    cache.set(f"otp_value:{email}",    otp_code, timeout=OTP_EXPIRY_SECONDS)
+    cache.set(f"otp_attempts:{email}", 0,        timeout=OTP_EXPIRY_SECONDS)
     try:
         send_mail(subject="Mã OTP đặt lại mật khẩu - Sellphone", message=f"Mã OTP của bạn là: {otp_code}\nMã có hiệu lực trong 5 phút.", from_email=settings.EMAIL_HOST_USER, recipient_list=[email], fail_silently=False)
     except Exception as e:
@@ -282,9 +331,24 @@ def verify_otp(request):
     email    = request.data.get('email', '').strip()
     otp_code = request.data.get('otp', '').strip()
     if not email or not otp_code: return Response({"message": "Thiếu email hoặc OTP"}, status=status.HTTP_400_BAD_REQUEST)
-    stored_otp = otp_storage.get(email)
-    if not stored_otp:          return Response({"message": "OTP đã hết hạn, vui lòng gửi lại"}, status=status.HTTP_400_BAD_REQUEST)
-    if otp_code != stored_otp:  return Response({"message": "Mã OTP không đúng"}, status=status.HTTP_400_BAD_REQUEST)
+    # [FIX #2] Brute-force protection qua cache
+    from django.core.cache import cache
+    cache_key_attempts = f"otp_attempts:{email}"
+    cache_key_otp      = f"otp_value:{email}"
+    attempts = cache.get(cache_key_attempts, 0)
+    if attempts >= MAX_OTP_ATTEMPTS:
+        return Response({"message": "Quá nhiều lần thử sai. Vui lòng yêu cầu mã OTP mới."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    stored_otp = cache.get(cache_key_otp)
+    if not stored_otp:
+        return Response({"message": "OTP đã hết hạn, vui lòng gửi lại"}, status=status.HTTP_400_BAD_REQUEST)
+    if otp_code != stored_otp:
+        cache.set(cache_key_attempts, attempts + 1, timeout=OTP_EXPIRY_SECONDS)
+        remaining = MAX_OTP_ATTEMPTS - attempts - 1
+        msg = f"Mã OTP không đúng (còn {remaining} lần thử)" if remaining > 0 else "Mã OTP không đúng. Đã hết lượt thử."
+        return Response({"message": msg}, status=status.HTTP_400_BAD_REQUEST)
+    # Đúng → xóa cache
+    cache.delete(cache_key_otp)
+    cache.delete(cache_key_attempts)
     return Response({"message": "OTP hợp lệ"}, status=status.HTTP_200_OK)
 
 
@@ -299,7 +363,10 @@ def reset_password(request):
     if not customer: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
     customer.Password = hash_password(new_password)
     customer.save()
-    if email in otp_storage: del otp_storage[email]
+    # [FIX #2] Cache đã tự xóa trong verify_otp; đây chỉ là cleanup phòng thủ
+    from django.core.cache import cache
+    cache.delete(f"otp_value:{email}")
+    cache.delete(f"otp_attempts:{email}")
     return Response({"message": "Đặt lại mật khẩu thành công"}, status=status.HTTP_200_OK)
 
 
@@ -315,6 +382,7 @@ def get_customer(request, customer_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def update_customer(request):
     customer_id = request.data.get('id', '').strip()
     phone       = request.data.get('phone_number', None)
@@ -335,6 +403,7 @@ def update_customer(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def change_password(request):
     customer_id      = request.data.get('id', '').strip()
     current_password = request.data.get('current_password', '').strip()
@@ -351,12 +420,21 @@ def change_password(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def upload_avatar(request):
     customer_id = request.data.get('id', '').strip()
     avatar_file = request.FILES.get('avatar_file')
     if not customer_id or not avatar_file: return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+    # [FIX #9] Server-side file validation
+    MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+    ALLOWED_IMAGE_MIMES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+    if avatar_file.size > MAX_IMAGE_SIZE:
+        return Response({"message": "Ảnh không được vượt quá 5MB"}, status=status.HTTP_400_BAD_REQUEST)
+    content_type = avatar_file.content_type or ''
+    if content_type not in ALLOWED_IMAGE_MIMES:
+        return Response({"message": f"Loại file không được phép: {content_type}. Chỉ chấp nhận jpg, png, webp, gif"}, status=status.HTTP_400_BAD_REQUEST)
     try:
         upload_result = cloudinary.uploader.upload(avatar_file, folder="sellphone/avatars", public_id=f"avatar_{customer_id}", overwrite=True, resource_type="image", transformation=[{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}])
         customer.Avatar = upload_result["secure_url"]
@@ -378,6 +456,7 @@ def get_customer_addresses(request, customer_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def create_customer_address(request):
     from .models import CustomerAddress
     customer_id = request.data.get('customer_id')
@@ -393,6 +472,7 @@ def create_customer_address(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def update_customer_address(request):
     from .models import CustomerAddress
     addr_id = request.data.get('id')
@@ -406,6 +486,7 @@ def update_customer_address(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def delete_customer_address(request):
     from .models import CustomerAddress
     addr_id = request.data.get('id')
@@ -429,10 +510,11 @@ def admin_login(request):
     if not staff:                                    return Response({"message": "Tài khoản không tồn tại", "field": "username"}, status=status.HTTP_404_NOT_FOUND)
     if not check_password(password, staff.Password): return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
     if staff.Role == 'Unentitled':                   return Response({"message": "Bạn không có quyền truy cập", "field": "general"}, status=status.HTTP_403_FORBIDDEN)
-    return Response({"message": "Đăng nhập thành công", "admin": {"id": staff.StaffID, "full_name": staff.FullName, "username": staff.Email, "role": staff.Role, "avatar": ""}}, status=status.HTTP_200_OK)
+    return Response({"message": "Đăng nhập thành công", "token": get_tokens_for_staff(staff), "admin": {"id": staff.StaffID, "full_name": staff.FullName, "username": staff.Email, "role": staff.Role, "avatar": ""}}, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def get_staff(request, staff_id):
     staff = Staff.objects.filter(StaffID=staff_id).first()
     if not staff: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
@@ -440,12 +522,14 @@ def get_staff(request, staff_id):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def list_staff(request):
     data = [{"id": s.StaffID, "full_name": s.FullName, "email": s.Email, "role": s.Role, "avatar": s.Avatar or "" if hasattr(s, 'Avatar') else ""} for s in Staff.objects.all().order_by('StaffID')]
     return Response({"staff": data}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOnly])
 def create_staff(request):
     full_name = request.data.get('full_name', '').strip()
     email     = request.data.get('email', '').strip()
@@ -460,6 +544,7 @@ def create_staff(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOnly])
 def update_staff_role(request):
     staff_id = request.data.get('id')
     role     = request.data.get('role', '').strip()
@@ -480,6 +565,7 @@ def delete_staff(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def change_staff_password(request):
     staff_id         = request.data.get('id')
     current_password = request.data.get('current_password', '').strip()
@@ -495,6 +581,7 @@ def change_staff_password(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def upload_staff_avatar(request):
     staff_id    = request.data.get('id')
     avatar_file = request.FILES.get('avatar_file')
@@ -520,6 +607,7 @@ def list_categories(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def create_category(request):
     name       = request.data.get('name', '').strip()
     image_file = request.FILES.get('image')
@@ -537,6 +625,7 @@ def create_category(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def update_category(request):
     cat_id     = request.data.get('id')
     name       = request.data.get('name', '').strip()
@@ -556,6 +645,7 @@ def update_category(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOnly])
 def delete_category(request):
     cat_id = request.data.get('id')
     if not cat_id: return Response({"message": "Thiếu category_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -606,6 +696,7 @@ def _validate_variants(variants):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def create_product(request):
     product_name = request.data.get('product_name', '').strip()
     brand        = request.data.get('brand', '').strip()
@@ -687,6 +778,7 @@ def get_product_variants(request, product_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def add_variants(request):
     product_id    = request.data.get('product_id') or request.POST.get('product_id')
     variants_json = request.POST.get('variants')
@@ -718,6 +810,7 @@ def add_variants(request):
 
 @api_view(['POST'])
 @parser_classes([MultiPartParser])
+@permission_classes([IsAdminOrStaff])
 def update_product(request):
     product_id   = request.data.get('product_id') or request.POST.get('product_id')
     product_name = (request.data.get('product_name') or '').strip()
@@ -747,16 +840,26 @@ def update_product(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOnly])
 def delete_product(request):
     product_id = request.data.get('product_id')
     if not product_id: return Response({"message": "Thiếu product_id"}, status=status.HTTP_400_BAD_REQUEST)
     product = Product.objects.filter(ProductID=product_id).first()
     if not product: return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+    # [FIX #6] Không xóa nếu còn đơn hàng active
+    active_statuses = ['Pending', 'Processing', 'Shipping']
+    has_active = OrderDetail.objects.filter(
+        VariantID__ProductID=product_id,
+        OrderID__Status__in=active_statuses
+    ).exists()
+    if has_active:
+        return Response({"message": "Không thể xóa sản phẩm đang có trong đơn hàng chưa hoàn tất"}, status=status.HTTP_400_BAD_REQUEST)
     product.delete()
     return Response({"message": "Đã xóa sản phẩm"}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def delete_product_image(request):
     image_id = request.data.get('image_id')
     if not image_id: return Response({"message": "Thiếu image_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -775,6 +878,7 @@ def delete_product_image(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def set_primary_image(request):
     image_id   = request.data.get('image_id')
     product_id = request.data.get('product_id')
@@ -787,6 +891,7 @@ def set_primary_image(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def import_stock(request):
     items = request.data.get('items', [])
     if not items: return Response({"message": "Không có dữ liệu nhập hàng"}, status=status.HTTP_400_BAD_REQUEST)
@@ -803,6 +908,7 @@ def import_stock(request):
 
 @api_view(['POST'])
 @parser_classes([MultiPartParser])
+@permission_classes([IsAdminOrStaff])
 def update_variant(request):
     variant_id = request.data.get('variant_id')
     if not variant_id: return Response({"message": "Thiếu variant_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -833,6 +939,7 @@ def update_variant(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def delete_variant(request):
     variant_id = request.data.get('variant_id')
     if not variant_id: return Response({"message": "Thiếu variant_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -841,6 +948,14 @@ def delete_variant(request):
     product_id = variant.ProductID_id
     if ProductVariant.objects.filter(ProductID=product_id).count() <= 1:
         return Response({"message": "Không thể xóa biến thể duy nhất của sản phẩm"}, status=status.HTTP_400_BAD_REQUEST)
+    # [FIX #6] Không xóa nếu biến thể đang có trong đơn hàng active
+    active_statuses = ['Pending', 'Processing', 'Shipping']
+    has_active = OrderDetail.objects.filter(
+        VariantID=variant_id,
+        OrderID__Status__in=active_statuses
+    ).exists()
+    if has_active:
+        return Response({"message": "Không thể xóa biến thể đang có trong đơn hàng chưa hoàn tất"}, status=status.HTTP_400_BAD_REQUEST)
     variant.delete()
     on_product_saved(product_id)
     return Response({"message": "Đã xóa biến thể"}, status=status.HTTP_200_OK)
@@ -860,6 +975,7 @@ def get_product_content(request, product_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def save_product_content(request):
     product_id = request.data.get('product_id')
     blocks     = request.data.get('blocks', '[]')
@@ -938,6 +1054,7 @@ def _calc_discount_for_items(v, item_list):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def list_vouchers(request):
     from .models import Voucher
     today    = _date.today()
@@ -964,6 +1081,7 @@ def list_active_vouchers(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def create_voucher(request):
     from .models import Voucher
     code  = request.data.get('code', '').strip().upper()
@@ -984,6 +1102,11 @@ def create_voucher(request):
     end_raw     = request.data.get('end_date')
     start_date  = _date.fromisoformat(start_raw) if start_raw else None
     end_date    = _date.fromisoformat(end_raw)   if end_raw   else None
+    # [FIX #7] Kiểm tra ngày hợp lệ
+    if start_date and end_date and end_date <= start_date:
+        return Response({"message": "Ngày kết thúc phải sau ngày bắt đầu"}, status=status.HTTP_400_BAD_REQUEST)
+    if end_date and not start_date:
+        return Response({"message": "Vui lòng chọn ngày bắt đầu"}, status=status.HTTP_400_BAD_REQUEST)
     min_order   = float(request.data.get('min_order', 0) or 0)
     max_disc    = request.data.get('max_discount')
     usage_limit = request.data.get('usage_limit')
@@ -992,6 +1115,7 @@ def create_voucher(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def update_voucher(request):
     from .models import Voucher
     voucher_id = request.data.get('id')
@@ -1007,6 +1131,7 @@ def update_voucher(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOnly])
 def delete_voucher(request):
     from .models import Voucher
     voucher_id = request.data.get('id')
@@ -1016,6 +1141,7 @@ def delete_voucher(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def deactivate_voucher(request):
     from .models import Voucher
     vid = request.data.get('id')
@@ -1093,45 +1219,91 @@ def get_best_voucher(request):
 # ══════════════════════════════════════════════════════════════
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def create_order(request):
     from .models import Voucher
     from django.db import transaction
+    from django.db.models import F
+    from django.utils import timezone as _tz
+
     customer_id      = request.data.get('customer_id')
     items            = request.data.get('items', [])
     voucher_code     = request.data.get('voucher_code')
-    subtotal         = float(request.data.get('subtotal', 0) or 0)
-    discount         = float(request.data.get('discount', 0) or 0)
-    total            = float(request.data.get('total', 0) or 0)
     payment_method   = request.data.get('payment_method', 'cod')
     receiver_name    = request.data.get('receiver_name', '').strip()
     receiver_phone   = request.data.get('receiver_phone', '').strip()
     receiver_address = request.data.get('receiver_address', '').strip()
     note             = request.data.get('note', '').strip()
+
     if not customer_id:      return Response({"message": "Thiếu thông tin tài khoản"}, status=status.HTTP_400_BAD_REQUEST)
     if not items:            return Response({"message": "Giỏ hàng trống"}, status=status.HTTP_400_BAD_REQUEST)
     if not receiver_name:    return Response({"message": "Vui lòng nhập tên người nhận"}, status=status.HTTP_400_BAD_REQUEST)
     if not receiver_phone:   return Response({"message": "Vui lòng nhập số điện thoại"}, status=status.HTTP_400_BAD_REQUEST)
     if not receiver_address: return Response({"message": "Vui lòng nhập địa chỉ nhận hàng"}, status=status.HTTP_400_BAD_REQUEST)
+
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+
+    # [FIX #3 + #5] Tính lại subtotal từ DB — KHÔNG tin giá từ frontend
+    # Dùng select_for_update để lock row, tránh race condition stock
     validated_items = []
-    for item in items:
-        raw_vid = item.get('variant_id')
-        try:    vid = int(raw_vid)
-        except: return Response({"message": "Sản phẩm không hợp lệ. Vui lòng xóa giỏ hàng và thêm lại."}, status=status.HTTP_400_BAD_REQUEST)
-        variant = ProductVariant.objects.select_related('ProductID').filter(VariantID=vid).first()
-        if not variant: return Response({"message": f"Sản phẩm #{vid} không còn tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
-        qty = int(item.get('qty', 1))
-        if qty <= 0: return Response({"message": "Số lượng sản phẩm phải lớn hơn 0"}, status=status.HTTP_400_BAD_REQUEST)
-        if variant.StockQuantity < qty:
-            pname = variant.ProductID.ProductName
-            color = f" ({variant.Color})" if variant.Color else ""
-            return Response({"message": f"'{pname}{color}' chỉ còn {variant.StockQuantity} sản phẩm trong kho"}, status=status.HTTP_400_BAD_REQUEST)
-        price = float(item.get('price', 0))
-        if price <= 0: return Response({"message": "Giá sản phẩm không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
-        validated_items.append({"variant": variant, "qty": qty, "price": price})
     try:
         with transaction.atomic():
+            subtotal = 0.0
+            for item in items:
+                raw_vid = item.get('variant_id')
+                try:    vid = int(raw_vid)
+                except: return Response({"message": "Sản phẩm không hợp lệ. Vui lòng xóa giỏ hàng và thêm lại."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # [FIX #5] select_for_update để lock variant row trong transaction
+                variant = ProductVariant.objects.select_for_update().select_related('ProductID').filter(VariantID=vid).first()
+                if not variant:
+                    return Response({"message": f"Sản phẩm #{vid} không còn tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
+
+                qty = int(item.get('qty', 1))
+                if qty <= 0:
+                    return Response({"message": "Số lượng sản phẩm phải lớn hơn 0"}, status=status.HTTP_400_BAD_REQUEST)
+
+                # [FIX #5] Re-check stock tại thời điểm đặt hàng (đã lock row)
+                if variant.StockQuantity < qty:
+                    pname = variant.ProductID.ProductName
+                    color = f" ({variant.Color})" if variant.Color else ""
+                    return Response({"message": f"'{pname}{color}' chỉ còn {variant.StockQuantity} sản phẩm trong kho"}, status=status.HTTP_400_BAD_REQUEST)
+
+                # [FIX #3] Dùng giá từ DB, không dùng giá frontend gửi lên
+                db_price = float(variant.Price)
+                subtotal += db_price * qty
+                validated_items.append({"variant": variant, "qty": qty, "price": db_price})
+
+            # [FIX #4] Tính discount từ BE, kiểm tra usage_limit atomic
+            discount = 0.0
+            voucher  = None
+            if voucher_code:
+                # select_for_update để tránh race condition usage_limit
+                voucher = Voucher.objects.select_for_update().filter(
+                    Code=voucher_code.strip().upper(), IsActive=True
+                ).first()
+                if voucher:
+                    today = _tz.now().date()
+                    if voucher.EndDate   and voucher.EndDate   < today:
+                        return Response({"message": "Voucher đã hết hạn"}, status=status.HTTP_400_BAD_REQUEST)
+                    if voucher.StartDate and voucher.StartDate > today:
+                        return Response({"message": "Voucher chưa có hiệu lực"}, status=status.HTTP_400_BAD_REQUEST)
+                    # [FIX #4] Kiểm tra usage_limit atomically
+                    if voucher.UsageLimit and voucher.UsedCount >= voucher.UsageLimit:
+                        return Response({"message": "Voucher đã hết lượt sử dụng"}, status=status.HTTP_400_BAD_REQUEST)
+                    # Tính discount từ BE
+                    if subtotal >= float(voucher.MinOrder or 0):
+                        if voucher.Type == 'percent':
+                            discount = round(subtotal * min(float(voucher.Value), 100) / 100)
+                            if voucher.MaxDiscount:
+                                discount = min(discount, float(voucher.MaxDiscount))
+                        else:
+                            discount = min(float(voucher.Value), subtotal)
+
+            total = max(0.0, subtotal - discount)
+
+            # Tạo đơn hàng
             shipping_address = f"{receiver_name} - {receiver_phone} - {receiver_address}"
             if note: shipping_address += f" | Ghi chú: {note}"
             order = Order(CustomerID=customer, TotalAmount=total, Status='Processing', ShippingAddress=shipping_address)
@@ -1139,15 +1311,25 @@ def create_order(request):
                 try: setattr(order, field, val)
                 except: pass
             order.save()
+
+            # Tạo OrderDetail và trừ stock trong cùng transaction
             for vi in validated_items:
                 variant = vi['variant']; qty = vi['qty']
                 OrderDetail.objects.create(OrderID=order, VariantID=variant, Quantity=qty, UnitPrice=vi['price'])
-                variant.StockQuantity = max(0, variant.StockQuantity - qty); variant.save()
-            if voucher_code:
-                vobj = Voucher.objects.filter(Code=voucher_code.upper()).first()
-                if vobj: vobj.UsedCount += 1; vobj.save()
+                # [FIX #5] Dùng F() expression để trừ stock atomically
+                ProductVariant.objects.filter(VariantID=variant.VariantID).update(
+                    StockQuantity=F('StockQuantity') - qty
+                )
+
+            # [FIX #4] Tăng used_count atomically sau khi đã xác nhận voucher hợp lệ
+            if voucher:
+                Voucher.objects.filter(VoucherID=voucher.VoucherID).update(
+                    UsedCount=F('UsedCount') + 1
+                )
+
     except Exception as e:
         return Response({"message": f"Đặt hàng thất bại, vui lòng thử lại. ({str(e)})"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     resp = {"message": "Đặt hàng thành công", "order_id": order.OrderID}
     if payment_method == "momo":  resp["momo_url"]  = None
     if payment_method == "vnpay": resp["vnpay_url"] = None
@@ -1155,6 +1337,7 @@ def create_order(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticatedCustomer])
 def list_orders(request):
     customer_id = request.query_params.get('customer_id')
     if not customer_id: return Response({"message": "Thiếu customer_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1172,6 +1355,7 @@ def list_orders(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def cancel_order(request):
     from django.db import transaction
     order_id    = request.data.get('order_id')
@@ -1195,6 +1379,7 @@ def cancel_order(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def admin_list_orders(request):
     orders = Order.objects.all().order_by('-OrderDate')
     result = []
@@ -1211,6 +1396,7 @@ def admin_list_orders(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def update_order_status(request):
     from django.db import transaction
     VALID = ['Pending', 'Processing', 'Shipping', 'Delivered', 'Cancelled']
@@ -1245,6 +1431,7 @@ def update_order_status(request):
 # ══════════════════════════════════════════════════════════════
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def create_return_request(request):
     from django.db import transaction
     order_id    = request.data.get('order_id')
@@ -1277,6 +1464,7 @@ def create_return_request(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def list_return_requests(request):
     returns = ReturnRequest.objects.all().select_related('OrderID').order_by('-CreatedAt')
     result  = []
@@ -1288,6 +1476,7 @@ def list_return_requests(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def process_return_request(request):
     from django.db import transaction
     return_id = request.data.get('return_id')
@@ -1318,6 +1507,7 @@ def process_return_request(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticatedCustomer])
 def get_return_request(request, order_id):
     o = Order.objects.filter(OrderID=order_id).first()
     if not o: return Response({"return": None}, status=status.HTTP_200_OK)
@@ -1359,6 +1549,7 @@ def get_post(request, post_id):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def create_post(request):
     title    = request.data.get('title', '').strip()
     category = request.data.get('category', '').strip()
@@ -1382,6 +1573,7 @@ def create_post(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def update_post(request):
     post_id = request.data.get('post_id')
     p = Post.objects.filter(PostID=post_id).first()
@@ -1406,6 +1598,7 @@ def update_post(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def delete_post(request):
     post_id = request.data.get('post_id')
     p = Post.objects.filter(PostID=post_id).first()
@@ -1461,6 +1654,7 @@ def list_reviews(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def create_review(request):
     from .models import Review, ReviewMedia
     customer_id = request.data.get("customer_id"); product_id = request.data.get("product_id")
@@ -1475,6 +1669,14 @@ def create_review(request):
     if not customer: return Response({"ok": False, "error": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
     product = Product.objects.filter(ProductID=product_id).first()
     if not product: return Response({"ok": False, "error": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+    # [FIX #8] Kiểm tra đã mua sản phẩm chưa (phải có đơn Delivered)
+    has_purchased = OrderDetail.objects.filter(
+        VariantID__ProductID=product_id,
+        OrderID__CustomerID=customer_id,
+        OrderID__Status='Delivered'
+    ).exists()
+    if not has_purchased:
+        return Response({"ok": False, "error": "Bạn cần mua và nhận sản phẩm này trước khi đánh giá"}, status=status.HTTP_403_FORBIDDEN)
     if Review.objects.filter(customer=customer, product=product).exists(): return Response({"ok": False, "error": "Bạn đã đánh giá sản phẩm này rồi"}, status=status.HTTP_400_BAD_REQUEST)
     variant = ProductVariant.objects.filter(VariantID=variant_id).first() if variant_id else None
     review = Review.objects.create(customer=customer, product=product, variant=variant, rating=rating, content=content)
@@ -1485,6 +1687,7 @@ def create_review(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def update_review(request):
     from .models import Review, ReviewMedia
     review_id = request.data.get("review_id"); customer_id = request.data.get("customer_id")
@@ -1505,6 +1708,7 @@ def update_review(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def delete_review(request):
     from .models import Review
     review_id = request.data.get("review_id"); customer_id = request.data.get("customer_id")
@@ -1515,9 +1719,23 @@ def delete_review(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def upload_review_media(request):
     customer_id = request.data.get("customer_id"); media_file = request.FILES.get("file")
     if not customer_id or not media_file: return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    # [FIX #9] Server-side validation
+    ALLOWED_IMAGE_MIMES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+    ALLOWED_VIDEO_MIMES = {'video/mp4', 'video/webm', 'video/quicktime'}
+    MAX_IMG_SIZE  = 5  * 1024 * 1024   # 5MB
+    MAX_VID_SIZE  = 50 * 1024 * 1024   # 50MB
+    ct = media_file.content_type or ''
+    is_video = ct.startswith('video/')
+    if is_video:
+        if media_file.size > MAX_VID_SIZE: return Response({"ok": False, "error": "Video không được vượt quá 50MB"}, status=status.HTTP_400_BAD_REQUEST)
+        if ct not in ALLOWED_VIDEO_MIMES:  return Response({"ok": False, "error": f"Định dạng video không được phép: {ct}"}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        if media_file.size > MAX_IMG_SIZE: return Response({"ok": False, "error": "Ảnh không được vượt quá 5MB"}, status=status.HTTP_400_BAD_REQUEST)
+        if ct not in ALLOWED_IMAGE_MIMES:  return Response({"ok": False, "error": f"Định dạng ảnh không được phép: {ct}"}, status=status.HTTP_400_BAD_REQUEST)
     if media_file.size > 200 * 1024 * 1024: return Response({"ok": False, "error": "File quá lớn (tối đa 200MB)"}, status=status.HTTP_400_BAD_REQUEST)
     try:
         resource_type = "video" if media_file.content_type.startswith("video") else "image"
@@ -1538,6 +1756,7 @@ def list_comments(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def create_comment(request):
     from .models import Comment
     customer_id = request.data.get("customer_id"); product_id = request.data.get("product_id")
@@ -1554,6 +1773,7 @@ def create_comment(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def delete_comment(request):
     from .models import Comment
     comment_id = request.data.get("comment_id"); customer_id = request.data.get("customer_id")
@@ -1564,6 +1784,7 @@ def delete_comment(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
 def toggle_like(request):
     from .models import Like
     customer_id = request.data.get("customer_id"); target_type = request.data.get("type"); target_id = request.data.get("target_id")
@@ -1579,6 +1800,7 @@ def toggle_like(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def admin_list_reviews(request):
     from .models import Review, Comment, AdminReply, ReviewMedia
     count_only = request.query_params.get("count_only")
@@ -1606,6 +1828,7 @@ def admin_list_reviews(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def admin_reply(request):
     from .models import AdminReply
     target_type = request.data.get("type"); target_id = request.data.get("target_id"); content = request.data.get("content", "").strip()
@@ -1617,6 +1840,7 @@ def admin_reply(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def admin_delete_reply(request):
     from .models import AdminReply
     target_type = request.data.get("type"); target_id = request.data.get("target_id")
@@ -1675,6 +1899,7 @@ def search_suggestions(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
 def rebuild_search_index(request):
     from .search_engine import rebuild_index, get_version
     v = rebuild_index()
@@ -1682,6 +1907,7 @@ def rebuild_search_index(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def search_model_info(request):
     from .yolo_search   import get_model_info
     from .search_engine import get_index, get_version
@@ -1786,6 +2012,7 @@ def _revenue_qs():
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_overview(request):
     today = tz.localdate(); qs = _revenue_qs()
     def rev(qs): return float(qs.aggregate(s=Coalesce(Sum("TotalAmount"), 0, output_field=DecimalField()))["s"])
@@ -1803,6 +2030,7 @@ def dashboard_overview(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_revenue_by_day(request):
     today = tz.localdate(); year = int(request.query_params.get("year", today.year)); month = int(request.query_params.get("month", today.month))
     qs   = _revenue_qs().filter(OrderDate__year=year, OrderDate__month=month)
@@ -1814,6 +2042,7 @@ def dashboard_revenue_by_day(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_revenue_by_month(request):
     today = tz.localdate(); year = int(request.query_params.get("year", today.year))
     qs    = _revenue_qs().filter(OrderDate__year=year)
@@ -1824,6 +2053,7 @@ def dashboard_revenue_by_month(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_revenue_by_year(request):
     rows   = _revenue_qs().annotate(year=TruncYear("OrderDate")).values("year").annotate(revenue=Sum("TotalAmount"), orders=Count("OrderID")).order_by("year")
     result = [{"year": r["year"].year, "revenue": float(r["revenue"]), "orders": r["orders"]} for r in rows]
@@ -1831,6 +2061,7 @@ def dashboard_revenue_by_year(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_revenue_by_product(request):
     today = tz.localdate(); limit = int(request.query_params.get("limit", 20))
     year  = request.query_params.get("year"); month = request.query_params.get("month")
@@ -1848,6 +2079,7 @@ def dashboard_revenue_by_product(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_revenue_by_brand(request):
     year  = request.query_params.get("year"); month = request.query_params.get("month")
     qs    = OrderDetail.objects.filter(OrderID__Status="Delivered")
@@ -1860,6 +2092,7 @@ def dashboard_revenue_by_brand(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def dashboard_revenue_compare(request):
     mode  = request.query_params.get("mode", "month"); values = request.query_params.get("values", "")
     items = [v.strip() for v in values.split(",") if v.strip()]
@@ -1912,6 +2145,7 @@ def home_best_sellers(request):
 # ══════════════════════════════════════════════════════════════
 
 @api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
 def admin_list_customers(request):
     customers = Customer.objects.all().order_by('-CustomerID')
     data = [{"id": c.CustomerID, "full_name": c.FullName, "email": c.Email, "phone": c.PhoneNumber or "", "address": c.Address or "", "login_type": c.LoginType, "order_count": Order.objects.filter(CustomerID=c.CustomerID).count(), "total_spent": float(Order.objects.filter(CustomerID=c.CustomerID, Status='Delivered').aggregate(s=Sum('TotalAmount'))['s'] or 0)} for c in customers]

@@ -9,6 +9,7 @@ import {
 import { Link } from "react-router-dom";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
+import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
 
 const API = "http://localhost:8000";
 
@@ -79,10 +80,11 @@ export function CartProvider({ children }) {
       const payload = targetItems.map(i => ({
         product_id: i.productId, category_id: i.categoryId, price: i.price, qty: i.qty,
       }));
-      const res = await fetch(`${API}/api/voucher/best-for-cart/`, {
+      const res = await authFetch(`${API}/api/voucher/best-for-cart/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: payload }),
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok && data.voucher) setVoucher(data.voucher);
     } catch { }
@@ -92,7 +94,8 @@ export function CartProvider({ children }) {
     if (!price) return null;
     try {
       const params = new URLSearchParams({ product_id: productId, category_id: categoryId || "", price, qty });
-      const res = await fetch(`${API}/api/voucher/best-for-product/?${params}`);
+      const res = await authFetch(`${API}/api/voucher/best-for-product/?${params}`, {});
+      if (!res || res === AUTH_REDIRECTED) return null;
       const data = await res.json();
       return res.ok ? data : null;
     } catch { return null; }
@@ -228,7 +231,8 @@ function CartPopup() {
     if (!vInput.trim()) return;
     setVLoad(true); setVErr("");
     try {
-      const res = await fetch(`${API}/api/voucher/apply/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: vInput.trim() }) });
+      const res = await authFetch(`${API}/api/voucher/apply/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: vInput.trim() }) });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
         const disc = calcVoucherDiscount(data.voucher, selectedItems);
@@ -371,7 +375,11 @@ function CartPopup() {
               <div className="flex justify-between font-bold text-sm mt-2 pt-2 border-t border-white/5">
                 <span>Tổng thanh toán</span><span className="text-orange-400">{total.toLocaleString("vi-VN")}đ</span>
               </div>
-              <button onClick={() => { setShow(false); navigate("/cart"); }} className="w-full mt-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition focus:outline-none">
+              <button onClick={() => {
+                setShow(false);
+                if (!isLoggedIn()) { navigate("/login"); return; }
+                navigate("/cart");
+              }} className="w-full mt-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition focus:outline-none">
                 Thanh toán ({selectedItems.length} sản phẩm)
               </button>
             </div>
@@ -643,7 +651,7 @@ export default function CartPage() {
     setTimeout(() => setVToast(null), 3500);
   };
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
+  const handleLogout = () => { clearSession("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
 
   const applyVoucherObj = (v, force = false) => {
     if (!force) {
@@ -671,10 +679,11 @@ export default function CartPage() {
     if (!vInput.trim()) return;
     setVLoad(true); setVErr("");
     try {
-      const res = await fetch(`${API}/api/voucher/apply/`, {
+      const res = await authFetch(`${API}/api/voucher/apply/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: vInput.trim() })
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
         const v = data.voucher;
@@ -782,7 +791,7 @@ export default function CartPage() {
             <Search size={20} />
           </button>
 
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative focus:outline-none">
+          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative focus:outline-none">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
@@ -1078,7 +1087,11 @@ export default function CartPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => { if (selectedItems.length > 0) navigate("/payment"); }}
+                  onClick={() => {
+                    if (selectedItems.length === 0) return;
+                    if (!isLoggedIn()) { navigate("/login"); return; }
+                    navigate("/payment");
+                  }}
                   disabled={selectedItems.length === 0}
                   className="w-full mt-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition focus:outline-none"
                 >

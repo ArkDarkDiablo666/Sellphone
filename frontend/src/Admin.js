@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Blockeditor from "./Blockeditor";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
+import {validateVoucherForm, validateProductImageCount, MAX_PRODUCT_IMAGES,} from "./admin_validation_patches";
 import {
   User, LogOut, Camera, Settings, Package,
   PackagePlus, Users, ChevronRight, Eye, EyeOff,
@@ -23,6 +24,8 @@ import {
   TrendingUp, Calendar, Award,
   ArrowUpRight, ArrowDownRight, Minus, ChevronDown
 } from "lucide-react";
+
+import { authFetch, getAuthHeaders, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
 
 const API = "http://localhost:8000";
 const DASH_API = "http://localhost:8000";
@@ -53,9 +56,14 @@ function useDashFetch(url) {
   useEffect(() => {
     if (!url) return;
     setLoading(true);
-    fetch(`${DASH_API}${url}`)
-      .then((r) => r.json())
-      .then((d) => { setData(d); setLoading(false); })
+    authFetch(`${DASH_API}${url}`, {}, "admin")
+      .then((r) => {
+        // [FIX] Nếu token hết hạn, authFetch trả về AUTH_REDIRECTED thay vì throw
+        // Không gọi .json() trên sentinel → tránh crash và re-render loop
+        if (!r || r === AUTH_REDIRECTED) return;
+        return r.json();
+      })
+      .then((d) => { if (d) { setData(d); setLoading(false); } })
       .catch(() => setLoading(false));
   }, [url, tick]);
   return { data, loading, refresh };
@@ -864,7 +872,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (!adminLocal.id || adminLocal.loginType !== "admin") { navigate("/admin/login"); return; }
-    fetch(`${API}/api/staff/${adminLocal.id}/`).then(r=>r.json()).then(setAdmin)
+    authFetch(`${API}/api/staff/${adminLocal.id}/`, {}, "admin").then(r=>{ if(!r||r===AUTH_REDIRECTED)return; return r.json(); }).then(d=>{ if(d)setAdmin(d); })
       .catch(()=>setAdmin({ id:adminLocal.id,full_name:adminLocal.fullName,email:adminLocal.username,avatar:adminLocal.avatar,role:adminLocal.role }))
       .finally(()=>setLoading(false));
   },[]); // eslint-disable-line
@@ -891,22 +899,24 @@ export default function Admin() {
   },[activeTab]); // eslint-disable-line
 
   useEffect(()=>{
-    const fetchCount = () => fetch(`${API}/api/admin/reviews/?count_only=1`).then(r=>r.json()).then(d=>setUnansweredCount(d.unanswered_count||0)).catch(()=>{});
+    const fetchCount = () => authFetch(`${API}/api/admin/reviews/?count_only=1`, {}, "admin").then(r=>{ if(!r||r===AUTH_REDIRECTED)return; return r.json(); }).then(d=>{ if(d)setUnansweredCount(d.unanswered_count||0); }).catch(()=>{});
     fetchCount();
     const interval = setInterval(fetchCount, 30000);
     return () => clearInterval(interval);
   },[]);
 
-  const loadStaff = async()=>{ setStaffLoading(true); try{ const r=await fetch(`${API}/api/staff/list/`); const d=await r.json(); if(r.ok)setStaffList(d.staff||[]); }finally{ setStaffLoading(false); } };
-  const loadProducts = async()=>{ setProductLoading(true); try{ const[cr,pr]=await Promise.all([fetch(`${API}/api/product/categories/`),fetch(`${API}/api/product/list/`)]); const cd=await cr.json(); const pd=await pr.json(); if(cr.ok)setCategories(cd.categories||[]); if(pr.ok)setProductList(pd.products||[]); }finally{ setProductLoading(false); } };
-  const loadCategories = async()=>{ setCatLoading(true); try{ const r=await fetch(`${API}/api/product/categories/`); const d=await r.json(); if(r.ok)setCatList(d.categories||[]); }finally{ setCatLoading(false); } };
-  const loadVouchers = async()=>{ setVoucherLoading(true); try{ const r=await fetch(`${API}/api/voucher/list/`); const d=await r.json(); if(r.ok)setVoucherList(d.vouchers||[]); }finally{ setVoucherLoading(false); } };
+  // [FIX] Tất cả hàm dùng authFetch phải kiểm tra AUTH_REDIRECTED trước khi gọi .json()
+  // Nếu không kiểm tra → crash "Cannot read properties of undefined" → re-render loop
+  const loadStaff = async()=>{ setStaffLoading(true); try{ const r=await authFetch(`${API}/api/staff/list/`, {}, "admin"); if(!r||r===AUTH_REDIRECTED)return; const d=await r.json(); if(r.ok)setStaffList(d.staff||[]); }catch(e){console.error("loadStaff",e);}finally{ setStaffLoading(false); } };
+  const loadProducts = async()=>{ setProductLoading(true); try{ const[cr,pr]=await Promise.all([fetch(`${API}/api/product/categories/`),fetch(`${API}/api/product/list/`)]); const cd=await cr.json(); const pd=await pr.json(); if(cr.ok)setCategories(cd.categories||[]); if(pr.ok)setProductList(pd.products||[]); }catch(e){console.error("loadProducts",e);}finally{ setProductLoading(false); } };
+  const loadCategories = async()=>{ setCatLoading(true); try{ const r=await fetch(`${API}/api/product/categories/`); const d=await r.json(); if(r.ok)setCatList(d.categories||[]); }catch(e){console.error("loadCategories",e);}finally{ setCatLoading(false); } };
+  const loadVouchers = async()=>{ setVoucherLoading(true); try{ const r=await authFetch(`${API}/api/voucher/list/`, {}, "admin"); if(!r||r===AUTH_REDIRECTED)return; const d=await r.json(); if(r.ok)setVoucherList(d.vouchers||[]); }catch(e){console.error("loadVouchers",e);}finally{ setVoucherLoading(false); } };
   const loadVoucherVariants = async(pid)=>{ if(!pid){ setVoucherVariants([]); return; } setVoucherVarLoading(true); try{ const r=await fetch(`${API}/api/product/${pid}/variants/`); const d=await r.json(); if(r.ok)setVoucherVariants(d.variants||[]); }finally{ setVoucherVarLoading(false); } };
-  const loadOrders = async()=>{ setOrderLoading(true); try{ const r=await fetch(`${API}/api/order/admin/list/`); const d=await r.json(); setOrderList(d.orders||[]); }catch{}finally{ setOrderLoading(false); } };
+  const loadOrders = async()=>{ setOrderLoading(true); try{ const r=await authFetch(`${API}/api/order/admin/list/`, {}, "admin"); if(!r||r===AUTH_REDIRECTED)return; const d=await r.json(); setOrderList(d.orders||[]); }catch{}finally{ setOrderLoading(false); } };
   const loadPosts = async()=>{ setPostLoading(true); try{ const r=await fetch(`${API}/api/post/list/?category=all`); const d=await r.json(); setPostList(d.posts||[]); }catch{}finally{ setPostLoading(false); } };
-  const loadReturns = async()=>{ setReturnLoading(true); try{ const r=await fetch(`${API}/api/order/return/list/`); const d=await r.json(); setReturnList(d.returns||[]); }catch{}finally{ setReturnLoading(false); } };
-  const loadReviews = async()=>{ setReviewLoading(true); try{ const r=await fetch(`${API}/api/admin/reviews/`); const d=await r.json(); setReviewList(d.items||[]); setUnansweredCount(d.unanswered_count||0); }catch{}finally{ setReviewLoading(false); } };
-  const submitAdminReply = async()=>{ if(!replyText.trim()||!replyTarget) return; setReplySaving(true); try{ const res=await fetch(`${API}/api/admin/reply/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:replyTarget.type,target_id:replyTarget.id,content:replyText})}); const d=await res.json(); if(d.ok){ setReplyTarget(null); setReplyText(""); loadReviews(); } }finally{ setReplySaving(false); } };
+  const loadReturns = async()=>{ setReturnLoading(true); try{ const r=await authFetch(`${API}/api/order/return/list/`, {}, "admin"); if(!r||r===AUTH_REDIRECTED)return; const d=await r.json(); setReturnList(d.returns||[]); }catch{}finally{ setReturnLoading(false); } };
+  const loadReviews = async()=>{ setReviewLoading(true); try{ const r=await authFetch(`${API}/api/admin/reviews/`, {}, "admin"); if(!r||r===AUTH_REDIRECTED)return; const d=await r.json(); setReviewList(d.items||[]); setUnansweredCount(d.unanswered_count||0); }catch{}finally{ setReviewLoading(false); } };
+  const submitAdminReply = async()=>{ if(!replyText.trim()||!replyTarget) return; setReplySaving(true); try{ const res=await authFetch(`${API}/api/admin/reply/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:replyTarget.type,target_id:replyTarget.id,content:replyText})}, "admin"); const d=await res.json(); if(d.ok){ setReplyTarget(null); setReplyText(""); loadReviews(); } }finally{ setReplySaving(false); } };
 
   const addVariant    = ()=>setVariants(v=>[...v,{...EMPTY_VARIANT}]);
   const removeVariant = (i)=>setVariants(v=>v.filter((_,idx)=>idx!==i));
@@ -929,7 +939,7 @@ export default function Admin() {
       fd.append("product_name",newProduct.name); fd.append("brand",newProduct.brand); fd.append("description",newProduct.description); fd.append("category_id",newProduct.categoryId);
       fd.append("variants",JSON.stringify(variants.map(({imageFile,imagePreview,...r})=>r)));
       productImages.forEach(f=>fd.append("images",f)); variants.forEach((v,i)=>{ if(v.imageFile)fd.append(`variant_image_${i}`,v.imageFile); });
-      const r=await fetch(`${API}/api/product/create/`,{method:"POST",body:fd}); const d=await r.json();
+      const r=await authFetch(`${API}/api/product/create/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json();
       if(r.ok){ setShowAddProduct(false); setNewProduct({name:"",brand:"",description:"",categoryId:""}); setVariants([{...EMPTY_VARIANT}]); setProductImages([]); loadProducts(); toast.success("Tạo sản phẩm thành công!"); }
       else setProductErrors({general:d.message});
     }finally{ setProductSaving(false); }
@@ -948,7 +958,7 @@ export default function Admin() {
       const fd=new FormData(); fd.append("product_id",addVarProductId);
       fd.append("variants",JSON.stringify(addVarList.map(({imageFile,imagePreview,...r})=>r)));
       addVarList.forEach((v,i)=>{ if(v.imageFile)fd.append(`variant_image_${i}`,v.imageFile); });
-      const r=await fetch(`${API}/api/product/add-variants/`,{method:"POST",body:fd}); const d=await r.json();
+      const r=await authFetch(`${API}/api/product/add-variants/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json();
       if(r.ok){ setAddVarProductId(null); loadProducts(); toast.success(`Đã thêm ${addVarList.length} biến thể thành công!`); }
       else setAddVarErrors({general:d.message});
     }finally{ setAddVarSaving(false); }
@@ -976,7 +986,7 @@ const handleSaveEditProduct = async (productId) => {
     if (editProductData.categoryId)  fd.append("category_id", editProductData.categoryId);
     (editProductData.newImages || []).forEach(f => fd.append("images", f));
 
-    const r = await fetch(`${API}/api/product/update/`, { method: "POST", body: fd });
+    const r = await authFetch(`${API}/api/product/update/`, { method: "POST", body: fd, headers: getAuthHeadersFormData("admin") }, "admin");
     const d = await r.json();
     if (r.ok) {
       setEditProductId(null);
@@ -1003,7 +1013,7 @@ const handleSaveEditVariant = async (variantId, productId) => {
     });
     if (editVariantData.imageFile) fd.append("image", editVariantData.imageFile);
 
-    const r = await fetch(`${API}/api/product/update-variant/`, { method: "POST", body: fd });
+    const r = await authFetch(`${API}/api/product/update-variant/`, { method: "POST", body: fd, headers: getAuthHeadersFormData("admin") }, "admin");
     const d = await r.json();
     if (r.ok) {
       setEditVariantId(null);
@@ -1019,10 +1029,10 @@ const handleSaveEditVariant = async (variantId, productId) => {
 
 const handleDeleteVariant = (variantId, productId) => {
   setConfirmModal({ message: "Xóa biến thể này?", onConfirm: async () => {
-    const r = await fetch(`${API}/api/product/delete-variant/`, {
+    const r = await authFetch(`${API}/api/product/delete-variant/`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variant_id: variantId })
-    });
+    }, "admin");
     const d = await r.json();
     if (r.ok) {
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
@@ -1033,10 +1043,10 @@ const handleDeleteVariant = (variantId, productId) => {
 
 const handleDeleteProductImage = (imageId, productId) => {
   setConfirmModal({ message: "Xóa ảnh này?", onConfirm: async () => {
-    const r = await fetch(`${API}/api/product/delete-image/`, {
+    const r = await authFetch(`${API}/api/product/delete-image/`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ image_id: imageId })
-    });
+    }, "admin");
     if (r.ok) {
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
     } else { const d = await r.json(); toast.error(d.message); }
@@ -1044,10 +1054,10 @@ const handleDeleteProductImage = (imageId, productId) => {
 };
 
 const handleSetPrimaryImage = async (imageId, productId) => {
-  const r = await fetch(`${API}/api/product/set-primary-image/`, {
+  const r = await authFetch(`${API}/api/product/set-primary-image/`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image_id: imageId, product_id: productId })
-  });
+  }, "admin");
   if (r.ok) {
     setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
   }
@@ -1055,10 +1065,10 @@ const handleSetPrimaryImage = async (imageId, productId) => {
 
 const handleDeleteProduct = (productId) => {
   setConfirmModal({ message: "Xóa sản phẩm này? Hành động không thể hoàn tác.", onConfirm: async () => {
-    const r = await fetch(`${API}/api/product/delete/`, {
+    const r = await authFetch(`${API}/api/product/delete/`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ product_id: productId })
-    });
+    }, "admin");
     if (r.ok) { loadProducts(); setProductDetailMap(prev => { const n={...prev}; delete n[productId]; return n; }); toast.success("Đã xóa sản phẩm!"); }
     else { const d = await r.json(); toast.error(d.message); }
   }});
@@ -1069,36 +1079,36 @@ const handleDeleteProduct = (productId) => {
     if(!newVoucher.value||parseFloat(newVoucher.value)<=0){toast.error("Vui lòng nhập giá trị voucher");return;}
     setVoucherSaving(true);
     try{
-      const r=await fetch(`${API}/api/voucher/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...newVoucher,value:parseFloat(newVoucher.value),variant_id:newVoucher.variant_id||null})});
+      const r=await authFetch(`${API}/api/voucher/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...newVoucher,value:parseFloat(newVoucher.value),variant_id:newVoucher.variant_id||null})}, "admin");
       const d=await r.json();
       if(r.ok){ setShowAddVoucher(false); setVoucherVariants([]); setNewVoucher({code:"",type:"percent",value:"",scope:"all",category_id:"",product_id:"",variant_id:"",min_order:"",max_discount:"",start_date:"",end_date:"",usage_limit:""}); loadVouchers(); toast.success("Tạo voucher thành công!"); }
       else toast.error(d.message);
     }finally{ setVoucherSaving(false); }
   };
 
-  const deactivateVoucher = async(id)=>{ const r=await fetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); if(r.ok)loadVouchers(); };
+  const deactivateVoucher = async(id)=>{ const r=await authFetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}, "admin"); if(r.ok)loadVouchers(); };
 
-  const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
-  const handleCancelOrder = (orderId) => { setConfirmModal({ message: "Hủy đơn hàng này?", onConfirm: async () => { setUpdatingOrder(orderId); try{ const r=await fetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} } }); };
-  const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await fetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.success(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
+  const handleUpdateOrderStatus = async(orderId,newStatus)=>{ setUpdatingOrder(orderId); try{ const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})}, "admin"); const d=await r.json(); if(r.ok){ setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o)); if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote})); setStatusNote(""); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} };
+  const handleCancelOrder = (orderId) => { setConfirmModal({ message: "Hủy đơn hàng này?", onConfirm: async () => { setUpdatingOrder(orderId); try{ const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})}, "admin"); if(r.ok)setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o)); else{const d=await r.json();toast.error(d.message);} }catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);} } }); };
+  const handleProcessReturn = async(returnId,action)=>{ setProcessingReturn(true); try{ const r=await authFetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})}, "admin"); const d=await r.json(); if(r.ok){ const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action]; setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr)); if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote})); setReturnNote(""); toast.success(d.message); }else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);} };
 
   const loadImportVariants = async(pid)=>{ if(!pid)return; setImportLoading(true); try{ const r=await fetch(`${API}/api/product/${pid}/variants/`); const d=await r.json(); if(r.ok){setImportVariants(d.variants||[]);setImportQty({});} }finally{setImportLoading(false);} };
-  const handleImport = async()=>{ const entries=Object.entries(importQty).filter(([,q])=>parseInt(q)>0); if(entries.length===0){toast.error("Chưa nhập số lượng");return;} setImportSaving(true); try{ const r=await fetch(`${API}/api/product/import/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:entries.map(([vid,qty])=>({variant_id:parseInt(vid),quantity:parseInt(qty)}))})}); const d=await r.json(); if(r.ok){toast.success("Nhập hàng thành công!");loadImportVariants(importProductId);}else toast.error(d.message); }finally{setImportSaving(false);} };
+  const handleImport = async()=>{ const entries=Object.entries(importQty).filter(([,q])=>parseInt(q)>0); if(entries.length===0){toast.error("Chưa nhập số lượng");return;} setImportSaving(true); try{ const r=await authFetch(`${API}/api/product/import/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:entries.map(([vid,qty])=>({variant_id:parseInt(vid),quantity:parseInt(qty)}))})}, "admin"); const d=await r.json(); if(r.ok){toast.success("Nhập hàng thành công!");loadImportVariants(importProductId);}else toast.error(d.message); }finally{setImportSaving(false);} };
 
-  const handleAddCategory = async()=>{ if(!newCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("name",newCatName.trim()); if(newCatImage)fd.append("image",newCatImage); const r=await fetch(`${API}/api/product/category/create/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowAddCat(false);setNewCatName("");setNewCatImage(null);setNewCatPreview("");loadCategories();setCategories(p=>[...p,{id:d.id,name:d.name}]);toast.success("Tạo danh mục thành công!");}else toast.error(d.message); }finally{setCatSaving(false);} };
-  const handleSaveCatEdit = async(catId)=>{ if(!editCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("id",catId); fd.append("name",editCatName.trim()); if(editCatImage)fd.append("image",editCatImage); const r=await fetch(`${API}/api/product/category/update/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setEditCatId(null);setEditCatName("");setEditCatImage(null);setEditCatPreview("");loadCategories();}else toast.error(d.message); }finally{setCatSaving(false);} };
+  const handleAddCategory = async()=>{ if(!newCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("name",newCatName.trim()); if(newCatImage)fd.append("image",newCatImage); const r=await authFetch(`${API}/api/product/category/create/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){setShowAddCat(false);setNewCatName("");setNewCatImage(null);setNewCatPreview("");loadCategories();setCategories(p=>[...p,{id:d.id,name:d.name}]);toast.success("Tạo danh mục thành công!");}else toast.error(d.message); }finally{setCatSaving(false);} };
+  const handleSaveCatEdit = async(catId)=>{ if(!editCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("id",catId); fd.append("name",editCatName.trim()); if(editCatImage)fd.append("image",editCatImage); const r=await authFetch(`${API}/api/product/category/update/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){setEditCatId(null);setEditCatName("");setEditCatImage(null);setEditCatPreview("");loadCategories();}else toast.error(d.message); }finally{setCatSaving(false);} };
 
-  const handleAvatarChange = async(e)=>{ const f=e.target.files[0];if(!f)return; if(!f.type.startsWith("image/")){toast.error("Vui lòng chọn file ảnh");return;} if(f.size>5*1024*1024){toast.error("Ảnh không được vượt quá 5MB");return;} setAvatarLoading(true); try{ const fd=new FormData(); fd.append("id",adminLocal.id); fd.append("avatar_file",f); const r=await fetch(`${API}/api/staff/upload-avatar/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){ setAdmin(p=>({...p,avatar:d.avatar_url})); const s=JSON.parse(localStorage.getItem("admin_user")||"{}"); localStorage.setItem("admin_user",JSON.stringify({...s,avatar:d.avatar_url})); window.dispatchEvent(new Event("userUpdated")); }else toast.error(d.message); }catch{toast.error("Không thể kết nối server");}finally{setAvatarLoading(false);} };
+  const handleAvatarChange = async(e)=>{ const f=e.target.files[0];if(!f)return; if(!f.type.startsWith("image/")){toast.error("Vui lòng chọn file ảnh");return;} if(f.size>5*1024*1024){toast.error("Ảnh không được vượt quá 5MB");return;} setAvatarLoading(true); try{ const fd=new FormData(); fd.append("id",adminLocal.id); fd.append("avatar_file",f); const r=await authFetch(`${API}/api/staff/upload-avatar/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){ setAdmin(p=>({...p,avatar:d.avatar_url})); const s=JSON.parse(localStorage.getItem("admin_user")||"{}"); localStorage.setItem("admin_user",JSON.stringify({...s,avatar:d.avatar_url})); window.dispatchEvent(new Event("userUpdated")); }else toast.error(d.message); }catch{toast.error("Không thể kết nối server");}finally{setAvatarLoading(false);} };
 
-  const savePassword = async()=>{ const ne={}; if(!passForm.current)ne.current="Vui lòng nhập mật khẩu hiện tại"; if(!passForm.newPass)ne.newPass="Vui lòng nhập mật khẩu mới"; else if(passForm.newPass.includes(" "))ne.newPass="Không được chứa dấu cách"; else if(passForm.newPass.length<6)ne.newPass="Ít nhất 6 ký tự"; if(!passForm.confirm)ne.confirm="Vui lòng nhập lại"; else if(passForm.newPass!==passForm.confirm)ne.confirm="Không trùng khớp"; setErrors(ne); if(Object.keys(ne).length>0)return; setSaving(true); try{ const r=await fetch(`${API}/api/staff/change-password/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:adminLocal.id,current_password:passForm.current,new_password:passForm.newPass})}); const d=await r.json(); if(r.ok){setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});toast.success("Đổi mật khẩu thành công!");}else setErrors({current:d.message}); }finally{setSaving(false);} };
-  const handleAddStaff = async()=>{ const errs={}; if(!newStaff.fullname.trim())errs.fullname="Vui lòng nhập họ tên"; if(!newStaff.email.trim())errs.email="Vui lòng nhập email"; if(!newStaff.password.trim())errs.password="Vui lòng nhập mật khẩu"; else if(newStaff.password.length<6)errs.password="Ít nhất 6 ký tự"; setNewStaffErrors(errs); if(Object.keys(errs).length>0)return; setSaving(true); try{ const r=await fetch(`${API}/api/staff/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:newStaff.fullname,email:newStaff.email,password:newStaff.password,role:newStaff.role})}); const d=await r.json(); if(r.ok){setShowAddStaff(false);setNewStaff({fullname:"",email:"",password:"",role:"Staff"});loadStaff();toast.success("Tạo tài khoản thành công!");}else setNewStaffErrors({general:d.message}); }finally{setSaving(false);} };
-  const changeRole = async(staffId,newRole)=>{ try{const r=await fetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})});if(r.ok)loadStaff();}catch{toast.error("Lỗi cập nhật quyền");} };
+  const savePassword = async()=>{ const ne={}; if(!passForm.current)ne.current="Vui lòng nhập mật khẩu hiện tại"; if(!passForm.newPass)ne.newPass="Vui lòng nhập mật khẩu mới"; else if(passForm.newPass.includes(" "))ne.newPass="Không được chứa dấu cách"; else if(passForm.newPass.length<6)ne.newPass="Ít nhất 6 ký tự"; if(!passForm.confirm)ne.confirm="Vui lòng nhập lại"; else if(passForm.newPass!==passForm.confirm)ne.confirm="Không trùng khớp"; setErrors(ne); if(Object.keys(ne).length>0)return; setSaving(true); try{ const r=await authFetch(`${API}/api/staff/change-password/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:adminLocal.id,current_password:passForm.current,new_password:passForm.newPass})}, "admin"); const d=await r.json(); if(r.ok){setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});toast.success("Đổi mật khẩu thành công!");}else setErrors({current:d.message}); }finally{setSaving(false);} };
+  const handleAddStaff = async()=>{ const errs={}; if(!newStaff.fullname.trim())errs.fullname="Vui lòng nhập họ tên"; if(!newStaff.email.trim())errs.email="Vui lòng nhập email"; if(!newStaff.password.trim())errs.password="Vui lòng nhập mật khẩu"; else if(newStaff.password.length<6)errs.password="Ít nhất 6 ký tự"; setNewStaffErrors(errs); if(Object.keys(errs).length>0)return; setSaving(true); try{ const r=await authFetch(`${API}/api/staff/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:newStaff.fullname,email:newStaff.email,password:newStaff.password,role:newStaff.role})}, "admin"); const d=await r.json(); if(r.ok){setShowAddStaff(false);setNewStaff({fullname:"",email:"",password:"",role:"Staff"});loadStaff();toast.success("Tạo tài khoản thành công!");}else setNewStaffErrors({general:d.message}); }finally{setSaving(false);} };
+  const changeRole = async(staffId,newRole)=>{ try{const r=await authFetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})}, "admin");if(r.ok)loadStaff();}catch{toast.error("Lỗi cập nhật quyền");} };
 
-  const savePost = async()=>{ if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;} setPostSaving(true); try{ const fd=new FormData(); fd.append("title",postForm.title); fd.append("category",postForm.category); fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin"); fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r))); Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); if(editingPost)fd.append("post_id",editingPost.id); const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`; const r=await fetch(url,{method:"POST",body:fd}); const d=await r.json(); if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);} };
-  const deletePost = (postId) => { setConfirmModal({ message: "Xóa bài viết này?", onConfirm: async () => { const r=await fetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();toast.error(d.message);} } }); };
+  const savePost = async()=>{ if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;} setPostSaving(true); try{ const fd=new FormData(); fd.append("title",postForm.title); fd.append("category",postForm.category); fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin"); fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r))); Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); if(editingPost)fd.append("post_id",editingPost.id); const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`; const r=await authFetch(url,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);} };
+  const deletePost = (postId) => { setConfirmModal({ message: "Xóa bài viết này?", onConfirm: async () => { const r=await authFetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})}, "admin"); if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId)); else{const d=await r.json();toast.error(d.message);} } }); };
 
-  const loadProductContent = async(pid)=>{ if(!pid)return; setPcLoaded(false); try{const r=await fetch(`${API}/api/product/${pid}/content/`);const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);} };
-  const saveProductContent = async()=>{ if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await fetch(`${API}/api/product/content/save/`,{method:"POST",body:fd}); const d=await r.json(); if(r.ok)toast.success(d.message); else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);} };
+  const loadProductContent = async(pid)=>{ if(!pid)return; setPcLoaded(false); try{const r=await authFetch(`${API}/api/product/${pid}/content/`, {}, "admin"); if(!r||r===AUTH_REDIRECTED){setPcLoaded(true);return;} const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);} };
+  const saveProductContent = async()=>{ if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;} setPcSaving(true); try{ const fd=new FormData(); fd.append("product_id",pcProductId); fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r))); Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);}); const r=await authFetch(`${API}/api/product/content/save/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok)toast.success(d.message); else toast.error(d.message); }catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);} };
 
   const handleLogout = ()=>{ localStorage.removeItem("admin_user"); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/admin/login"); };
 

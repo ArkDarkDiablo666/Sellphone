@@ -7,12 +7,13 @@ import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { useToast, ToastContainer } from "./Toast";
+import { getUser, authFetch, clearSession, AUTH_REDIRECTED } from "./authUtils";
 
 const API = "http://localhost:8000";
 
 export default function Information() {
   const navigate  = useNavigate();
-  const userLocal = JSON.parse(localStorage.getItem("user") || "{}");
+  const userLocal = getUser() || {};
   const { totalCount } = useCart();
   const { toast, toasts, removeToast } = useToast();
 
@@ -52,9 +53,10 @@ export default function Information() {
   // ===== LẤY THÔNG TIN CUSTOMER =====
   useEffect(() => {
     if (!userLocal.id) { navigate("/login"); return; }
-    fetch(`${API}/api/customer/${userLocal.id}/`)
-      .then((r) => r.json())
+    authFetch(`${API}/api/customer/${userLocal.id}/`)
+      .then((r) => { if (!r || r === AUTH_REDIRECTED) return; return r.json(); })
       .then((data) => {
+        if (!data) return;
         setCustomer(data);
         setPhone(data.phone_number || "");
         setAddress(data.address || "");
@@ -85,10 +87,11 @@ export default function Information() {
       const formData = new FormData();
       formData.append("id", userLocal.id);
       formData.append("avatar_file", file);
-      const res  = await fetch(`${API}/api/customer/upload-avatar/`, { method: "POST", body: formData });
+      const res  = await authFetch(`${API}/api/customer/upload-avatar/`, { method: "POST", body: formData });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
-        const stored  = JSON.parse(localStorage.getItem("user") || "{}");
+        const stored  = getUser() || {};
         const updated = { ...stored, avatar: data.avatar_url };
         localStorage.setItem("user", JSON.stringify(updated));
         setCustomer((prev) => ({ ...prev, avatar: data.avatar_url }));
@@ -105,10 +108,11 @@ export default function Information() {
     if (!phone.trim()) { setErrors({ phone: "Vui lòng nhập số điện thoại" }); return; }
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/customer/update/`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await authFetch(`${API}/api/customer/update/`, {
+        method: "POST",
         body: JSON.stringify({ id: userLocal.id, phone_number: phone }),
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       if (res.ok) { setCustomer((prev) => ({ ...prev, phone_number: phone })); setEditPhone(false); setErrors({}); }
     } finally { setSaving(false); }
   };
@@ -118,10 +122,11 @@ export default function Information() {
     if (!address.trim()) { setErrors({ address: "Vui lòng nhập địa chỉ" }); return; }
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/customer/update/`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await authFetch(`${API}/api/customer/update/`, {
+        method: "POST",
         body: JSON.stringify({ id: userLocal.id, address }),
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       if (res.ok) { setCustomer((prev) => ({ ...prev, address })); setEditAddress(false); setErrors({}); }
     } finally { setSaving(false); }
   };
@@ -140,10 +145,11 @@ export default function Information() {
 
     setSaving(true);
     try {
-      const res  = await fetch(`${API}/api/customer/change-password/`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res  = await authFetch(`${API}/api/customer/change-password/`, {
+        method: "POST",
         body: JSON.stringify({ id: userLocal.id, current_password: passForm.current, new_password: passForm.newPass }),
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
         setEditPass(false);
@@ -156,7 +162,7 @@ export default function Information() {
     } finally { setSaving(false); }
   };
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
+  const handleLogout = () => { clearSession("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
 
   if (loading) return (
     <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">

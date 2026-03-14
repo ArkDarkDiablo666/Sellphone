@@ -18,6 +18,7 @@ import { BlockRenderer } from "./Blockeditor";
 import { useCart } from "./Cart";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
+import { isLoggedIn, clearSession } from "./authUtils";
 
 const API = "http://localhost:8000";
 
@@ -77,7 +78,7 @@ export function BlogDetail() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
+    clearSession("user");
     setConfirmLogout(false);
     sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
     navigate("/login");
@@ -180,7 +181,7 @@ export function BlogDetail() {
             <Search size={20} />
           </button>
           <button
-            onClick={() => navigate(user ? "/cart" : "/login")}
+            onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")}
             className="relative"
           >
             <ShoppingCart className="hover:text-white transition" size={22} />
@@ -343,7 +344,7 @@ export default function Blog() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
+    clearSession("user");
     setConfirmLogout(false);
     sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
     navigate("/login");
@@ -452,7 +453,7 @@ export default function Blog() {
             <Search size={20} />
           </button>
           <button
-            onClick={() => navigate(user ? "/cart" : "/login")}
+            onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")}
             className="relative"
           >
             <ShoppingCart className="hover:text-white transition" size={22} />

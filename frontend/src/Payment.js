@@ -7,6 +7,7 @@ import {
   Building2, CreditCard, Copy, CheckCheck
 } from "lucide-react";
 import { useCart } from "./Cart";
+import { getUser, authFetch, AUTH_REDIRECTED } from "./authUtils";
 
 const API           = "http://localhost:8000";
 const PROVINCES_API = "https://provinces.open-api.vn/api";
@@ -259,9 +260,7 @@ function BankInfoCard({ total, orderId }) {
     });
   };
 
-  const transferContent = orderId
-    ? `PHONEZONE ${orderId}`
-    : `PHONEZONE THANHTOAN`;
+  const transferContent = orderId ? `PHONEZONE ${orderId}` : `PHONEZONE THANHTOAN`;
 
   const CopyBtn = ({ text, field }) => (
     <button
@@ -283,7 +282,8 @@ function BankInfoCard({ total, orderId }) {
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
         <div className="w-9 h-9 rounded-xl overflow-hidden bg-white flex items-center justify-center shrink-0">
-          <img src={BANK_INFO.logo} alt={BANK_INFO.bankName} className="w-7 h-7 object-contain" onError={e => { e.target.style.display = "none"; }} />
+          <img src={BANK_INFO.logo} alt={BANK_INFO.bankName} className="w-7 h-7 object-contain"
+            onError={e => { e.target.style.display = "none"; }} />
         </div>
         <div>
           <p className="text-xs font-semibold text-white">{BANK_INFO.bankName}</p>
@@ -388,10 +388,10 @@ const PAYMENT_METHODS = [
 export default function Payment() {
   const navigate = useNavigate();
   const { selectedItems, subtotal, discount, total, voucher, clearCart } = useCart();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const user = getUser();
   const { toast, toasts, removeToast } = useToast();
 
-  const [form,         setForm]         = useState({ name: user.fullName || user.full_name || "", phone: "", note: "" });
+  const [form,         setForm]         = useState({ name: user?.fullName || user?.full_name || "", phone: "", note: "" });
   const [addrObj,      setAddrObj]      = useState(emptyAddr());
   const [addrErrors,   setAddrErrors]   = useState({});
   const [payMethod,    setPayMethod]    = useState("cod");
@@ -407,10 +407,11 @@ export default function Payment() {
   const [confirmModal, setConfirmModal] = useState(null);
 
   useEffect(() => {
-    if (!user.id) { navigate("/login"); return; }
+    if (!user?.id) { navigate("/login"); return; }
     if (selectedItems.length === 0) { navigate("/cart"); return; }
-    fetch(`${API}/api/customer/${user.id}/addresses/`)
-      .then((r) => r.json()).then((d) => setAddresses(d.addresses || [])).catch(() => {});
+    authFetch(`${API}/api/customer/${user.id}/addresses/`)
+      .then((r) => { if (!r || r === AUTH_REDIRECTED) return; return r.json(); })
+      .then((d) => { if (d) setAddresses(d.addresses || []); }).catch(() => {});
   }, []); // eslint-disable-line
 
   const fillAddress = (addr) => {
@@ -439,8 +440,8 @@ export default function Payment() {
     if (!validate()) return;
     setPlacing(true);
     try {
-      const res = await fetch(`${API}/api/order/create/`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await authFetch(`${API}/api/order/create/`, {
+        method: "POST",
         body: JSON.stringify({
           customer_id:      user.id,
           items:            selectedItems.map((i) => ({ variant_id: i.variantId, qty: i.qty, price: i.price })),
@@ -453,23 +454,24 @@ export default function Payment() {
           note:             form.note,
         }),
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
         clearCart();
         setOrderId(data.order_id);
         setSuccess(true);
 
-        // Redirect to payment gateway
         if (payMethod === "momo" && data.momo_url) {
           window.location.href = data.momo_url;
           return;
         }
         if (payMethod === "vnpay") {
           try {
-            const vnRes = await fetch(`${API}/api/payment/vnpay/create/`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
+            const vnRes = await authFetch(`${API}/api/payment/vnpay/create/`, {
+              method: "POST",
               body: JSON.stringify({ order_id: data.order_id, amount: total }),
             });
+            if (!vnRes || vnRes === AUTH_REDIRECTED) return;
             const vnData = await vnRes.json();
             if (vnRes.ok && vnData.pay_url) {
               window.location.href = vnData.pay_url;
@@ -480,8 +482,9 @@ export default function Payment() {
       } else {
         toast.error(data.message || "Đặt hàng thất bại");
       }
-    } catch { toast.error("Không thể kết nối server"); }
-    finally { setPlacing(false); }
+    } catch (err) {
+      toast.error("Không thể kết nối server");
+    } finally { setPlacing(false); }
   };
 
   const saveAddr = async () => {
@@ -493,13 +496,15 @@ export default function Payment() {
       const body = editAddr
         ? { name, phone, address: fullAddress, id: editAddr.id, customer_id: user.id }
         : { name, phone, address: fullAddress, customer_id: user.id };
-      const res  = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res  = await authFetch(url, { method: "POST", body: JSON.stringify(body) });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
         if (editAddr) setAddresses((p) => p.map((a) => a.id === editAddr.id ? { ...a, name, phone, address: fullAddress } : a));
         else setAddresses((p) => [...p, { name, phone, address: fullAddress, id: data.id }]);
         setShowAddAddr(false); setEditAddr(null);
         setAddrForm({ name: "", phone: "", addrObj: emptyAddr() });
+        toast.success("Đã lưu địa chỉ!");
       } else toast.error(data.message);
     } catch { toast.error("Lỗi kết nối"); }
   };
@@ -508,17 +513,16 @@ export default function Payment() {
     setConfirmModal({
       message: "Xóa địa chỉ này?",
       onConfirm: async () => {
-        const res = await fetch(`${API}/api/customer/address/delete/`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
+        const res = await authFetch(`${API}/api/customer/address/delete/`, {
+          method: "POST",
           body: JSON.stringify({ id, customer_id: user.id }),
         });
+        if (!res || res === AUTH_REDIRECTED) return;
         if (res.ok) {
           setAddresses((p) => p.filter((a) => a.id !== id));
           if (selectedAddr === id) setSelectedAddr(null);
           toast.success("Đã xóa địa chỉ!");
-        } else {
-          toast.error("Xóa địa chỉ thất bại");
-        }
+        } else toast.error("Xóa địa chỉ thất bại");
       },
     });
   };
@@ -533,14 +537,13 @@ export default function Payment() {
         <h2 className="text-2xl font-bold mb-2">Đặt hàng thành công!</h2>
         {orderId && <p className="text-white/40 text-sm">Mã đơn hàng: <span className="text-orange-400 font-mono font-bold">#{orderId}</span></p>}
         <p className="text-white/40 text-sm mt-1">
-          {payMethod === "momo"   && "Đang chuyển đến trang thanh toán MoMo..."}
-          {payMethod === "vnpay"  && "Đang chuyển đến trang thanh toán VNPay..."}
-          {payMethod === "cod"    && "Đơn hàng đang được xử lý. Chúng tôi sẽ liên hệ sớm nhất."}
-          {payMethod === "bank"   && "Vui lòng chuyển khoản theo thông tin bên dưới để hoàn tất đơn hàng."}
+          {payMethod === "momo"  && "Đang chuyển đến trang thanh toán MoMo..."}
+          {payMethod === "vnpay" && "Đang chuyển đến trang thanh toán VNPay..."}
+          {payMethod === "cod"   && "Đơn hàng đang được xử lý. Chúng tôi sẽ liên hệ sớm nhất."}
+          {payMethod === "bank"  && "Vui lòng chuyển khoản theo thông tin bên dưới để hoàn tất đơn hàng."}
         </p>
       </div>
 
-      {/* Bank info shown after order placed */}
       {payMethod === "bank" && (
         <div className="w-full max-w-sm">
           <BankInfoCard total={total} orderId={orderId} />
@@ -548,10 +551,10 @@ export default function Payment() {
       )}
 
       <div className="flex gap-3">
-        <button onClick={() => navigate("/orders")} className="px-5 py-2.5 rounded-xl text-sm transition" style={{ background: "rgba(255,255,255,0.08)" }}>
+        <button onClick={() => navigate("/orders")} className="px-5 py-2.5 rounded-xl text-sm transition focus:outline-none" style={{ background: "rgba(255,255,255,0.08)" }}>
           Xem đơn hàng
         </button>
-        <button onClick={() => navigate("/product")} className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition">
+        <button onClick={() => navigate("/product")} className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition focus:outline-none">
           Tiếp tục mua sắm
         </button>
       </div>
@@ -562,14 +565,15 @@ export default function Payment() {
     <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
+      {/* CONFIRM MODAL */}
       {confirmModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
           <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
             <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
-              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition">Xác nhận</button>
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition focus:outline-none">Hủy</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition focus:outline-none">Xác nhận</button>
             </div>
           </div>
         </div>
@@ -578,8 +582,8 @@ export default function Payment() {
       {/* NAV */}
       <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
         style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>
-        <div className="text-xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
-        <button onClick={() => navigate("/cart")} className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition">
+        <div className="text-xl font-bold cursor-pointer focus:outline-none" onClick={() => navigate("/")}>PHONEZONE</div>
+        <button onClick={() => navigate("/cart")} className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition focus:outline-none">
           <ArrowLeft size={15} /> Quay lại giỏ hàng
         </button>
       </nav>
@@ -622,11 +626,11 @@ export default function Payment() {
                           setEditAddr(addr);
                           setAddrForm({ name: addr.name, phone: addr.phone, addrObj: { ...emptyAddr(), detail: addr.address } });
                           setShowAddAddr(true);
-                        }} className="flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300 transition">
+                        }} className="flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300 transition focus:outline-none">
                           <Pencil size={10} /> Sửa
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); deleteAddr(addr.id); }}
-                          className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition">
+                          className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition focus:outline-none">
                           <Trash2 size={10} /> Xóa
                         </button>
                       </div>
@@ -643,7 +647,7 @@ export default function Payment() {
                 <button onClick={() => {
                   setShowAddAddr(!showAddAddr); setEditAddr(null);
                   setAddrForm({ name: "", phone: "", addrObj: emptyAddr() });
-                }} className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition">
+                }} className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition focus:outline-none">
                   <Plus size={12} /> Lưu địa chỉ mới
                 </button>
               </div>
@@ -659,17 +663,14 @@ export default function Payment() {
                   <input placeholder="Số điện thoại *" value={addrForm.phone}
                     onChange={(e) => setAddrForm((p) => ({ ...p, phone: e.target.value }))}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
-                  <AddressForm
-                    value={addrForm.addrObj}
-                    onChange={(v) => setAddrForm((p) => ({ ...p, addrObj: v }))}
-                  />
+                  <AddressForm value={addrForm.addrObj} onChange={(v) => setAddrForm((p) => ({ ...p, addrObj: v }))} />
                   <div className="flex gap-2">
                     <button onClick={saveAddr}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition">
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition focus:outline-none">
                       <Check size={13} /> Lưu
                     </button>
                     <button onClick={() => { setShowAddAddr(false); setEditAddr(null); }}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition">
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition focus:outline-none">
                       <X size={13} /> Hủy
                     </button>
                   </div>
@@ -693,7 +694,6 @@ export default function Payment() {
                   {errors.phone && <p className="text-red-400 text-xs mt-1">{errors.phone}</p>}
                 </div>
 
-                {/* Form địa chỉ phân cấp */}
                 <AddressForm value={addrObj} onChange={setAddrObj} errors={addrErrors} />
 
                 <input placeholder="Ghi chú (nếu có)" value={form.note}
@@ -710,16 +710,13 @@ export default function Payment() {
               </p>
               <div className="flex flex-col gap-3">
                 {PAYMENT_METHODS.map((method) => (
-                  <label
-                    key={method.key}
-                    onClick={() => setPayMethod(method.key)}
+                  <label key={method.key} onClick={() => setPayMethod(method.key)}
                     className="flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition"
                     style={{
                       borderColor: payMethod === method.key ? "#ff9500" : "rgba(255,255,255,0.1)",
                       background:  payMethod === method.key ? "rgba(255,149,0,0.08)" : "transparent",
-                    }}
-                  >
-                    <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center border ${method.iconFull ? method.iconBg : `border ${method.iconBg}`}`}>
+                    }}>
+                    <div className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center border ${method.iconBg}`}>
                       {method.icon}
                     </div>
                     <div className="flex-1">
@@ -734,14 +731,11 @@ export default function Payment() {
                 ))}
               </div>
 
-              {/* Preview thông tin CK ngay trong form */}
-              {payMethod === "bank" && (
-                <BankInfoCard total={total} orderId={null} />
-              )}
+              {payMethod === "bank" && <BankInfoCard total={total} orderId={null} />}
             </div>
           </div>
 
-          {/* ── RIGHT ── */}
+          {/* ── RIGHT sidebar ── */}
           <div className="w-72 shrink-0 flex flex-col gap-3 sticky top-24">
             <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#161616" }}>
               <p className="text-sm font-semibold mb-4">Sản phẩm ({selectedItems.length})</p>
@@ -762,7 +756,7 @@ export default function Payment() {
             </div>
 
             <div className="rounded-2xl border border-white/5 p-5" style={{ background: "#161616" }}>
-              <p className="text-sm font-semibold mb-4">Tóm tắt</p>
+              <p className="text-sm font-semibold mb-4">Tóm tắt đơn hàng</p>
               <div className="flex flex-col gap-2.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-white/50">Tạm tính</span>
@@ -780,15 +774,7 @@ export default function Payment() {
                 </div>
               </div>
 
-              {/* Payment method badge */}
-              <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }}>
-                {payMethod === "cod"   && <><Truck size={13} className="text-green-400" /><span className="text-xs text-white/50">Thanh toán khi nhận hàng</span></>}
-                {payMethod === "bank"  && <><Building2 size={13} className="text-blue-400" /><span className="text-xs text-white/50">Chuyển khoản ngân hàng</span></>}
-                {payMethod === "vnpay" && <><span className="text-[10px] font-extrabold" style={{ color: "#005BAA" }}>VN</span><span className="text-[10px] font-extrabold" style={{ color: "#FFD700" }}>Pay</span><span className="text-xs text-white/50 ml-1">VNPay</span></>}
-                {payMethod === "momo"  && <><span className="text-xs font-bold" style={{ color: "#d82d8b" }}>M</span><span className="text-xs text-white/50">Thanh toán MoMo</span></>}
-              </div>
-
-              {/* Preview địa chỉ đầy đủ realtime */}
+              {/* Preview địa chỉ realtime */}
               {buildFullAddress(addrObj) && (
                 <div className="mt-3 px-3 py-2 rounded-xl flex items-start gap-2" style={{ background: "rgba(255,255,255,0.04)" }}>
                   <MapPin size={12} className="shrink-0 mt-0.5 text-orange-400" />
@@ -797,7 +783,7 @@ export default function Payment() {
               )}
 
               <button onClick={placeOrder} disabled={placing}
-                className="w-full mt-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm transition">
+                className="w-full mt-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm transition focus:outline-none">
                 {placing
                   ? "Đang xử lý..."
                   : payMethod === "vnpay"

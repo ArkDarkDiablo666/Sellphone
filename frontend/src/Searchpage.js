@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./Cart";
 import Footer from "./Footer";
+import { isLoggedIn, clearSession } from "./authUtils";
 import {
   ShoppingCart, User, LogOut, Settings, ChevronDown,
   AlertTriangle, ShoppingBag, ArrowLeft, SlidersHorizontal,
@@ -153,7 +154,7 @@ export default function SearchPage() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
+    clearSession("user");
     setConfirmLogout(false);
     navigate("/login");
   };
@@ -348,7 +349,7 @@ export default function SearchPage() {
           <Link to="/blog"    className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative">
+          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4

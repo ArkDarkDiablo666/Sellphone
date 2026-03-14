@@ -12,6 +12,7 @@ import {
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
+import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
 
 const API = "http://localhost:8000";
 
@@ -131,18 +132,20 @@ function WriteReviewModal({ productId, user, onClose, onSubmit, existing }) {
         const fd = new FormData();
         fd.append("file", file);
         fd.append("customer_id", user.id);
-        const res = await fetch(`${API}/api/review/upload-media/`, { method: "POST", body: fd });
+        const res = await authFetch(`${API}/api/review/upload-media/`, { method: "POST", body: fd });
+        if (!res || res === AUTH_REDIRECTED) return;
         const data = await res.json();
         if (data.url) uploadedMedia.push({ url: data.url, type: data.media_type });
       }
       const body = { customer_id: user.id, product_id: productId, rating, content, media: uploadedMedia };
       const endpoint = existing ? `${API}/api/review/update/` : `${API}/api/review/create/`;
       if (existing) body.review_id = existing.id;
-      const res = await fetch(endpoint, {
+      const res = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Lỗi");
       onSubmit(data.review);
@@ -266,11 +269,12 @@ function CommentCard({ comment, user, onLike, depth = 0 }) {
     if (!replyText.trim() || !user) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/comment/create/`, {
+      const res = await authFetch(`${API}/api/comment/create/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer_id: user.id, product_id: comment.product_id, content: replyText, parent_id: comment.id })
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (data.ok) {
         setReplies(p => [...p, data.comment]);
@@ -377,11 +381,12 @@ function ReviewCommentSection({ productId, user, navigate }) {
 
   const handleLike = async (type, id) => {
     if (!user) return navigate("/login");
-    const res = await fetch(`${API}/api/like/toggle/`, {
+    const res = await authFetch(`${API}/api/like/toggle/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ customer_id: user.id, type, target_id: id })
     });
+    if (!res || res === AUTH_REDIRECTED) return;
     const data = await res.json();
     if (data.ok) {
       if (type === "review") {
@@ -407,11 +412,12 @@ function ReviewCommentSection({ productId, user, navigate }) {
     if (!user) return navigate("/login");
     setSubmittingComment(true);
     try {
-      const res = await fetch(`${API}/api/comment/create/`, {
+      const res = await authFetch(`${API}/api/comment/create/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer_id: user.id, product_id: productId, content: commentText })
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (data.ok) {
         setComments(p => [data.comment, ...p]);
@@ -761,7 +767,7 @@ export default function InformationProduct() {
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  const handleLogout = () => { localStorage.removeItem("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
+  const handleLogout = () => { clearSession("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
 
   useEffect(() => {
     if (!variants.length) return;
@@ -875,7 +881,7 @@ export default function InformationProduct() {
           <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
             <Search size={20} />
           </button>
-          <button onClick={() => navigate(user ? "/cart" : "/login")} className="relative focus:outline-none">
+          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative focus:outline-none">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">

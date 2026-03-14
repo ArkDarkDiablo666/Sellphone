@@ -358,9 +358,15 @@ class Review(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("customer", "product")
+        unique_together = (("customer", "product"),)
         ordering        = ["-created_at"]
         db_table        = "Review"
+        constraints     = [
+            models.CheckConstraint(
+                check=models.Q(rating__gte=1) & models.Q(rating__lte=5),
+                name="review_rating_1_to_5",
+            )
+        ]
 
     def __str__(self):
         return f"Review #{self.id} – {self.customer_id} – {self.product_id}"

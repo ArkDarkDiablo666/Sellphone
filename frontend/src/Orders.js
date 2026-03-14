@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
+import { getUser, authFetch, AUTH_REDIRECTED } from "./authUtils";
 import {
   ArrowLeft, Package, ChevronRight, Clock, CheckCircle2,
   Truck, MapPin, XCircle, RefreshCw, ShoppingBag, Check,
@@ -263,7 +264,7 @@ function PaymentSection({ order, onPaid }) {
       ? `${API}/api/payment/momo/create/`
       : `${API}/api/payment/vnpay/create/`;
     try {
-      const res  = await fetch(endpoint, {
+      const res  = await authFetch(endpoint, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
@@ -271,6 +272,7 @@ function PaymentSection({ order, onPaid }) {
           amount:   Math.round(parseFloat(order.total_amount)),
         }),
       });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok && data.pay_url) {
         setPayUrl(data.pay_url);
@@ -532,11 +534,12 @@ function ReturnForm({ order, onSuccess, onCancel }) {
     setLoading(true); setError("");
     const fd = new FormData();
     fd.append("order_id",    order.id);
-    fd.append("customer_id", JSON.parse(localStorage.getItem("user") || "{}").id);
+    fd.append("customer_id", getUser()?.id);
     fd.append("reason",      reason);
     files.forEach(f => fd.append("media", f));
     try {
-      const res  = await fetch(`${API}/api/order/return/request/`, { method: "POST", body: fd });
+      const res  = await authFetch(`${API}/api/order/return/request/`, { method: "POST", body: fd });
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) onSuccess(data);
       else        setError(data.message || "Gửi yêu cầu thất bại");
@@ -641,7 +644,7 @@ function PayMethodLabel({ method }) {
 
 export default function Orders({ embedded = false }) {
   const navigate   = useNavigate();
-  const user       = JSON.parse(localStorage.getItem("user") || "{}");
+  const user       = getUser() || {};
   const { toast, toasts, removeToast } = useToast();
 
   const [orders,         setOrders]         = useState([]);
@@ -659,16 +662,17 @@ export default function Orders({ embedded = false }) {
 
   const loadOrders = () => {
     setLoading(true);
-    fetch(`${API}/api/order/list/?customer_id=${user.id}`)
-      .then(r => r.json())
-      .then(d => setOrders(d.orders || []))
+    authFetch(`${API}/api/order/list/?customer_id=${user.id}`)
+      .then(r => { if (!r || r === AUTH_REDIRECTED) return; return r.json(); })
+      .then(d => { if (d) setOrders(d.orders || []); })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
 
   const loadReturnReq = async (orderId) => {
     try {
-      const res  = await fetch(`${API}/api/order/${orderId}/return/`);
+      const res  = await authFetch(`${API}/api/order/${orderId}/return/`);
+      if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       setReturnReq(data.return || null);
     } catch { setReturnReq(null); }
@@ -685,10 +689,11 @@ export default function Orders({ embedded = false }) {
     setConfirmModal({
       message: "Bạn có chắc muốn hủy đơn hàng này?",
       onConfirm: async () => {
-        const res  = await fetch(`${API}/api/order/cancel/`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
+        const res  = await authFetch(`${API}/api/order/cancel/`, {
+          method: "POST",
           body: JSON.stringify({ order_id: orderId, customer_id: user.id }),
         });
+        if (!res || res === AUTH_REDIRECTED) return;
         const data = await res.json();
         if (res.ok) {
           setOrders(p => p.map(o => o.id === orderId ? { ...o, status: "Cancelled" } : o));
