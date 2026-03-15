@@ -41,6 +41,10 @@ urlpatterns = [
     path('product/<int:product_id>/variants/', views.get_product_variants),
     path('product/<int:product_id>/detail/',   views.get_product_detail),
 
+    # [NEW] Tách nền ảnh biến thể (local rembg, async)
+    path('variant/remove-bg/',           views.variant_remove_bg),
+    path('variant/remove-bg/status/',    views.variant_remove_bg_status),
+
     # Voucher
     path('voucher/list/',                views.list_vouchers),
     path('voucher/active/',              views.list_active_vouchers),
@@ -110,6 +114,9 @@ urlpatterns = [
     path('search/rebuild-index/', views.rebuild_search_index),
     path('search/model-info/',    views.search_model_info),
 
+    # [NEW] Chatbot gợi ý sản phẩm
+    path('chatbot/suggest/',      views.chatbot_suggest),
+
     # Payment
     path('payment/momo/create/',   views.momo_create,    name='momo_create'),
     path('payment/momo/ipn/',      views.momo_ipn,       name='momo_ipn'),
@@ -126,7 +133,22 @@ urlpatterns = [
     path('admin/dashboard/revenue/brand/',      views.dashboard_revenue_by_brand,   name='dashboard_revenue_brand'),
     path('admin/dashboard/revenue/compare/',    views.dashboard_revenue_compare,    name='dashboard_revenue_compare'),
 
-    # ── HOME ──────────────────────────────────────────────────
+    # Home
     path('home/featured/',           views.home_featured,      name='home_featured'),
     path('home/best-sellers/',       views.home_best_sellers,  name='home_best_sellers'),
+
+    # Banner
+    path('banner/active/',           views.get_active_banner,    name='banner_active'),
+    path('banner/list/',             views.list_banners,         name='banner_list'),
+    path('banner/create/',           views.create_banner,        name='banner_create'),
+    path('banner/update/',           views.update_banner,        name='banner_update'),
+    path('banner/delete/',           views.delete_banner,        name='banner_delete'),
+    path('banner/item/add/',         views.add_banner_item,      name='banner_item_add'),
+    path('banner/item/update/',      views.update_banner_item,   name='banner_item_update'),
+    path('banner/item/delete/',      views.delete_banner_item,   name='banner_item_delete'),
+    path('banner/item/reorder/',     views.reorder_banner_items, name='banner_item_reorder'),
+
+    # Activity Log (chỉ Admin)
+    path('activity-log/list/',       views.list_activity_logs,   name='activity_log_list'),
+    path('activity-log/clear/',      views.clear_activity_logs,  name='activity_log_clear'),
 ]

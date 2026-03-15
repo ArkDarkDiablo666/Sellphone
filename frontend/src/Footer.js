@@ -2,6 +2,41 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Phone, Mail, MapPin, Facebook, Youtube, Instagram, Smartphone } from "lucide-react";
 
+// Icon TikTok (lucide chưa có, dùng SVG inline)
+function TikTokIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5
+               2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01
+               a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34
+               6.34 6.34 0 0 0 6.33-6.34V8.69a8.19 8.19 0 0 0 4.79 1.53V6.75a4.85 4.85 0 0 1-1.02-.06z"/>
+    </svg>
+  );
+}
+
+const SOCIAL_LINKS = [
+  {
+    label: "Facebook",
+    href:  "https://www.facebook.com/share/1BAoC7YAeD/?mibextid=wwXIfr",
+    icon:  <Facebook size={15} />,
+  },
+  {
+    label: "YouTube",
+    href:  "https://www.youtube.com/@phonezone03?si=Mv55AnhBoI5lZ5BG",
+    icon:  <Youtube size={15} />,
+  },
+  {
+    label: "Instagram",
+    href:  "https://www.instagram.com/phonezone03_?igsh=M3c4YXIxeG1xaDBq&utm_source=qr",
+    icon:  <Instagram size={15} />,
+  },
+  {
+    label: "TikTok",
+    href:  "https://www.tiktok.com/@phonezone03?_r=1&_t=ZS-94hbtmqBPZ1",
+    icon:  <TikTokIcon size={15} />,
+  },
+];
+
 export default function Footer() {
   return (
     <footer className="bg-[#0e0e0e] border-t border-white/[0.06] text-white">
@@ -16,19 +51,21 @@ export default function Footer() {
           <p className="text-sm text-white/40 leading-relaxed">
             Điểm đến công nghệ uy tín — điện thoại chính hãng, giá tốt, dịch vụ tận tâm.
           </p>
-          <div className="flex gap-3 mt-1">
-            <a href="#" aria-label="Facebook"
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-orange-500/20 hover:text-orange-400 flex items-center justify-center text-white/40 transition">
-              <Facebook size={15} />
-            </a>
-            <a href="#" aria-label="YouTube"
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-orange-500/20 hover:text-orange-400 flex items-center justify-center text-white/40 transition">
-              <Youtube size={15} />
-            </a>
-            <a href="#" aria-label="Instagram"
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-orange-500/20 hover:text-orange-400 flex items-center justify-center text-white/40 transition">
-              <Instagram size={15} />
-            </a>
+          <div className="flex gap-2 mt-1 flex-wrap">
+            {SOCIAL_LINKS.map(({ label, href, icon }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={label}
+                title={label}
+                className="w-8 h-8 rounded-lg bg-white/5 hover:bg-orange-500/20 hover:text-orange-400
+                  flex items-center justify-center text-white/40 transition"
+              >
+                {icon}
+              </a>
+            ))}
           </div>
         </div>
 
@@ -36,11 +73,11 @@ export default function Footer() {
         <div className="flex flex-col gap-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-white/30 mb-1">Khám phá</p>
           {[
-            { to: "/",           label: "Trang chủ" },
-            { to: "/product",    label: "Sản phẩm" },
-            { to: "/blog",       label: "Bài viết" },
-            { to: "/cart",       label: "Giỏ hàng" },
-            { to: "/information",label: "Tài khoản" },
+            { to: "/",            label: "Trang chủ" },
+            { to: "/product",     label: "Sản phẩm"  },
+            { to: "/blog",        label: "Bài viết"  },
+            { to: "/cart",        label: "Giỏ hàng"  },
+            { to: "/information", label: "Tài khoản" },
           ].map(({ to, label }) => (
             <Link key={to} to={to}
               className="text-sm text-white/40 hover:text-orange-400 transition w-fit">
@@ -59,7 +96,8 @@ export default function Footer() {
             "Bảo mật thông tin",
             "Điều khoản sử dụng",
           ].map((item) => (
-            <span key={item} className="text-sm text-white/40 hover:text-orange-400 transition cursor-pointer w-fit">
+            <span key={item}
+              className="text-sm text-white/40 hover:text-orange-400 transition cursor-pointer w-fit">
               {item}
             </span>
           ))}
@@ -84,6 +122,26 @@ export default function Footer() {
             <p className="text-xs text-orange-400/80 font-medium">Giờ hỗ trợ</p>
             <p className="text-xs text-white/30 mt-0.5">Thứ 2 – Thứ 7: 8:00 – 21:00</p>
             <p className="text-xs text-white/30">Chủ nhật: 9:00 – 18:00</p>
+          </div>
+
+          {/* Social links (lặp lại ở mobile-friendly) */}
+          <div className="flex gap-2 flex-wrap mt-1">
+            {SOCIAL_LINKS.map(({ label, href, icon }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={label}
+                title={label}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5
+                  hover:bg-orange-500/15 hover:text-orange-400 text-white/35
+                  text-[11px] transition border border-white/5 hover:border-orange-500/20"
+              >
+                {icon}
+                <span>{label}</span>
+              </a>
+            ))}
           </div>
         </div>
       </div>

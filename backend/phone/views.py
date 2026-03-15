@@ -4,12 +4,270 @@ import os
 from django.contrib.auth.hashers import make_password, check_password
 import cloudinary
 import cloudinary.uploader
-# [FIX] Đọc Cloudinary credentials từ biến môi trường
+
+# [FIX #SSL-v3] Patch SSL certificate cho Cloudinary trên Windows.
+# Nguyên nhân: Windows thiếu certifi CA bundle → urllib3 không verify được
+# Cloudinary SSL cert → SSLEOFError / MaxRetryError port=443.
+# Giải pháp: inject certifi CA bundle + disable keep-alive vào requests session
+# của Cloudinary SDK TRƯỚC KHI config.
+try:
+    import certifi
+    import requests
+    import urllib3
+
+    # Tắt cảnh báo SSL (chỉ trong trường hợp fallback)
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    # Tạo session dùng certifi CA bundle, tắt keep-alive
+    _cld_session = requests.Session()
+    _cld_session.verify = certifi.where()
+    _cld_session.headers.update({"Connection": "close"})  # tắt keep-alive
+    adapter = requests.adapters.HTTPAdapter(
+        max_retries=urllib3.util.Retry(total=3, backoff_factor=0.5),
+        pool_connections=1,
+        pool_maxsize=1,
+    )
+    _cld_session.mount("https://", adapter)
+    _cld_session.mount("http://",  adapter)
+
+    # Inject session vào Cloudinary SDK
+    try:
+        import cloudinary.api_client.execute_request as _exec
+        if hasattr(_exec, "http_client") and _exec.http_client is not None:
+            if hasattr(_exec.http_client, "_session"):
+                _exec.http_client._session = _cld_session
+            elif hasattr(_exec.http_client, "session"):
+                _exec.http_client.session = _cld_session
+    except Exception:
+        pass
+
+except ImportError:
+    pass  # certifi chưa cài — pip install certifi requests
+
 cloudinary.config(
     cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "dag3scrwl"),
     api_key    = os.environ.get("CLOUDINARY_API_KEY",    "997941784142674"),
     api_secret = os.environ.get("CLOUDINARY_API_SECRET", "5QXdjv-HeiJEPPhEUcukPFIRyFU"),
+    secure     = True,
 )
+
+# ══════════════════════════════════════════════════════════════
+# IMAGE ENHANCEMENT — Cloudinary AI + Pillow fallback
+# ══════════════════════════════════════════════════════════════
+import io
+import time as _time
+
+# ── Pillow: tăng chất lượng ảnh cục bộ trước khi upload ──────
+def _enhance_image_pillow(raw_bytes: bytes):
+    """
+    Tăng chất lượng ảnh bằng Pillow (chạy local, không cần internet).
+    [FIX #EMPTYFILE] Chỉ nhận bytes thuần — KHÔNG nhận file object
+    để tránh lỗi con trỏ file bị lệch → Cloudinary nhận file rỗng.
+    Trả về: BytesIO nếu thành công, None nếu lỗi.
+    """
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter
+
+        img = Image.open(io.BytesIO(raw_bytes))
+        img.load()  # load toàn bộ pixel data ngay lập tức
+
+        # Chuyển RGB (bỏ alpha)
+        if img.mode in ("RGBA", "P", "LA"):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            bg.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Sharpen — làm nét cạnh sản phẩm
+        img = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=130, threshold=3))
+
+        # Tăng độ sắc nét (sharpness)
+        img = ImageEnhance.Sharpness(img).enhance(1.4)
+
+        # Tăng contrast nhẹ
+        img = ImageEnhance.Contrast(img).enhance(1.08)
+
+        # Tăng độ bão hòa màu nhẹ (ảnh sản phẩm trông tươi hơn)
+        img = ImageEnhance.Color(img).enhance(1.06)
+
+        # Xuất ra BytesIO
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=92, optimize=True, progressive=True)
+        out.seek(0)
+        return out
+
+    except ImportError:
+        logger.warning("[ImageEnhance] Pillow chưa được cài. Chạy: pip install Pillow")
+        return None
+    except Exception as e:
+        logger.warning(f"[ImageEnhance] Pillow enhance lỗi: {e}")
+        return None
+
+
+# ── Cloudinary: transformation tăng chất lượng AI ────────────
+# Các preset transformation theo loại ảnh
+_ENHANCE_TRANSFORMS = {
+    # Ảnh sản phẩm / biến thể: upscale + enhance + sharpen
+    "product": [
+        {"width": 800, "height": 800, "crop": "limit"},
+        {"effect": "improve"},          # AI auto-enhance màu sắc & độ sáng
+        {"effect": "sharpen:80"},       # Sharpen mức 80
+        {"quality": "auto:best"},       # Nén thông minh chất lượng cao nhất
+        {"fetch_format": "auto"},       # Tự chọn format tốt nhất (webp/avif)
+    ],
+    # Ảnh bài viết / content: rộng hơn, enhance nhẹ hơn
+    "post": [
+        {"width": 1200, "crop": "limit"},
+        {"effect": "improve:50"},
+        {"effect": "sharpen:50"},
+        {"quality": "auto:good"},
+        {"fetch_format": "auto"},
+    ],
+    # Avatar: crop mặt + enhance
+    "avatar": [
+        {"width": 300, "height": 300, "crop": "fill", "gravity": "face"},
+        {"effect": "improve:40"},
+        {"effect": "sharpen:40"},
+        {"quality": "auto:good"},
+        {"fetch_format": "auto"},
+    ],
+    # Danh mục: enhance nhẹ
+    "category": [
+        {"width": 400, "height": 400, "crop": "fill"},
+        {"effect": "improve:40"},
+        {"quality": "auto:good"},
+        {"fetch_format": "auto"},
+    ],
+}
+
+
+# ── [FIX #SSL] Wrapper chính: Pillow enhance → Cloudinary AI upload ──────────
+# Nguyên nhân lỗi SSL gốc: SDK tái dùng connection pool cũ bị đứt (keep-alive)
+# → SSLEOFError / MaxRetryError / TCPKeepAliveHTTPSConnection port=443.
+def _upload_to_cloudinary(file_or_path, enhance: str = None, **kwargs):
+    """
+    Upload ảnh lên Cloudinary với 2 lớp tăng chất lượng:
+
+    Bước 1 — Pillow (local, trước khi upload):
+      - Sharpen, contrast, color enhance, xuất JPEG quality=92
+      - Nếu Pillow lỗi/chưa cài → dùng file gốc (không crash)
+
+    Bước 2 — Cloudinary AI transformation (trên cloud):
+      - enhance="product" | "post" | "avatar" | "category"
+      - Nếu không truyền enhance → dùng transformation trong kwargs gốc
+
+    Bước 3 — Retry SSL:
+      - Tự retry 1 lần sau 0.5s nếu gặp SSL/EOF/connection error
+
+    Cách dùng:
+      result = _upload_to_cloudinary(img_file, enhance="product",
+                  folder="sellphone/products/1",
+                  public_id="product_1_img_0", overwrite=True)
+    """
+    resource_type = kwargs.get("resource_type", "image")
+
+    # ── Bước 1: Đọc toàn bộ file vào bytes ngay lập tức ──────────────────────
+    # [FIX #EMPTYFILE] Django InMemoryUploadedFile / file object chỉ đọc được 1 lần.
+    # Phải đọc hết thành bytes TRƯỚC khi làm bất cứ điều gì,
+    # tránh con trỏ bị lệch khiến Cloudinary nhận file rỗng.
+    if isinstance(file_or_path, (bytes, bytearray)):
+        raw_bytes = bytes(file_or_path)
+    elif isinstance(file_or_path, str):
+        raw_bytes = None  # path string — Cloudinary tự đọc
+    else:
+        try:
+            if hasattr(file_or_path, "seek"):
+                file_or_path.seek(0)
+            raw_bytes = file_or_path.read()
+        except Exception:
+            raw_bytes = None
+
+    # ── Bước 2: Pillow enhance (chỉ ảnh, không áp dụng video) ───────────────
+    enhanced_bytes = None
+    if resource_type == "image" and raw_bytes is not None:
+        enhanced_bytes = _enhance_image_pillow(raw_bytes)
+
+    # Chọn nguồn upload: enhanced BytesIO > raw bytes > path string gốc
+    if enhanced_bytes is not None:
+        upload_source = enhanced_bytes
+    elif raw_bytes is not None:
+        upload_source = io.BytesIO(raw_bytes)
+    else:
+        upload_source = file_or_path  # fallback path string
+
+    # ── Bước 3: Gắn Cloudinary AI transformation nếu có preset ──────────────
+    if enhance and enhance in _ENHANCE_TRANSFORMS:
+        kwargs["transformation"] = _ENHANCE_TRANSFORMS[enhance]
+        kwargs.pop("quality", None)
+
+    # ── Bước 4: Upload với retry SSL ─────────────────────────────────────────
+    # [FIX #SSL-v2] Reset toàn bộ connection pool của Cloudinary SDK trước khi upload.
+    # Nguyên nhân gốc: urllib3 giữ connection pool keep-alive, khi server Cloudinary
+    # đóng kết nối phía backend (idle timeout ~60s), SDK vẫn tái dùng socket cũ
+    # → SSLEOFError. Giải pháp: buộc tạo session mới bằng cách reset HTTPClient.
+    def _reset_cloudinary_connection():
+        """Reset hoàn toàn connection pool + inject certifi session mới."""
+        try:
+            import certifi, requests, urllib3
+            import cloudinary.api_client.execute_request as _exec
+
+            # Close session cũ
+            if hasattr(_exec, "http_client") and _exec.http_client:
+                old_sess = getattr(_exec.http_client, "_session", None) or                            getattr(_exec.http_client, "session",  None)
+                if old_sess and hasattr(old_sess, "close"):
+                    try: old_sess.close()
+                    except Exception: pass
+            _exec.http_client = None
+
+            # Tạo session mới với certifi + Connection: close
+            new_sess = requests.Session()
+            new_sess.verify = certifi.where()
+            new_sess.headers.update({"Connection": "close"})
+            _adapter = requests.adapters.HTTPAdapter(
+                max_retries=urllib3.util.Retry(total=1, backoff_factor=0.3),
+                pool_connections=1, pool_maxsize=1,
+            )
+            new_sess.mount("https://", _adapter)
+            new_sess.mount("http://",  _adapter)
+
+            # Inject session mới vào SDK
+            import cloudinary.api_client.http_client as _hc
+            if hasattr(_hc, "HttpClient"):
+                client = _hc.HttpClient()
+                if hasattr(client, "_session"):   client._session = new_sess
+                elif hasattr(client, "session"):  client.session  = new_sess
+                _exec.http_client = client
+
+        except Exception as e:
+            logger.debug(f"[SSL-reset] {e}")
+
+    max_tries = 3   # tăng lên 3 lần
+    last_err  = None
+    for attempt in range(max_tries):
+        try:
+            # Reset connection pool trước mỗi lần thử
+            _reset_cloudinary_connection()
+            # Reset về đầu khi retry
+            if attempt > 0 and hasattr(upload_source, "seek"):
+                upload_source.seek(0)
+            return cloudinary.uploader.upload(upload_source, **kwargs)
+        except Exception as e:
+            err_str = str(e).lower()
+            is_retriable = any(k in err_str for k in (
+                "ssl", "eof", "connection", "retry", "timeout",
+                "reset", "broken pipe", "remotedisconnected",
+            ))
+            last_err = e
+            if is_retriable and attempt < max_tries - 1:
+                wait = 1.0 * (attempt + 1)  # backoff: 1s, 2s
+                logger.warning(f"[Upload] SSL/connection lỗi lần {attempt+1}, thử lại sau {wait}s: {e}")
+                _time.sleep(wait)
+                continue
+            raise
+    raise last_err
 import random
 from django.core.mail import send_mail
 from django.conf import settings
@@ -18,7 +276,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 from .permissions import IsAdminOrStaff, IsAdminOnly, IsAuthenticatedCustomer
-from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia
+from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia, Banner, BannerItem, ActivityLog
 import logging
 from django.db.models import Avg, Count, Sum, F, FloatField, ExpressionWrapper, Min, Max, Q, DecimalField
 from django.db.models.functions import TruncDay, TruncMonth, TruncYear, Coalesce
@@ -394,7 +652,7 @@ def update_customer(request):
     if address is not None: customer.Address     = address.strip()
     if avatar  is not None:
         try:
-            upload_result = cloudinary.uploader.upload(avatar, folder="sellphone/avatars", public_id=f"avatar_{customer_id}", overwrite=True, resource_type="image", transformation=[{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}])
+            upload_result = _upload_to_cloudinary(avatar, enhance="avatar", folder="sellphone/avatars", public_id=f"avatar_{customer_id}", overwrite=True, resource_type="image")
             customer.Avatar = upload_result["secure_url"]
         except Exception as e:
             return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -436,7 +694,7 @@ def upload_avatar(request):
     if content_type not in ALLOWED_IMAGE_MIMES:
         return Response({"message": f"Loại file không được phép: {content_type}. Chỉ chấp nhận jpg, png, webp, gif"}, status=status.HTTP_400_BAD_REQUEST)
     try:
-        upload_result = cloudinary.uploader.upload(avatar_file, folder="sellphone/avatars", public_id=f"avatar_{customer_id}", overwrite=True, resource_type="image", transformation=[{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}])
+        upload_result = _upload_to_cloudinary(avatar_file, enhance="avatar", folder="sellphone/avatars", public_id=f"avatar_{customer_id}", overwrite=True, resource_type="image")
         customer.Avatar = upload_result["secure_url"]
         customer.save()
         return Response({"message": "Upload avatar thành công", "avatar_url": upload_result["secure_url"]}, status=status.HTTP_200_OK)
@@ -510,6 +768,7 @@ def admin_login(request):
     if not staff:                                    return Response({"message": "Tài khoản không tồn tại", "field": "username"}, status=status.HTTP_404_NOT_FOUND)
     if not check_password(password, staff.Password): return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
     if staff.Role == 'Unentitled':                   return Response({"message": "Bạn không có quyền truy cập", "field": "general"}, status=status.HTTP_403_FORBIDDEN)
+    _write_log(request, staff, 'login', f'Đăng nhập thành công — {staff.Email} ({staff.Role})')
     return Response({"message": "Đăng nhập thành công", "token": get_tokens_for_staff(staff), "admin": {"id": staff.StaffID, "full_name": staff.FullName, "username": staff.Email, "role": staff.Role, "avatar": ""}}, status=status.HTTP_200_OK)
 
 
@@ -540,6 +799,7 @@ def create_staff(request):
     if role not in ['Admin', 'Staff', 'Unentitled']: return Response({"message": "Vai trò không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     if Staff.objects.filter(Email=email).exists(): return Response({"message": "Email đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
     staff = Staff.objects.create(FullName=full_name, Email=email, Password=make_password(password), Role=role)
+    _write_log(request, None, 'create_staff', f'Tạo nhân viên: {full_name} ({email}) – {role}')
     return Response({"message": "Tạo tài khoản thành công", "staff": {"id": staff.StaffID, "full_name": staff.FullName, "email": staff.Email, "role": staff.Role}}, status=status.HTTP_201_CREATED)
 
 
@@ -553,6 +813,7 @@ def update_staff_role(request):
     staff = Staff.objects.filter(StaffID=staff_id).first()
     if not staff: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
     staff.Role = role; staff.save()
+    _write_log(request, None, 'update_staff_role', f'Đổi quyền nhân viên ID={staff_id} → {role}')
     return Response({"message": "Cập nhật quyền thành công"}, status=status.HTTP_200_OK)
 
 
@@ -561,6 +822,7 @@ def delete_staff(request):
     staff_id = request.data.get('id')
     if not staff_id: return Response({"message": "Thiếu staff_id"}, status=status.HTTP_400_BAD_REQUEST)
     Staff.objects.filter(StaffID=staff_id).delete()
+    _write_log(request, None, 'delete_staff', f'Xóa nhân viên ID={staff_id}')
     return Response({"message": "Đã xóa tài khoản"}, status=status.HTTP_200_OK)
 
 
@@ -589,7 +851,7 @@ def upload_staff_avatar(request):
     staff = Staff.objects.filter(StaffID=staff_id).first()
     if not staff: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
     try:
-        upload_result = cloudinary.uploader.upload(avatar_file, folder="sellphone/staff_avatars", public_id=f"staff_avatar_{staff_id}", overwrite=True, resource_type="image", transformation=[{"width": 300, "height": 300, "crop": "fill", "gravity": "face"}])
+        upload_result = _upload_to_cloudinary(avatar_file, enhance="avatar", folder="sellphone/staff_avatars", public_id=f"staff_avatar_{staff_id}", overwrite=True, resource_type="image")
         staff.Avatar = upload_result["secure_url"]; staff.save()
         return Response({"message": "Upload thành công", "avatar_url": upload_result["secure_url"]}, status=status.HTTP_200_OK)
     except Exception as e:
@@ -616,11 +878,12 @@ def create_category(request):
     image_url = ""
     if image_file:
         try:
-            result    = cloudinary.uploader.upload(image_file, folder="sellphone/categories", public_id=f"category_{name.lower().replace(' ', '_')}", overwrite=True, resource_type="image", transformation=[{"width": 400, "height": 400, "crop": "fill"}])
+            result    = _upload_to_cloudinary(image_file, enhance="category", folder="sellphone/categories", public_id=f"category_{name.lower().replace(' ', '_')}", overwrite=True, resource_type="image")
             image_url = result["secure_url"]
         except Exception as e:
             return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     cat = Category.objects.create(CategoryName=name, Image=image_url)
+    _write_log(request, None, 'create_category', f'Tạo danh mục: {name}')
     return Response({"message": "Tạo danh mục thành công", "id": cat.CategoryID, "name": cat.CategoryName, "image": image_url}, status=status.HTTP_201_CREATED)
 
 
@@ -636,11 +899,12 @@ def update_category(request):
     cat.CategoryName = name
     if image_file:
         try:
-            result    = cloudinary.uploader.upload(image_file, folder="sellphone/categories", public_id=f"category_{cat_id}", overwrite=True, resource_type="image", transformation=[{"width": 400, "height": 400, "crop": "fill"}])
+            result    = _upload_to_cloudinary(image_file, enhance="category", folder="sellphone/categories", public_id=f"category_{cat_id}", overwrite=True, resource_type="image")
             cat.Image = result["secure_url"]
         except Exception as e:
             return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     cat.save()
+    _write_log(request, None, 'update_category', f'Sửa danh mục ID={cat_id} → {name}')
     return Response({"message": "Cập nhật danh mục thành công"}, status=status.HTTP_200_OK)
 
 
@@ -723,15 +987,16 @@ def create_product(request):
         variant_img = request.FILES.get(f'variant_image_{idx}')
         if variant_img:
             try:
-                result = cloudinary.uploader.upload(variant_img, folder=f"sellphone/variants/{product.ProductID}", public_id=f"variant_{variant_obj.VariantID}", overwrite=True, resource_type="image", transformation=[{"width": 800, "height": 800, "crop": "limit"}])
+                result = _upload_to_cloudinary(variant_img, enhance="product", folder=f"sellphone/variants/{product.ProductID}", public_id=f"variant_{variant_obj.VariantID}", overwrite=True, resource_type="image")
                 variant_obj.Image = result["secure_url"]; variant_obj.save()
             except: pass
     for idx, img_file in enumerate(images):
         try:
-            result = cloudinary.uploader.upload(img_file, folder=f"sellphone/products/{product.ProductID}", public_id=f"product_{product.ProductID}_img_{idx}", overwrite=True, resource_type="image", transformation=[{"width": 800, "height": 800, "crop": "limit"}])
+            result = _upload_to_cloudinary(img_file, enhance="product", folder=f"sellphone/products/{product.ProductID}", public_id=f"product_{product.ProductID}_img_{idx}", overwrite=True, resource_type="image")
             ProductImage.objects.create(ProductID=product, ImageUrl=result["secure_url"], IsPrimary=(idx == 0))
         except: pass
     on_product_saved(product.ProductID)
+    _write_log(request, None, 'create_product', f'Tạo sản phẩm: {product_name} (ID={product.ProductID})')
     return Response({"message": "Tạo sản phẩm thành công", "product_id": product.ProductID}, status=status.HTTP_201_CREATED)
 
 
@@ -800,7 +1065,7 @@ def add_variants(request):
         variant_img = request.FILES.get(f'variant_image_{idx}')
         if variant_img:
             try:
-                result = cloudinary.uploader.upload(variant_img, folder=f"sellphone/variants/{product.ProductID}", public_id=f"variant_{variant_obj.VariantID}", overwrite=True, resource_type="image", transformation=[{"width": 800, "height": 800, "crop": "limit"}])
+                result = _upload_to_cloudinary(variant_img, enhance="product", folder=f"sellphone/variants/{product.ProductID}", public_id=f"variant_{variant_obj.VariantID}", overwrite=True, resource_type="image")
                 variant_obj.Image = result["secure_url"]; variant_obj.save()
             except: pass
         created.append(variant_obj.VariantID)
@@ -831,11 +1096,12 @@ def update_product(request):
     product.save()
     for idx, img_file in enumerate(images):
         try:
-            result = cloudinary.uploader.upload(img_file, folder=f"sellphone/products/{product.ProductID}", resource_type="image", transformation=[{"width": 800, "height": 800, "crop": "limit"}])
+            result = _upload_to_cloudinary(img_file, enhance="product", folder=f"sellphone/products/{product.ProductID}", resource_type="image")
             ProductImage.objects.create(ProductID=product, ImageUrl=result["secure_url"], IsPrimary=False)
         except Exception as e:
             logger.error(f"update_product image upload: {e}")
     on_product_saved(product.ProductID)
+    _write_log(request, None, 'update_product', f'Sửa sản phẩm ID={product_id} → {product.ProductName}')
     return Response({"message": "Cập nhật sản phẩm thành công"}, status=status.HTTP_200_OK)
 
 
@@ -855,6 +1121,7 @@ def delete_product(request):
     if has_active:
         return Response({"message": "Không thể xóa sản phẩm đang có trong đơn hàng chưa hoàn tất"}, status=status.HTTP_400_BAD_REQUEST)
     product.delete()
+    _write_log(request, None, 'delete_product', f'Xóa sản phẩm ID={product_id}')
     return Response({"message": "Đã xóa sản phẩm"}, status=status.HTTP_200_OK)
 
 
@@ -929,12 +1196,13 @@ def update_variant(request):
     img_file = request.FILES.get('image')
     if img_file:
         try:
-            result = cloudinary.uploader.upload(img_file, folder=f"sellphone/variants/{variant.ProductID_id}", public_id=f"variant_{variant_id}", overwrite=True, resource_type="image", transformation=[{"width": 800, "height": 800, "crop": "limit"}])
+            result = _upload_to_cloudinary(img_file, enhance="product", folder=f"sellphone/variants/{variant.ProductID_id}", public_id=f"variant_{variant_id}", overwrite=True, resource_type="image")
             variant.Image = result["secure_url"]
         except Exception as e:
             return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     variant.save()
     on_product_saved(variant.ProductID_id)
+    _write_log(request, None, 'update_variant', f'Sửa biến thể ID={request.data.get("variant_id")}')
     return Response({"message": "Cập nhật biến thể thành công"}, status=status.HTTP_200_OK)
 
 
@@ -989,7 +1257,7 @@ def save_product_content(request):
         if key.startswith('block_img_'):
             idx = key.replace('block_img_', '')
             try:
-                result = cloudinary.uploader.upload(request.FILES[key], folder=f"sellphone/product_content/{product_id}", resource_type="image", transformation=[{"width": 1200, "crop": "limit"}])
+                result = _upload_to_cloudinary(request.FILES[key], enhance="post", folder=f"sellphone/product_content/{product_id}", resource_type="image")
                 for b in blocks_parsed:
                     if b.get('_idx') == idx and b.get('type') == 'image': b['url'] = result['secure_url']; break
             except: pass
@@ -1111,6 +1379,7 @@ def create_voucher(request):
     max_disc    = request.data.get('max_discount')
     usage_limit = request.data.get('usage_limit')
     v = Voucher.objects.create(Code=code, Type=vtype, Value=float(value), Scope=scope, CategoryID=cat_obj, ProductID=prod_obj, VariantID=variant_obj, MinOrder=min_order, MaxDiscount=float(max_disc) if max_disc else None, StartDate=start_date, EndDate=end_date, UsageLimit=int(usage_limit) if usage_limit else None, IsActive=True)
+    _write_log(request, None, 'create_voucher', f'Tạo voucher: {code} ({vtype}, {value})')
     return Response({"message": "Tạo voucher thành công", "id": v.VoucherID}, status=status.HTTP_201_CREATED)
 
 
@@ -1127,6 +1396,7 @@ def update_voucher(request):
         val = request.data.get(req_key)
         if val is not None: setattr(v, model_field, val or None)
     v.save()
+    _write_log(request, None, 'update_voucher', f'Sửa voucher ID={voucher_id}')
     return Response({"message": "Cập nhật voucher thành công"}, status=status.HTTP_200_OK)
 
 
@@ -1137,6 +1407,7 @@ def delete_voucher(request):
     voucher_id = request.data.get('id')
     if not voucher_id: return Response({"message": "Thiếu voucher_id"}, status=status.HTTP_400_BAD_REQUEST)
     Voucher.objects.filter(VoucherID=voucher_id).delete()
+    _write_log(request, None, 'delete_voucher', f'Xóa voucher ID={voucher_id}')
     return Response({"message": "Đã xóa voucher"}, status=status.HTTP_200_OK)
 
 
@@ -1148,6 +1419,7 @@ def deactivate_voucher(request):
     v = Voucher.objects.filter(VoucherID=vid).first()
     if not v: return Response({"message": "Không tìm thấy voucher"}, status=status.HTTP_404_NOT_FOUND)
     v.IsActive = False; v.save()
+    _write_log(request, None, 'deactivate_voucher', f'Tắt voucher ID={vid}')
     return Response({"message": "Đã vô hiệu hóa voucher"}, status=status.HTTP_200_OK)
 
 
@@ -1451,6 +1723,7 @@ def update_order_status(request):
     except Exception as e:
         return Response({"message": f"Cập nhật thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     label = {'Processing': 'Đang xử lý', 'Shipping': 'Đang giao hàng', 'Delivered': 'Đã giao hàng', 'Cancelled': 'Đã hủy'}.get(new_status, new_status)
+    _write_log(request, None, 'update_order', f'Cập nhật đơn #{order_id}: {o.Status} → {new_status}')
     return Response({"message": f"Cập nhật thành công: {label}"}, status=status.HTTP_200_OK)
 
 
@@ -1479,7 +1752,7 @@ def create_return_request(request):
             for f in files:
                 try:
                     resource_type = 'video' if f.content_type.startswith('video') else 'image'
-                    result = cloudinary.uploader.upload(f, folder=f"sellphone/returns/{o.OrderID}", resource_type=resource_type)
+                    result = _upload_to_cloudinary(f, enhance="product", folder=f"sellphone/returns/{o.OrderID}", resource_type=resource_type)
                     ReturnMedia.objects.create(ReturnID=rr, Url=result['secure_url'], MediaType=resource_type)
                 except: pass
             o.Status = 'ReturnRequested'
@@ -1531,6 +1804,7 @@ def process_return_request(request):
             o.save()
     except Exception as e:
         return Response({"message": f"Xử lý thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    _write_log(request, None, 'process_return', f'Xử lý trả hàng #{return_id}: {action} – {note or default_note}')
     return Response({"message": f"{note or default_note}"}, status=status.HTTP_200_OK)
 
 
@@ -1592,11 +1866,12 @@ def create_post(request):
         if key.startswith('block_img_'):
             idx = key.replace('block_img_', '')
             try:
-                result = cloudinary.uploader.upload(request.FILES[key], folder="sellphone/posts", resource_type="image", transformation=[{"width": 1200, "crop": "limit"}])
+                result = _upload_to_cloudinary(request.FILES[key], enhance="post", folder="sellphone/posts", resource_type="image")
                 for b in blocks_parsed:
                     if b.get('_idx') == idx and b.get('type') == 'image': b['url'] = result['secure_url']; break
             except: pass
     post = Post.objects.create(Title=title, Category=category or "Mẹo vặt", Blocks=json.dumps(blocks_parsed, ensure_ascii=False), Author=author)
+    _write_log(request, None, 'create_post', f'Tạo bài viết: "{title}" (ID={post.PostID})')
     return Response({"message": "Đăng bài thành công", "post_id": post.PostID}, status=status.HTTP_201_CREATED)
 
 
@@ -1617,11 +1892,12 @@ def update_post(request):
         if key.startswith('block_img_'):
             idx = key.replace('block_img_', '')
             try:
-                result = cloudinary.uploader.upload(request.FILES[key], folder="sellphone/posts", resource_type="image")
+                result = _upload_to_cloudinary(request.FILES[key], enhance="post", folder="sellphone/posts", resource_type="image")
                 for b in blocks_parsed:
                     if b.get('_idx') == idx and b.get('type') == 'image': b['url'] = result['secure_url']; break
             except: pass
     p.Title = title; p.Category = category; p.Blocks = json.dumps(blocks_parsed, ensure_ascii=False); p.save()
+    _write_log(request, None, 'update_post', f'Sửa bài viết ID={post_id}: "{title}"')
     return Response({"message": "Cập nhật bài viết thành công"}, status=status.HTTP_200_OK)
 
 
@@ -1632,6 +1908,7 @@ def delete_post(request):
     p = Post.objects.filter(PostID=post_id).first()
     if not p: return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
     p.delete()
+    _write_log(request, None, 'delete_post', f'Xóa bài viết ID={post_id}')
     return Response({"message": "Đã xóa bài viết"}, status=status.HTTP_200_OK)
 
 
@@ -1767,7 +2044,8 @@ def upload_review_media(request):
     if media_file.size > 200 * 1024 * 1024: return Response({"ok": False, "error": "File quá lớn (tối đa 200MB)"}, status=status.HTTP_400_BAD_REQUEST)
     try:
         resource_type = "video" if media_file.content_type.startswith("video") else "image"
-        result = cloudinary.uploader.upload(media_file, folder=f"sellphone/reviews/{customer_id}", resource_type=resource_type)
+        # enhance chỉ áp dụng với ảnh; _upload_to_cloudinary tự bỏ qua nếu resource_type="video"
+        result = _upload_to_cloudinary(media_file, enhance="product", folder=f"sellphone/reviews/{customer_id}", resource_type=resource_type)
         return Response({"ok": True, "url": result["secure_url"], "media_type": resource_type}, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({"ok": False, "error": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -2213,3 +2491,1043 @@ def admin_list_customers(request):
     customers = Customer.objects.all().order_by('-CustomerID')
     data = [{"id": c.CustomerID, "full_name": c.FullName, "email": c.Email, "phone": c.PhoneNumber or "", "address": c.Address or "", "login_type": c.LoginType, "order_count": Order.objects.filter(CustomerID=c.CustomerID).count(), "total_spent": float(Order.objects.filter(CustomerID=c.CustomerID, Status='Delivered').aggregate(s=Sum('TotalAmount'))['s'] or 0)} for c in customers]
     return Response({"customers": data}, status=status.HTTP_200_OK)
+
+# ══════════════════════════════════════════════════════════════
+# ACTIVITY LOG HELPER
+# ══════════════════════════════════════════════════════════════
+
+def _get_staff_from_request(request):
+    """Decode token để lấy Staff object. Trả về None nếu không xác định được."""
+    try:
+        import jwt as pyjwt
+        from django.conf import settings as _settings
+        auth = request.META.get("HTTP_AUTHORIZATION", "")
+        if not auth.startswith("Bearer "):
+            return None
+        raw     = auth.split(" ", 1)[1].strip()
+        payload = pyjwt.decode(raw, _settings.SECRET_KEY, algorithms=["HS256"])
+        staff_id = payload.get("staff_id")
+        if staff_id:
+            return Staff.objects.filter(StaffID=staff_id).first()
+    except Exception:
+        pass
+    return None
+
+
+# ══════════════════════════════════════════════════════════════
+# VIDEO URL HELPER — chuẩn hóa YouTube / Google Drive URL
+# ══════════════════════════════════════════════════════════════
+import re as _re
+
+def _normalize_video_url(url: str) -> str:
+    """
+    Nhận URL YouTube hoặc Google Drive, trả về URL embed chuẩn.
+    Trả về "" nếu URL không hợp lệ.
+
+    YouTube:
+      https://youtu.be/VIDEO_ID
+      https://www.youtube.com/watch?v=VIDEO_ID
+      https://www.youtube.com/embed/VIDEO_ID  (đã là embed)
+      → https://www.youtube.com/embed/VIDEO_ID?autoplay=0&rel=0
+
+    Google Drive:
+      https://drive.google.com/file/d/FILE_ID/view
+      https://drive.google.com/open?id=FILE_ID
+      → https://drive.google.com/file/d/FILE_ID/preview
+    """
+    url = url.strip()
+    if not url:
+        return ""
+
+    # YouTube — youtu.be short link
+    m = _re.match(r"https?://youtu\.be/([A-Za-z0-9_-]{11})", url)
+    if m:
+        return f"https://www.youtube.com/embed/{m.group(1)}?rel=0"
+
+    # YouTube — watch?v=
+    m = _re.search(r"youtube\.com/watch\?.*v=([A-Za-z0-9_-]{11})", url)
+    if m:
+        return f"https://www.youtube.com/embed/{m.group(1)}?rel=0"
+
+    # YouTube — đã là embed
+    m = _re.match(r"https?://(?:www\.)?youtube\.com/embed/([A-Za-z0-9_-]{11})", url)
+    if m:
+        return f"https://www.youtube.com/embed/{m.group(1)}?rel=0"
+
+    # YouTube — shorts
+    m = _re.match(r"https?://(?:www\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11})", url)
+    if m:
+        return f"https://www.youtube.com/embed/{m.group(1)}?rel=0"
+
+    # Google Drive — /file/d/FILE_ID/
+    m = _re.search(r"drive\.google\.com/file/d/([A-Za-z0-9_-]+)", url)
+    if m:
+        return f"https://drive.google.com/file/d/{m.group(1)}/preview"
+
+    # Google Drive — open?id= hoặc uc?id=
+    m = _re.search(r"drive\.google\.com/(?:open|uc)\?(?:.*&)?id=([A-Za-z0-9_-]+)", url)
+    if m:
+        return f"https://drive.google.com/file/d/{m.group(1)}/preview"
+
+    return ""  # không nhận dạng được
+
+
+def _write_log(request, staff_obj, action: str, detail: str = ""):
+    """
+    Ghi 1 dòng ActivityLog.
+    - staff_obj: truyền trực tiếp nếu đã có (VD: admin_login).
+    - Nếu None, tự decode từ token.
+    """
+    try:
+        if staff_obj is None:
+            staff_obj = _get_staff_from_request(request)
+        ip = (
+            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+            or request.META.get("REMOTE_ADDR", "")
+        )
+        ActivityLog.objects.create(
+            StaffID=staff_obj,
+            Action=action,
+            Detail=detail[:500],
+            IPAddress=ip[:45],
+        )
+    except Exception as e:
+        logger.warning(f"[ActivityLog] write failed: {e}")
+
+
+# ══════════════════════════════════════════════════════════════
+# ACTIVITY LOG VIEWS
+# ══════════════════════════════════════════════════════════════
+
+@api_view(["GET"])
+@permission_classes([IsAdminOnly])
+def list_activity_logs(request):
+    """
+    Lấy danh sách log, chỉ Admin.
+    Query params:
+      page     – trang (default 1)
+      per_page – số dòng/trang (default 50, max 200)
+      action   – lọc theo loại hành động (tuỳ chọn)
+      staff_id – lọc theo nhân viên (tuỳ chọn)
+      q        – tìm kiếm trong Detail (tuỳ chọn)
+    """
+    page     = max(1, int(request.query_params.get("page", 1)))
+    per_page = min(200, max(1, int(request.query_params.get("per_page", 50))))
+    action   = request.query_params.get("action", "").strip()
+    staff_id = request.query_params.get("staff_id", "").strip()
+    q        = request.query_params.get("q", "").strip()
+
+    qs = ActivityLog.objects.select_related("StaffID").all()
+    if action:
+        qs = qs.filter(Action=action)
+    if staff_id:
+        qs = qs.filter(StaffID=staff_id)
+    if q:
+        qs = qs.filter(Detail__icontains=q)
+
+    total  = qs.count()
+    offset = (page - 1) * per_page
+    logs   = qs[offset: offset + per_page]
+
+    data = []
+    for log in logs:
+        staff = log.StaffID
+        data.append({
+            "id":         log.LogID,
+            "staff_id":   staff.StaffID   if staff else None,
+            "staff_name": staff.FullName  if staff else "Không xác định",
+            "staff_role": staff.Role      if staff else "",
+            "action":     log.Action,
+            "detail":     log.Detail,
+            "ip":         log.IPAddress,
+            # [FIX #TIMESTAMP] Bảo vệ khi CreatedAt=None hoặc aware datetime lỗi
+            "created_at": (
+                log.CreatedAt.strftime("%Y-%m-%d %H:%M:%S")
+                if log.CreatedAt else ""
+            ),
+        })
+
+    # Danh sách action để filter trên frontend
+    action_choices = [
+        {"value": a[0], "label": a[1]}
+        for a in ActivityLog.ACTION_CHOICES
+    ]
+
+    return Response({
+        "logs":           data,
+        "total":          total,
+        "page":           page,
+        "per_page":       per_page,
+        "total_pages":    (total + per_page - 1) // per_page,
+        "action_choices": action_choices,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOnly])
+def clear_activity_logs(request):
+    """Xóa toàn bộ log (chỉ Admin). Cẩn thận — không thể phục hồi."""
+    count, _ = ActivityLog.objects.all().delete()
+    _write_log(request, None, "login", f"Đã xóa toàn bộ {count} dòng log")
+    return Response({"message": f"Đã xóa {count} dòng log"})
+
+
+# ══════════════════════════════════════════════════════════════
+# BANNER
+# ══════════════════════════════════════════════════════════════
+
+def _serialize_banner(banner):
+    items = banner.items.all().order_by("SortOrder", "BannerItemID")
+    return {
+        "id":        banner.BannerID,
+        "title":     banner.Title,
+        "page":      banner.Page,
+        "is_active": banner.IsActive,
+        "auto_play": banner.AutoPlay,
+        "interval":  banner.Interval,
+        "items": [
+            {
+                "id":         item.BannerItemID,
+                "media_type": item.MediaType,
+                "media_url":  item.MediaUrl,
+                "public_id":  item.PublicID,
+                "link_url":   item.LinkUrl,
+                "caption":    item.Caption,
+                "video_mode": item.VideoMode,
+                "sort_order": item.SortOrder,
+            }
+            for item in items
+        ],
+    }
+
+
+@api_view(["GET"])
+def get_active_banner(request):
+    banner = Banner.objects.filter(IsActive=True).order_by("BannerID").first()
+    if not banner:
+        return Response({"banner": None})
+    return Response({"banner": _serialize_banner(banner)})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminOrStaff])
+def list_banners(request):
+    banners = Banner.objects.all().order_by("-BannerID")
+    return Response({"banners": [_serialize_banner(b) for b in banners]})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+def create_banner(request):
+    title     = request.data.get("title", "").strip()
+    page      = request.data.get("page", "all")
+    is_active = request.data.get("is_active", True)
+    auto_play = request.data.get("auto_play", True)
+    interval  = int(request.data.get("interval", 4000))
+    if page not in ("all", "home", "product", "blog"):
+        return Response({"message": "page không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+    banner = Banner.objects.create(
+        Title=title, Page=page, IsActive=bool(is_active),
+        AutoPlay=bool(auto_play), Interval=max(1000, min(interval, 30000)),
+    )
+    _write_log(request, None, "create_banner", f"Tạo banner: {title or f'#{banner.BannerID}'}")
+    return Response({"message": "Tạo banner thành công", "banner": _serialize_banner(banner)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+def update_banner(request):
+    banner = Banner.objects.filter(BannerID=request.data.get("id")).first()
+    if not banner:
+        return Response({"message": "Không tìm thấy banner"}, status=status.HTTP_404_NOT_FOUND)
+    if "title"     in request.data: banner.Title    = request.data["title"].strip()
+    if "page"      in request.data: banner.Page     = request.data["page"]
+    if "is_active" in request.data: banner.IsActive = bool(request.data["is_active"])
+    if "auto_play" in request.data: banner.AutoPlay = bool(request.data["auto_play"])
+    if "interval"  in request.data: banner.Interval = max(1000, min(int(request.data["interval"]), 30000))
+    banner.save()
+    _write_log(request, None, "update_banner", f"Sửa banner #{banner.BannerID}: {banner.Title}")
+    return Response({"message": "Cập nhật thành công", "banner": _serialize_banner(banner)})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+def delete_banner(request):
+    banner = Banner.objects.filter(BannerID=request.data.get("id")).first()
+    if not banner:
+        return Response({"message": "Không tìm thấy banner"}, status=status.HTTP_404_NOT_FOUND)
+    bid = banner.BannerID
+    for item in banner.items.all():
+        if item.PublicID:
+            try:
+                cloudinary.uploader.destroy(item.PublicID,
+                    resource_type="video" if item.MediaType == "video" else "image")
+            except Exception as e:
+                logger.warning(f"[Banner] Cloudinary delete failed: {e}")
+    banner.delete()
+    _write_log(request, None, "delete_banner", f"Xóa banner #{bid}")
+    return Response({"message": "Đã xóa banner"})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+@parser_classes([MultiPartParser])
+def add_banner_item(request):
+    banner = Banner.objects.filter(BannerID=request.data.get("banner_id")).first()
+    if not banner:
+        return Response({"message": "Không tìm thấy banner"}, status=status.HTTP_404_NOT_FOUND)
+
+    file_obj    = request.FILES.get("file")
+    video_url   = (request.data.get("video_url") or "").strip()   # [NEW] URL YouTube/GDrive
+    media_type  = request.data.get("media_type", "image")
+
+    if media_type not in ("image", "video"):
+        return Response({"message": "media_type phải là image hoặc video"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # ── [NEW] Nếu là video URL (YouTube / Google Drive) → không upload Cloudinary ──
+    if media_type == "video" and video_url:
+        embed_url = _normalize_video_url(video_url)
+        if not embed_url:
+            return Response({"message": "URL video không hợp lệ. Chỉ hỗ trợ YouTube và Google Drive."}, status=status.HTTP_400_BAD_REQUEST)
+        item = BannerItem.objects.create(
+            BannerID=banner, MediaType="video",
+            MediaUrl=embed_url, PublicID="",
+            LinkUrl=request.data.get("link_url", "").strip(),
+            Caption=request.data.get("caption", "").strip(),
+            VideoMode=request.data.get("video_mode", "autoplay"),
+            SortOrder=int(request.data.get("sort_order", 0)),
+        )
+        _write_log(request, None, "add_banner_item",
+                   f"Thêm video URL vào banner #{banner.BannerID}: {embed_url[:60]}")
+        return Response({"message": "Đã thêm item", "item": {
+            "id": item.BannerItemID, "media_type": item.MediaType,
+            "media_url": item.MediaUrl, "public_id": item.PublicID,
+            "link_url": item.LinkUrl, "caption": item.Caption,
+            "video_mode": item.VideoMode, "sort_order": item.SortOrder,
+        }}, status=status.HTTP_201_CREATED)
+
+    # ── Upload file thông thường (ảnh hoặc video nhỏ ≤ 100MB) ──
+    if not file_obj:
+        return Response({"message": "Vui lòng chọn file hoặc nhập URL video"}, status=status.HTTP_400_BAD_REQUEST)
+    limit_mb = 95 if media_type == "video" else 50   # Cloudinary free tối đa 100MB
+    if file_obj.size > limit_mb * 1024 * 1024:
+        return Response({"message": f"File không được vượt quá {limit_mb}MB. Video lớn hơn hãy dùng URL YouTube/Google Drive."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        upload_result = _upload_to_cloudinary(
+            file_obj, enhance="post", folder="sellphone/banners",
+            resource_type="video" if media_type == "video" else "image",
+            overwrite=False,
+        )
+    except Exception as e:
+        return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    item = BannerItem.objects.create(
+        BannerID=banner, MediaType=media_type,
+        MediaUrl=upload_result["secure_url"], PublicID=upload_result["public_id"],
+        LinkUrl=request.data.get("link_url", "").strip(),
+        Caption=request.data.get("caption", "").strip(),
+        VideoMode=request.data.get("video_mode", "autoplay") if media_type == "video" else "autoplay",
+        SortOrder=int(request.data.get("sort_order", 0)),
+    )
+    _write_log(request, None, "add_banner_item",
+               f"Thêm {media_type} vào banner #{banner.BannerID} (item #{item.BannerItemID})")
+    return Response({"message": "Đã thêm item", "item": {
+        "id": item.BannerItemID, "media_type": item.MediaType,
+        "media_url": item.MediaUrl, "public_id": item.PublicID,
+        "link_url": item.LinkUrl, "caption": item.Caption,
+        "video_mode": item.VideoMode, "sort_order": item.SortOrder,
+    }}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+def update_banner_item(request):
+    item = BannerItem.objects.filter(BannerItemID=request.data.get("id")).first()
+    if not item:
+        return Response({"message": "Không tìm thấy item"}, status=status.HTTP_404_NOT_FOUND)
+    if "caption"    in request.data: item.Caption   = request.data["caption"].strip()
+    if "link_url"   in request.data: item.LinkUrl   = request.data["link_url"].strip()
+    if "video_mode" in request.data: item.VideoMode = request.data["video_mode"]
+    if "sort_order" in request.data: item.SortOrder = int(request.data["sort_order"])
+    item.save()
+    return Response({"message": "Cập nhật item thành công"})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+def delete_banner_item(request):
+    item = BannerItem.objects.filter(BannerItemID=request.data.get("id")).first()
+    if not item:
+        return Response({"message": "Không tìm thấy item"}, status=status.HTTP_404_NOT_FOUND)
+    iid = item.BannerItemID
+    bid = item.BannerID_id
+    if item.PublicID:
+        try:
+            cloudinary.uploader.destroy(item.PublicID,
+                resource_type="video" if item.MediaType == "video" else "image")
+        except Exception as e:
+            logger.warning(f"[Banner] Cloudinary delete failed: {e}")
+    item.delete()
+    _write_log(request, None, "delete_banner_item", f"Xóa item #{iid} khỏi banner #{bid}")
+    return Response({"message": "Đã xóa item"})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminOrStaff])
+def reorder_banner_items(request):
+    order = request.data.get("order", [])
+    for idx, item_id in enumerate(order):
+        BannerItem.objects.filter(BannerItemID=item_id).update(SortOrder=idx)
+    return Response({"message": "Đã cập nhật thứ tự"})
+# ══════════════════════════════════════════════════════════════
+# [NEW] TÁCH NỀN ẢNH BIẾN THỂ — local rembg (không tốn phí)
+# Chỉ áp dụng cho ảnh biến thể (ProductVariant.Image).
+# Ảnh gốc ProductImage KHÔNG bị tách nền.
+# ══════════════════════════════════════════════════════════════
+
+
+# ── In-memory job store cho remove-bg tasks ─────────────────
+import threading as _threading
+_rmbg_jobs = {}
+_rmbg_lock  = _threading.Lock()
+
+
+def _run_remove_bg(job_id: str, raw_bytes: bytes, variant_id, variant_product_id):
+    """Chạy rembg trong background thread. Lần đầu download model ~170MB (1 lần duy nhất)."""
+    with _rmbg_lock:
+        _rmbg_jobs[job_id] = {"status": "pending", "image_url": "", "message": "Đang tách nền..."}
+    try:
+        try:
+            from rembg import remove as rembg_remove, new_session
+        except ImportError:
+            with _rmbg_lock:
+                _rmbg_jobs[job_id] = {"status": "error", "image_url": "", "message": "Chưa cài rembg. Chạy: pip install rembg onnxruntime"}
+            return
+        from PIL import Image as _PILImage
+        try:
+            session      = new_session("u2net")
+            result_bytes = rembg_remove(raw_bytes, session=session)
+        except Exception as e:
+            with _rmbg_lock:
+                _rmbg_jobs[job_id] = {"status": "error", "image_url": "", "message": f"Lỗi tách nền: {e}"}
+            return
+        pil_img   = _PILImage.open(io.BytesIO(result_bytes)).convert("RGBA")
+        bg_img    = _PILImage.new("RGBA", pil_img.size, (255, 255, 255, 255))
+        bg_img.paste(pil_img, mask=pil_img.split()[3])
+        final_img = bg_img.convert("RGB")
+        out_buf   = io.BytesIO()
+        final_img.save(out_buf, format="JPEG", quality=92, optimize=True)
+        out_buf.seek(0)
+        try:
+            result  = _upload_to_cloudinary(
+                out_buf, enhance="product",
+                folder=f"sellphone/variants/{variant_product_id}",
+                public_id=f"variant_{variant_id}_nobg",
+                overwrite=True, resource_type="image",
+            )
+            new_url = result["secure_url"]
+        except Exception as e:
+            with _rmbg_lock:
+                _rmbg_jobs[job_id] = {"status": "error", "image_url": "", "message": f"Lỗi upload: {e}"}
+            return
+        try:
+            v = ProductVariant.objects.filter(VariantID=variant_id).first()
+            if v:
+                v.Image = new_url
+                v.save()
+        except Exception as e:
+            logger.error(f"[RemoveBg] DB error: {e}")
+        try:
+            from .yolo_search import train_product_async
+            train_product_async(variant_product_id, force=False)
+        except Exception:
+            pass
+        with _rmbg_lock:
+            _rmbg_jobs[job_id] = {"status": "done", "image_url": new_url, "message": "Tách nền thành công!"}
+        logger.info(f"[RemoveBg] Job {job_id} done")
+    except Exception as e:
+        logger.error(f"[RemoveBg] Error: {e}")
+        with _rmbg_lock:
+            _rmbg_jobs[job_id] = {"status": "error", "image_url": "", "message": f"Lỗi: {e}"}
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+@parser_classes([MultiPartParser])
+def variant_remove_bg(request):
+    """POST /api/variant/remove-bg/ — Khởi động job async, trả job_id ngay lập tức."""
+    variant_id = request.data.get("variant_id")
+    if not variant_id:
+        return Response({"message": "Thiếu variant_id"}, status=status.HTTP_400_BAD_REQUEST)
+    variant = ProductVariant.objects.filter(VariantID=variant_id).first()
+    if not variant:
+        return Response({"message": "Không tìm thấy biến thể"}, status=status.HTTP_404_NOT_FOUND)
+    img_file  = request.FILES.get("image")
+    raw_bytes = None
+    if img_file:
+        raw_bytes = img_file.read()
+    elif variant.Image:
+        try:
+            # Thử requests trước (hỗ trợ redirect + SSL tốt hơn urllib trên Windows)
+            try:
+                import requests as _req_lib
+                _r = _req_lib.get(
+                    variant.Image,
+                    timeout=30,
+                    verify=False,  # bỏ SSL verify — Windows thường lỗi SSL với Cloudinary
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                        "Accept": "image/*,*/*",
+                    },
+                    stream=False,
+                )
+                _r.raise_for_status()
+                raw_bytes = _r.content
+            except Exception:
+                # Fallback urllib
+                import urllib.request as _ureq, ssl as _ssl
+                _ctx = _ssl.create_default_context()
+                _ctx.check_hostname = False
+                _ctx.verify_mode = _ssl.CERT_NONE
+                _req2 = _ureq.Request(
+                    variant.Image,
+                    headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*"},
+                )
+                with _ureq.urlopen(_req2, timeout=30, context=_ctx) as resp:
+                    raw_bytes = resp.read()
+
+            if not raw_bytes or len(raw_bytes) < 500:
+                return Response({
+                    "message": "Ảnh tải về bị lỗi. Hãy dùng nút 'Đổi ảnh' để upload ảnh mới rồi tách nền."
+                }, status=400)
+        except Exception as e:
+            return Response({
+                "message": f"Không tải được ảnh từ Cloudinary ({type(e).__name__}). "
+                           f"Hãy dùng nút 'Đổi ảnh' để upload ảnh mới rồi bấm Tách nền."
+            }, status=400)
+    else:
+        return Response({"message": "Biến thể chưa có ảnh."}, status=400)
+    import uuid as _uuid
+    job_id = str(_uuid.uuid4())
+    _threading.Thread(
+        target=_run_remove_bg,
+        args=(job_id, raw_bytes, variant_id, variant.ProductID_id),
+        daemon=True, name=f"rmbg-{variant_id}",
+    ).start()
+    return Response({"job_id": job_id, "status": "pending", "message": "Đang tách nền..."}, status=202)
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
+def variant_remove_bg_status(request):
+    """GET /api/variant/remove-bg/status/?job_id=... — Poll trạng thái job."""
+    job_id = request.query_params.get("job_id", "")
+    with _rmbg_lock:
+        job = dict(_rmbg_jobs.get(job_id) or {})
+    if not job:
+        return Response({"status": "not_found", "message": "Job không tồn tại"}, status=404)
+    if job.get("status") in ("done", "error"):
+        with _rmbg_lock:
+            _rmbg_jobs.pop(job_id, None)
+    return Response(job)
+
+
+# ══════════════════════════════════════════════════════════════
+# CHATBOT PHONEZONE
+# ══════════════════════════════════════════════════════════════
+# CHATBOT PHONEZONE — Powered by Claude AI (Full Version)
+# Tính năng:
+#   ✅ Trả lời FAQ chính sách (thanh toán, bảo hành, đổi trả...)
+#   ✅ Gợi ý sản phẩm thông minh dựa trên BM25 + DB
+#   ✅ Tư vấn kỹ thuật chi tiết (CPU, RAM, camera, pin...)
+#   ✅ Nhớ lịch sử hội thoại trong phiên
+#   ✅ Trả lời mọi thứ có trên web (blog, đơn hàng, tài khoản...)
+#   ✅ Fallback rule-based nếu chưa có API key
+# ══════════════════════════════════════════════════════════════
+
+import os as _os
+
+# ── System prompt cố định ────────────────────────────────────
+_SYSTEM_BASE = """Bạn là trợ lý AI của PHONEZONE — cửa hàng điện thoại chính hãng tại Việt Nam.
+Nhiệm vụ: tư vấn mua hàng, hỗ trợ chính sách, giải đáp kỹ thuật, và trả lời mọi câu hỏi liên quan đến cửa hàng.
+
+══ THÔNG TIN CỬA HÀNG ══
+- Tên: PHONEZONE
+- Địa chỉ: 123 Đường Công Nghệ, Quận 1, TP. Hồ Chí Minh
+- Hotline: 1800 6789 (miễn phí | T2–T7: 8:00–21:00 | CN: 9:00–18:00)
+- Email: support@phonezone.vn
+- Mạng xã hội: Facebook / TikTok / Instagram @phonezone03
+
+══ CHÍNH SÁCH ══
+THANH TOÁN:
+  • COD — tiền mặt khi nhận hàng
+  • MoMo — quét mã QR qua App MoMo
+  • VNPay — ATM nội địa, Visa, MasterCard, JCB
+  • Chuyển khoản ngân hàng
+
+GIAO HÀNG:
+  • Toàn quốc qua đối tác vận chuyển uy tín
+  • Nội thành TP.HCM & Hà Nội: 1–2 ngày làm việc
+  • Tỉnh thành khác: 2–5 ngày làm việc
+  • Miễn phí giao hàng cho đơn từ 500.000đ
+  • Có thể theo dõi đơn trong mục "Đơn hàng của tôi"
+
+BẢO HÀNH:
+  • Bảo hành chính hãng 12–24 tháng theo nhà sản xuất
+  • iPhone: bảo hành tại Apple Store hoặc AASP
+  • Đổi máy mới trong 30 ngày nếu lỗi nhà sản xuất
+  • Bảo hành không áp dụng: rơi vỡ, ngấm nước, tự sửa chữa
+
+ĐỔI TRẢ:
+  • 7 ngày kể từ ngày nhận hàng
+  • Sản phẩm nguyên vẹn, đủ phụ kiện, còn hộp
+  • Vào Đơn hàng → chọn đơn → "Yêu cầu trả hàng"
+
+HÓA ĐƠN:
+  • Hóa đơn điện tử tự động sau khi giao thành công
+  • Xem & in trong Đơn hàng → "In hóa đơn"
+  • Hóa đơn VAT (đỏ): liên hệ support@phonezone.vn
+
+KHUYẾN MÃI & VOUCHER:
+  • Mã giảm giá hiển thị trực tiếp trên trang sản phẩm
+  • Tự động áp dụng khi đủ điều kiện
+  • Theo dõi fanpage để nhận ưu đãi mới nhất
+
+══ QUY TẮC TRẢ LỜI ══
+1. Luôn trả lời bằng tiếng Việt, thân thiện và chuyên nghiệp
+2. Dùng emoji vừa phải để tăng thân thiện
+3. Câu hỏi chính sách/hỗ trợ → trả lời trực tiếp, ngắn gọn
+4. Câu hỏi sản phẩm → dựa HOÀN TOÀN vào danh sách sản phẩm được cung cấp, KHÔNG bịa thông tin
+5. Câu hỏi kỹ thuật → dùng thông số specs trong danh sách sản phẩm để so sánh chi tiết
+6. Câu hỏi về đơn hàng/tài khoản → dùng thông tin khách hàng được cung cấp nếu có
+7. Câu hỏi về blog/bài viết → dùng danh sách bài viết được cung cấp
+8. Không biết → thành thật nói và hướng dẫn liên hệ hotline
+9. Cuối mỗi câu trả lời tư vấn sản phẩm → hỏi thêm nhu cầu để cá nhân hóa tốt hơn
+
+ĐỊNH DẠNG PHẢN HỒI (JSON bắt buộc):
+{"reply": "nội dung trả lời", "show_products": true/false}
+- show_products = true: khi câu trả lời liên quan đến sản phẩm cụ thể cần hiển thị card
+- show_products = false: câu hỏi chính sách, FAQ, kỹ thuật thuần túy, đơn hàng, blog
+"""
+
+
+def _build_full_context(msg: str, candidate_products: list, customer_data: dict, blog_titles: list) -> str:
+    """
+    Xây dựng context đầy đủ để inject vào prompt:
+    - Sản phẩm tìm được (với full specs)
+    - Thông tin khách hàng + đơn hàng gần đây (nếu đã login)
+    - Bài viết blog liên quan
+    """
+    sections = []
+
+    # ── 1. Sản phẩm với full specs ───────────────────────────
+    if candidate_products:
+        lines = [f"══ DANH SÁCH {len(candidate_products)} SẢN PHẨM PHÙ HỢP ══"]
+        for i, p in enumerate(candidate_products, 1):
+            rating = f"⭐{p['rating_avg']} ({p['rating_count']} đánh giá)" if p.get("rating_avg") else "Chưa có đánh giá"
+            price  = f"{int(p['min_price']):,}đ".replace(",", ".") if p.get("min_price") else "Liên hệ"
+            lines.append(f"\n[{i}] {p['name']} | Thương hiệu: {p.get('brand','?')} | Từ {price} | {rating}")
+
+            # Specs chi tiết từng biến thể
+            for vi, v in enumerate((p.get("variants") or [])[:6], 1):
+                spec_parts = []
+                if v.get("color"):            spec_parts.append(f"Màu: {v['color']}")
+                if v.get("storage"):          spec_parts.append(f"ROM: {v['storage']}")
+                if v.get("ram"):              spec_parts.append(f"RAM: {v['ram']}")
+                if v.get("price"):            spec_parts.append(f"Giá: {int(v['price']):,}đ".replace(",", "."))
+                if v.get("cpu"):              spec_parts.append(f"CPU: {v['cpu']}")
+                if v.get("os"):               spec_parts.append(f"HĐH: {v['os']}")
+                if v.get("screen_size"):      spec_parts.append(f"Màn: {v['screen_size']}")
+                if v.get("screen_tech"):      spec_parts.append(f"Tấm nền: {v['screen_tech']}")
+                if v.get("refresh_rate"):     spec_parts.append(f"Tần số: {v['refresh_rate']}")
+                if v.get("battery"):          spec_parts.append(f"Pin: {v['battery']}")
+                if v.get("charging_speed"):   spec_parts.append(f"Sạc: {v['charging_speed']}")
+                if v.get("rear_camera"):      spec_parts.append(f"Camera sau: {v['rear_camera']}")
+                if v.get("front_camera"):     spec_parts.append(f"Camera trước: {v['front_camera']}")
+                if v.get("weight"):           spec_parts.append(f"Trọng lượng: {v['weight']}")
+                if v.get("stock") is not None:
+                    spec_parts.append("Còn hàng" if v["stock"] > 0 else "❌ Hết hàng")
+                if spec_parts:
+                    lines.append(f"  Phiên bản {vi}: {' | '.join(spec_parts)}")
+        sections.append("\n".join(lines))
+
+    # ── 2. Thông tin khách hàng (nếu đã login) ───────────────
+    if customer_data:
+        clines = ["══ THÔNG TIN KHÁCH HÀNG (đã đăng nhập) ══"]
+        clines.append(f"Tên: {customer_data.get('name','?')} | Email: {customer_data.get('email','?')}")
+        if customer_data.get("phone"):
+            clines.append(f"SĐT: {customer_data['phone']}")
+
+        recent_orders = customer_data.get("recent_orders") or []
+        if recent_orders:
+            clines.append(f"\nĐơn hàng gần đây ({len(recent_orders)} đơn):")
+            for o in recent_orders[:3]:
+                items_str = ", ".join(
+                    f"{it['name']} x{it['qty']}" for it in (o.get("items") or [])[:2]
+                )
+                clines.append(
+                    f"  • Đơn #{o['id']} | {o['status_label']} | "
+                    f"{int(float(o['total'])):,}đ | {items_str}".replace(",", ".")
+                )
+        sections.append("\n".join(clines))
+
+    # ── 3. Bài viết blog liên quan ────────────────────────────
+    if blog_titles:
+        sections.append(
+            "══ BÀI VIẾT BLOG LIÊN QUAN ══\n" +
+            "\n".join(f"  • {t}" for t in blog_titles[:5])
+        )
+
+    return "\n\n".join(sections)
+
+
+def _get_customer_context(customer_id: str) -> dict:
+    """Lấy thông tin khách hàng + đơn hàng gần đây cho context."""
+    try:
+        from .models import Customer, Order, OrderDetail
+        cust = Customer.objects.filter(CustomerID=customer_id).first()
+        if not cust:
+            return {}
+
+        STATUS_LABEL = {
+            "Pending": "Chờ xác nhận", "Processing": "Đang xử lý",
+            "Shipping": "Đang giao", "Delivered": "Đã giao", "Cancelled": "Đã hủy",
+        }
+
+        recent_orders = []
+        for o in Order.objects.filter(CustomerID=customer_id).order_by("-OrderDate")[:5]:
+            details = OrderDetail.objects.filter(OrderID=o).select_related("VariantID__ProductID")
+            items = [
+                {"name": d.VariantID.ProductID.ProductName, "qty": d.Quantity}
+                for d in details
+            ]
+            recent_orders.append({
+                "id":           o.OrderID,
+                "status_label": STATUS_LABEL.get(o.Status, o.Status),
+                "total":        str(o.TotalAmount),
+                "items":        items,
+            })
+
+        return {
+            "name":          cust.FullName,
+            "email":         cust.Email,
+            "phone":         cust.PhoneNumber or "",
+            "recent_orders": recent_orders,
+        }
+    except Exception as e:
+        logger.debug(f"[Chatbot] get_customer_context error: {e}")
+        return {}
+
+
+def _get_blog_context(query: str) -> list:
+    """Tìm các bài blog liên quan đến query."""
+    try:
+        from .models import Post
+        posts = Post.objects.order_by("-CreatedAt")[:20]
+        q = query.lower()
+        matched = [p.Title for p in posts if any(w in p.Title.lower() for w in q.split() if len(w) > 2)]
+        # Nếu không match cụ thể, lấy 3 bài mới nhất
+        if not matched:
+            matched = [p.Title for p in posts[:3]]
+        return matched[:5]
+    except Exception:
+        return []
+
+
+def _get_candidate_products(msg: str, budget_max, bought_pids: set) -> list:
+    """BM25 search + build full product list với specs chi tiết."""
+    from .search_engine import get_index, rebuild_index
+    from .models import Review
+
+    idx = get_index()
+    if idx.N == 0:
+        rebuild_index()
+        idx = get_index()
+
+    ranked = idx.score(msg, top_k=10)
+
+    candidates = []
+    for _, doc in ranked:
+        p = doc["product"]
+        if p.ProductID in bought_pids:
+            continue
+
+        variants_raw = list(p.productvariant_set.all())
+        prices       = [float(v.Price) for v in variants_raw if v.Price]
+        min_price    = min(prices) if prices else 0
+
+        if budget_max and min_price > budget_max:
+            continue
+
+        variant_imgs = [v.Image for v in variants_raw if v.Image]
+        r_data       = Review.objects.filter(product=p).aggregate(avg=Avg("rating"), cnt=Count("id"))
+
+        # Full variant specs
+        variants_full = []
+        for v in variants_raw:
+            variants_full.append({
+                "id":            v.VariantID,
+                "color":         v.Color or "",
+                "storage":       v.Storage or "",
+                "ram":           v.Ram or "",
+                "price":         float(v.Price),
+                "stock":         v.StockQuantity,
+                "image":         v.Image or "",
+                "cpu":           v.Cpu or "",
+                "os":            v.OperatingSystem or "",
+                "screen_size":   v.ScreenSize or "",
+                "screen_tech":   v.ScreenTechnology or "",
+                "refresh_rate":  v.RefreshRate or "",
+                "battery":       v.Battery or "",
+                "charging_speed":v.ChargingSpeed or "",
+                "rear_camera":   v.RearCamera or "",
+                "front_camera":  v.FrontCamera or "",
+                "weight":        v.Weights or "",
+            })
+
+        candidates.append({
+            "id":           p.ProductID,
+            "name":         p.ProductName,
+            "brand":        p.Brand or "",
+            "image":        variant_imgs[0] if variant_imgs else "",
+            "min_price":    min_price,
+            "rating_avg":   round(float(r_data["avg"] or 0), 1),
+            "rating_count": int(r_data["cnt"] or 0),
+            "variants":     variants_full,
+        })
+
+        if len(candidates) >= 6:
+            break
+
+    # Fallback nếu không đủ
+    if len(candidates) < 3:
+        for p in _get_fallback_products(
+            exclude_ids=[s["id"] for s in candidates],
+            max_total=6 - len(candidates)
+        ):
+            variants_raw = list(p.productvariant_set.all())
+            variant_imgs = [v.Image for v in variants_raw if v.Image]
+            prices       = [float(v.Price) for v in variants_raw if v.Price]
+            candidates.append({
+                "id": p.ProductID, "name": p.ProductName, "brand": p.Brand or "",
+                "image": variant_imgs[0] if variant_imgs else "",
+                "min_price": min(prices) if prices else 0,
+                "rating_avg": 0, "rating_count": 0,
+                "variants": [
+                    {"id": v.VariantID, "color": v.Color or "", "storage": v.Storage or "",
+                     "ram": v.Ram or "", "price": float(v.Price), "stock": v.StockQuantity,
+                     "image": v.Image or "", "cpu": v.Cpu or "", "os": v.OperatingSystem or "",
+                     "screen_size": v.ScreenSize or "", "screen_tech": v.ScreenTechnology or "",
+                     "refresh_rate": v.RefreshRate or "", "battery": v.Battery or "",
+                     "charging_speed": v.ChargingSpeed or "", "rear_camera": v.RearCamera or "",
+                     "front_camera": v.FrontCamera or "", "weight": v.Weights or ""}
+                    for v in variants_raw
+                ],
+            })
+
+    return candidates
+
+
+def _call_claude_api(system: str, messages: list, api_key: str) -> dict:
+    """
+    Gọi Claude claude-haiku-4-5 — nhanh, rẻ, phù hợp chatbot realtime.
+    Trả về {"reply": str, "show_products": bool}.
+    """
+    import json as _json
+    import urllib.request as _ureq
+    import urllib.error as _uerr
+    import re as _re
+
+    payload = _json.dumps({
+        "model":      "claude-haiku-4-5-20251001",
+        "max_tokens": 800,
+        "system":     system,
+        "messages":   messages,
+    }).encode("utf-8")
+
+    req = _ureq.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type":      "application/json",
+            "x-api-key":         api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+
+    try:
+        with _ureq.urlopen(req, timeout=20) as resp:
+            data     = _json.loads(resp.read().decode("utf-8"))
+        raw_text = data["content"][0]["text"].strip()
+
+        # Parse JSON response từ Claude
+        try:
+            json_match = _re.search(r'\{[\s\S]*\}', raw_text)
+            if json_match:
+                parsed = _json.loads(json_match.group())
+                return {
+                    "reply":        str(parsed.get("reply", raw_text)),
+                    "show_products": bool(parsed.get("show_products", True)),
+                }
+        except Exception:
+            pass
+
+        # Nếu Claude không trả JSON đúng format, dùng raw text
+        return {"reply": raw_text, "show_products": True}
+
+    except _uerr.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        logger.error(f"[Chatbot] Claude HTTP {e.code}: {body[:300]}")
+        raise
+    except Exception as e:
+        logger.error(f"[Chatbot] Claude call error: {e}")
+        raise
+
+
+@api_view(['POST'])
+def chatbot_suggest(request):
+    """
+    POST /api/chatbot/suggest/
+    Body JSON:
+        message     : str  — tin nhắn người dùng
+        history     : list — [{"role":"user"|"assistant","content":"..."}] (tối đa 20 turns)
+        customer_id : str  — ID khách hàng (nếu đã đăng nhập)
+
+    Trả về:
+        reply         : str   — phản hồi Claude (hoặc rule-based nếu chưa có API key)
+        products      : list  — sản phẩm gợi ý kèm full specs
+        show_products : bool  — true = hiển thị card sản phẩm
+        intent        : str   — "product" | "faq" | "general"
+    """
+    import re as _re2
+
+    msg         = (request.data.get("message") or "").strip()
+    history     = request.data.get("history") or []
+    customer_id = request.data.get("customer_id") or ""
+
+    if not msg:
+        return Response({
+            "reply":         "Xin chào! 👋 Tôi là trợ lý PHONEZONE. Tôi có thể giúp bạn tìm điện thoại, tư vấn kỹ thuật, hoặc giải đáp về chính sách của cửa hàng. Bạn cần hỗ trợ gì?",
+            "products":      [],
+            "show_products": False,
+            "intent":        "general",
+        })
+
+    msg_lower = msg.lower()
+
+    # ── Lấy API key ──────────────────────────────────────────
+    from django.conf import settings as _dj_settings
+    api_key = (
+        getattr(_dj_settings, "ANTHROPIC_API_KEY", None)
+        or _os.environ.get("ANTHROPIC_API_KEY", "")
+    )
+
+    # ── Detect budget ─────────────────────────────────────────
+    budget_max = None
+    m_price = _re2.search(r'(\d+(?:[.,]\d+)?)\s*(triệu|tr\b)', msg_lower)
+    if m_price:
+        try: budget_max = float(m_price.group(1).replace(",", ".")) * 1_000_000
+        except: pass
+    for kw, val in [("dưới 5", 5e6), ("dưới 10", 10e6), ("dưới 15", 15e6),
+                    ("dưới 20", 20e6), ("dưới 30", 30e6), ("dưới 50", 50e6)]:
+        if kw in msg_lower:
+            budget_max = val
+
+    # ── Sản phẩm đã mua (không gợi ý lại) ───────────────────
+    bought_pids = set()
+    if customer_id:
+        try:
+            bought_pids = set(
+                OrderDetail.objects
+                .filter(OrderID__CustomerID=customer_id)
+                .values_list("VariantID__ProductID__ProductID", flat=True)
+            )
+        except Exception:
+            pass
+
+    # ── Thu thập context đầy đủ ──────────────────────────────
+    candidate_products = _get_candidate_products(msg, budget_max, bought_pids)
+    customer_data      = _get_customer_context(customer_id) if customer_id else {}
+    blog_titles        = _get_blog_context(msg)
+
+    # ── Fallback rule-based nếu chưa có API key ──────────────
+    if not api_key:
+        return _chatbot_rule_based(msg, msg_lower, candidate_products, budget_max)
+
+    # ── Build full context ────────────────────────────────────
+    context_block = _build_full_context(msg, candidate_products, customer_data, blog_titles)
+    full_system   = _SYSTEM_BASE
+    if context_block:
+        full_system += f"\n\n{context_block}"
+
+    # ── Build messages (giữ tối đa 16 turns = ~8000 tokens) ──
+    claude_messages = []
+    for h in history[-16:]:
+        role    = h.get("role", "user")
+        content = (h.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            claude_messages.append({"role": role, "content": content})
+    claude_messages.append({"role": "user", "content": msg})
+
+    # ── Gọi Claude ───────────────────────────────────────────
+    try:
+        result        = _call_claude_api(full_system, claude_messages, api_key)
+        reply         = result["reply"]
+        show_products = result["show_products"]
+    except Exception:
+        # Nếu Claude lỗi → fallback rule-based, không crash
+        return _chatbot_rule_based(msg, msg_lower, candidate_products, budget_max)
+
+    return Response({
+        "reply":         reply,
+        "products":      candidate_products if show_products else [],
+        "show_products": show_products,
+        "intent":        "faq" if not show_products else "product",
+        "query":         msg,
+    })
+
+
+def _chatbot_rule_based(msg: str, msg_lower: str, candidate_products: list, budget_max) -> "Response":
+    """Rule-based fallback khi chưa cấu hình ANTHROPIC_API_KEY."""
+    FAQ = [
+        (["thanh toán","hình thức thanh toán","trả tiền","momo","vnpay","cod","chuyển khoản","tiền mặt"],
+         "💳 PHONEZONE hỗ trợ 4 hình thức thanh toán:\n• COD — tiền mặt khi nhận hàng\n• 💜 MoMo — quét mã QR\n• 🏦 VNPay — ATM, Visa, MasterCard\n• 🏧 Chuyển khoản ngân hàng"),
+        (["bảo hành","warranty","hư hỏng","lỗi","đổi máy","sửa"],
+         "🛡️ Bảo hành chính hãng 12–24 tháng. Đổi máy mới trong 30 ngày nếu lỗi nhà sản xuất.\n📞 Hotline: 1800 6789"),
+        (["đổi trả","trả hàng","hoàn tiền","refund","return"],
+         "🔄 Đổi trả trong 7 ngày, sản phẩm nguyên vẹn đủ phụ kiện.\nVào Đơn hàng → Yêu cầu trả hàng."),
+        (["giao hàng","ship","vận chuyển","mấy ngày","bao lâu","phí ship"],
+         "🚚 Nội thành HCM/HN: 1–2 ngày. Tỉnh khác: 2–5 ngày.\nMiễn phí từ 500.000đ."),
+        (["khuyến mãi","voucher","mã giảm giá","ưu đãi","sale"],
+         "🎫 Mã giảm giá hiển thị trực tiếp trên trang sản phẩm, tự động áp dụng.\nTheo dõi @phonezone03 để nhận ưu đãi mới!"),
+        (["liên hệ","hotline","hỗ trợ","contact","cskh"],
+         "📞 1800 6789 (miễn phí | T2–T7: 8–21h | CN: 9–18h)\n📧 support@phonezone.vn\n📍 123 Đường Công Nghệ, Q.1, TP.HCM"),
+        (["hóa đơn","invoice","vat","xuất hóa đơn"],
+         "🧾 Hóa đơn tự động sau khi giao thành công.\nXem & In trong Đơn hàng → In hóa đơn.\nVAT: liên hệ support@phonezone.vn"),
+        (["địa chỉ","cửa hàng","showroom","ở đâu","chi nhánh"],
+         "📍 123 Đường Công Nghệ, Quận 1, TP. Hồ Chí Minh\n⏰ T2–T7: 8:00–21:00 | CN: 9:00–18:00"),
+        (["xin chào","hello","hi","chào","hey","alo"],
+         "Xin chào! 👋 Tôi có thể giúp bạn tìm điện thoại, tư vấn kỹ thuật hoặc hỗ trợ chính sách. Bạn cần gì?"),
+        (["cảm ơn","thanks","thank","tks","ty","ok rồi","được rồi"],
+         "Không có gì! 😊 Cần thêm thông tin gì cứ hỏi nhé!"),
+    ]
+
+    for keywords, reply in FAQ:
+        if any(kw in msg_lower for kw in keywords):
+            return Response({
+                "reply": reply, "products": [],
+                "show_products": False, "intent": "faq", "query": msg
+            })
+
+    # Product search
+    if budget_max:
+        reply = f"Với ngân sách dưới {int(budget_max // 1_000_000)} triệu, đây là {len(candidate_products)} sản phẩm phù hợp:"
+    elif candidate_products:
+        reply = f"Tìm thấy {len(candidate_products)} sản phẩm phù hợp với \"{msg}\":"
+    else:
+        reply = "Xin lỗi, không tìm thấy sản phẩm phù hợp. Liên hệ 1800 6789 để được tư vấn trực tiếp nhé!"
+
+    return Response({
+        "reply": reply, "products": candidate_products,
+        "show_products": bool(candidate_products), "intent": "product", "query": msg
+    })

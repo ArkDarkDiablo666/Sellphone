@@ -8,6 +8,33 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
+// VIDEO URL HELPER
+// ─────────────────────────────────────────────────────────────
+function normalizeVideoUrl(url = "") {
+  const s = url.trim();
+  if (!s) return { embed: "", type: "unknown" };
+
+  // YouTube
+  let m = s.match(/(?:youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (!m) m = s.match(/youtube\.com\/(?:watch\?.*v=|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  if (m) return { embed: `https://www.youtube.com/embed/${m[1]}?rel=0`, type: "youtube", id: m[1] };
+
+  // Google Drive
+  let gm = s.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/);
+  if (!gm) gm = s.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([A-Za-z0-9_-]+)/);
+  if (gm) return { embed: `https://drive.google.com/file/d/${gm[1]}/preview`, type: "gdrive", id: gm[1] };
+
+  // URL video trực tiếp (.mp4, .webm...)
+  if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(s)) return { embed: s, type: "direct" };
+
+  return { embed: s, type: "unknown" };
+}
+
+function isVideoUrl(url = "") {
+  return /youtu\.?be|youtube\.com|drive\.google\.com|\.(mp4|webm|ogg|mov)/i.test(url);
+}
+
+
 //  HELPERS
 // ─────────────────────────────────────────────────────────────
 let _idCounter = Date.now();
@@ -203,7 +230,10 @@ function FormatBar({ onFormat, showAlign = true }) {
 function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles, onMediaChange, allBlocks }) {
   const fileRef  = useRef();
   const videoRef = useRef();
-  const [focused, setFocused] = useState(false);
+  const [focused,        setFocused]        = useState(false);
+  const [videoInputMode, setVideoInputMode] = useState("file"); // "file" | "url"
+  const [videoUrlDraft,  setVideoUrlDraft]  = useState("");     // URL đang nhập
+  const [videoUrlError,  setVideoUrlError]  = useState("");
 
   const upd = (patch) => onChange({ ...block, ...patch });
 
@@ -217,6 +247,15 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
     if (!file) return;
     upd({ url: URL.createObjectURL(file), _pendingFile: true });
     onMediaChange({ ...mediaFiles, [`block_vid_${block._idx}`]: file });
+  };
+
+  const handleVideoUrlConfirm = () => {
+    const { embed, type } = normalizeVideoUrl(videoUrlDraft);
+    if (!videoUrlDraft.trim()) { setVideoUrlError("Vui lòng nhập URL"); return; }
+    if (type === "unknown") { setVideoUrlError("Chỉ hỗ trợ YouTube, Google Drive, hoặc link video trực tiếp (.mp4)"); return; }
+    setVideoUrlError("");
+    upd({ url: embed, _pendingFile: false });
+    onMediaChange({ ...mediaFiles, [`block_vid_${block._idx}`]: undefined });
   };
 
   const styleMap = {
@@ -378,28 +417,113 @@ function BlockItem({ block, index, total, onChange, onMove, onDelete, mediaFiles
         {block.type === "video" && (
           <div>
             {block.url ? (
+              /* ── Đã có video — hiển thị preview + nút xóa ── */
               <div className="relative group/vid">
-                <video src={block.url} controls className="w-full rounded-xl max-h-72" />
-                <button onClick={() => { upd({ url: "", _pendingFile: false }); onMediaChange({ ...mediaFiles, [`block_vid_${block._idx}`]: undefined }); }}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-red-400 opacity-0 group-hover/vid:opacity-100 transition">
+                {(() => {
+                  const { type, embed, id } = normalizeVideoUrl(block.url);
+                  if (type === "youtube") return (
+                    <div className="rounded-xl overflow-hidden aspect-video bg-black">
+                      <iframe src={embed} className="w-full h-full" allowFullScreen title="YouTube video"/>
+                    </div>
+                  );
+                  if (type === "gdrive") return (
+                    <div className="rounded-xl overflow-hidden aspect-video bg-black">
+                      <iframe src={embed} className="w-full h-full" allowFullScreen title="Google Drive video"/>
+                    </div>
+                  );
+                  return <video src={embed} controls className="w-full rounded-xl max-h-72"/>;
+                })()}
+                <button onClick={() => { upd({ url: "", _pendingFile: false }); onMediaChange({ ...mediaFiles, [`block_vid_${block._idx}`]: undefined }); setVideoUrlDraft(""); }}
+                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-red-400 opacity-0 group-hover/vid:opacity-100 transition focus:outline-none">
                   <Trash2 size={13} />
                 </button>
+                {/* Badge loại video */}
+                {(() => {
+                  const { type } = normalizeVideoUrl(block.url);
+                  const labels = { youtube: "🎬 YouTube", gdrive: "📁 Google Drive", direct: "🎥 Video file" };
+                  return labels[type] ? (
+                    <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-black/60 text-white/60 border border-white/10">
+                      {labels[type]}
+                    </span>
+                  ) : null;
+                })()}
               </div>
             ) : (
+              /* ── Chưa có video — tab chọn cách nhập ── */
               <div>
-                <div onClick={() => videoRef.current?.click()}
-                  className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center cursor-pointer hover:border-orange-500/40 transition mb-2">
-                  <Video size={24} className="mx-auto mb-2 text-white/20" />
-                  <p className="text-xs text-white/30">Click để tải video lên</p>
-                  <input ref={videoRef} type="file" accept="video/*" className="hidden"
-                    onChange={e => handleVideoFile(e.target.files[0])} />
+                {/* Tab switch */}
+                <div className="flex gap-1 mb-3 bg-white/5 rounded-xl p-1">
+                  {[{v:"file",l:"📁 Upload file"},{v:"url",l:"🔗 YouTube / Drive"}].map(tab => (
+                    <button key={tab.v} onClick={() => { setVideoInputMode(tab.v); setVideoUrlError(""); }}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition focus:outline-none
+                        ${videoInputMode === tab.v
+                          ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                          : "text-white/40 hover:text-white/60"}`}>
+                      {tab.l}
+                    </button>
+                  ))}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-white/20">hoặc dán URL:</span>
-                  <input value={block.url || ""} onChange={e => upd({ url: e.target.value })}
-                    placeholder="https://youtube.com/..."
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-orange-500/50 transition" />
-                </div>
+
+                {/* Upload file */}
+                {videoInputMode === "file" && (
+                  <div onClick={() => videoRef.current?.click()}
+                    className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center cursor-pointer hover:border-orange-500/40 transition">
+                    <Video size={24} className="mx-auto mb-2 text-white/20"/>
+                    <p className="text-xs text-white/30">Click để tải video lên</p>
+                    <p className="text-[10px] text-white/20 mt-1">Video ≤ 95MB (MP4, WebM)</p>
+                    <input ref={videoRef} type="file" accept="video/*" className="hidden"
+                      onChange={e => handleVideoFile(e.target.files[0])}/>
+                  </div>
+                )}
+
+                {/* Nhập URL */}
+                {videoInputMode === "url" && (
+                  <div>
+                    <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 mb-3">
+                      <p className="text-[11px] text-blue-400/80 leading-relaxed">
+                        Hỗ trợ <span className="text-white/70">YouTube</span>, <span className="text-white/70">Google Drive</span>, hoặc link video trực tiếp (.mp4).
+                        Video không giới hạn dung lượng.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={videoUrlDraft}
+                        onChange={e => { setVideoUrlDraft(e.target.value); setVideoUrlError(""); }}
+                        onKeyDown={e => e.key === "Enter" && handleVideoUrlConfirm()}
+                        placeholder="https://youtu.be/... hoặc https://drive.google.com/..."
+                        className={`flex-1 bg-white/5 border rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 outline-none transition
+                          ${videoUrlError ? "border-red-500/50" : "border-white/10 focus:border-orange-500/50"}`}/>
+                      <button onClick={handleVideoUrlConfirm}
+                        className="px-4 py-2 rounded-xl bg-orange-500/20 border border-orange-500/30 text-orange-400 text-xs font-medium hover:bg-orange-500/30 transition focus:outline-none whitespace-nowrap">
+                        Chèn
+                      </button>
+                    </div>
+                    {videoUrlError && <p className="text-red-400 text-[11px] mt-1 pl-1">{videoUrlError}</p>}
+
+                    {/* Preview YouTube realtime */}
+                    {videoUrlDraft && (() => {
+                      const { type, embed, id } = normalizeVideoUrl(videoUrlDraft);
+                      if (type === "youtube") return (
+                        <div className="mt-3 rounded-xl overflow-hidden aspect-video bg-black">
+                          <iframe src={embed} className="w-full h-full" allowFullScreen title="preview"/>
+                        </div>
+                      );
+                      if (type === "gdrive") return (
+                        <div className="mt-2 p-2.5 bg-green-500/5 border border-green-500/20 rounded-xl flex items-center gap-2">
+                          <span>✅</span>
+                          <p className="text-[11px] text-green-400/80">Google Drive hợp lệ — sẽ hiển thị sau khi lưu</p>
+                        </div>
+                      );
+                      if (type === "direct") return (
+                        <div className="mt-2 p-2.5 bg-blue-500/5 border border-blue-500/20 rounded-xl flex items-center gap-2">
+                          <span>🎥</span>
+                          <p className="text-[11px] text-blue-400/80">Link video trực tiếp hợp lệ</p>
+                        </div>
+                      );
+                      return null;
+                    })()}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -542,15 +666,15 @@ function BlockRenderItem({ block, allBlocks }) {
       ) : null;
 
     case "video":
-      return block.url ? (
-        <div className="rounded-xl overflow-hidden">
-          {block.url.includes("youtube") || block.url.includes("youtu.be") ? (
-            <iframe src={block.url.replace("watch?v=","embed/")} className="w-full aspect-video" allowFullScreen title="video" />
-          ) : (
-            <video src={block.url} controls className="w-full max-h-96" />
-          )}
-        </div>
-      ) : null;
+      return block.url ? (() => {
+        const { type, embed } = normalizeVideoUrl(block.url);
+        if (type === "youtube" || type === "gdrive") return (
+          <div className="rounded-xl overflow-hidden aspect-video bg-black">
+            <iframe src={embed} className="w-full h-full" allowFullScreen title="video"/>
+          </div>
+        );
+        return <video src={embed} controls className="w-full rounded-xl max-h-96"/>;
+      })() : null;
 
     case "divider":
       return (

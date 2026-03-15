@@ -13,6 +13,7 @@ import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
 import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
+import ProductImageSlider from "./ProductImageSlider";
 
 const API = "http://localhost:8000";
 
@@ -938,51 +939,33 @@ export default function InformationProduct() {
         {/* Product main section */}
         <div className="max-w-7xl mx-auto px-6 lg:px-10 py-8 flex gap-10 flex-wrap lg:flex-nowrap">
 
-          {/* ===== ẢNH ===== */}
-          <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-3">
-            {(() => {
-              const totalImgs = allImgs.length;
-              const safeIdx = totalImgs > 0 ? Math.max(0, Math.min(activeImg, totalImgs - 1)) : 0;
-              const currentUrl = totalImgs > 0 ? allImgs[safeIdx].url : null;
-
-              return (
-                <>
-                  {/* Ảnh lớn */}
-                  <div className="w-full h-[380px] rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden flex items-center justify-center border border-white/5 relative">
-                    {currentUrl
-                      ? <img src={currentUrl} alt={product.name} className="w-full h-full object-contain p-6" />
-                      : <Package size={64} className="text-white/10" />}
-                    {totalImgs > 1 && (
-                      <>
-                        <button onClick={() => setActiveImg((safeIdx - 1 + totalImgs) % totalImgs)}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition focus:outline-none">
-                          <ChevronLeft size={16} />
-                        </button>
-                        <button onClick={() => setActiveImg((safeIdx + 1) % totalImgs)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center transition focus:outline-none">
-                          <ChevronRight size={16} />
-                        </button>
-                        <div className="absolute bottom-3 right-3 bg-black/50 text-white/60 text-[10px] px-2 py-0.5 rounded-full">
-                          {safeIdx + 1} / {totalImgs}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Thumbnails */}
-                  {totalImgs > 0 && (
-                    <div className="flex gap-2 overflow-x-auto pb-1">
-                      {allImgs.map((img, i) => (
-                        <button key={i} onClick={() => setActiveImg(i)}
-                          className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 transition focus:outline-none ${safeIdx === i ? "border-orange-500" : "border-white/10 hover:border-white/30"}`}>
-                          <img src={img.url} alt="" className="w-full h-full object-contain p-1 bg-gray-900" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              );
-            })()}
+          {/* ===== ẢNH — ProductImageSlider ===== */}
+          <div className="w-full lg:w-[420px] shrink-0">
+            <ProductImageSlider
+              images={images}
+              variantImage={selectedVariant?.image || null}
+              variantImages={(() => {
+                // Lấy tất cả URL ảnh gốc sản phẩm (normalize: trim + lowercase)
+                const productUrls = new Set(
+                  images.map(img => (img?.url || img || "").trim().toLowerCase()).filter(Boolean)
+                );
+                // Chỉ lấy ảnh biến thể có URL CHƯA tồn tại trong ảnh gốc
+                // dedupe luôn các biến thể trùng nhau
+                const seen = new Set();
+                return variants
+                  .map(v => (v.image || "").trim())
+                  .filter(url => {
+                    if (!url) return false;
+                    if (productUrls.has(url.toLowerCase())) return false; // trùng ảnh gốc → bỏ
+                    if (seen.has(url)) return false;                       // trùng biến thể khác → bỏ
+                    seen.add(url);
+                    return true;
+                  });
+              })()}
+              variantVideo={selectedVariant?.video_url || null}
+              frozen={!!(selColor && selCombo)}
+              autoPlayInterval={3500}
+            />
           </div>
 
           {/* ===== INFO ===== */}

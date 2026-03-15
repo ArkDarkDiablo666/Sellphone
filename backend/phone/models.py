@@ -447,3 +447,131 @@ class Like(models.Model):
 
     def __str__(self):
         return f"Like – {self.customer_id} → {self.target_type} #{self.target_id}"
+
+# ============================================
+# BANNER GROUP
+# ============================================
+
+class Banner(models.Model):
+    PAGE_CHOICES = [
+        ('all',     'Tất cả trang'),
+        ('home',    'Trang chủ'),
+        ('product', 'Trang sản phẩm'),
+        ('blog',    'Trang blog'),
+    ]
+    BannerID  = models.AutoField(primary_key=True)
+    Title     = models.CharField(max_length=200, blank=True, default='')
+    Page      = models.CharField(max_length=20, choices=PAGE_CHOICES, default='all')
+    IsActive  = models.BooleanField(default=True)
+    AutoPlay  = models.BooleanField(default=True)
+    Interval  = models.IntegerField(default=4000)
+    CreatedAt = models.DateTimeField(auto_now_add=True)
+    UpdatedAt = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'Banner'
+
+    def __str__(self):
+        return f"Banner #{self.BannerID} – {self.Title or self.Page}"
+
+
+class BannerItem(models.Model):
+    MEDIA_TYPE_CHOICES = [('image', 'Hình ảnh'), ('video', 'Video')]
+    VIDEO_MODE_CHOICES = [('autoplay', 'Autoplay muted'), ('click', 'Click để phát')]
+
+    BannerItemID = models.AutoField(primary_key=True)
+    BannerID     = models.ForeignKey(
+        Banner, on_delete=models.CASCADE,
+        db_column='BannerID', related_name='items'
+    )
+    MediaType = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES, default='image')
+    MediaUrl  = models.CharField(max_length=1000)
+    PublicID  = models.CharField(max_length=300, blank=True, default='')
+    LinkUrl   = models.CharField(max_length=500, blank=True, default='')
+    Caption   = models.CharField(max_length=300, blank=True, default='')
+    VideoMode = models.CharField(max_length=10, choices=VIDEO_MODE_CHOICES,
+                                 default='autoplay', blank=True)
+    SortOrder = models.IntegerField(default=0)
+    CreatedAt = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'BannerItem'
+        ordering = ['SortOrder', 'BannerItemID']
+
+    def __str__(self):
+        return f"BannerItem #{self.BannerItemID} [{self.MediaType}]"
+
+
+# ============================================
+# ACTIVITY LOG GROUP
+# ============================================
+
+class ActivityLog(models.Model):
+    """
+    Ghi lại toàn bộ thao tác của Admin/Staff.
+    StaffID: null nếu chưa xác định được (trường hợp hiếm).
+    """
+    ACTION_CHOICES = [
+        # Auth
+        ('login',              'Đăng nhập'),
+        ('logout',             'Đăng xuất'),
+        # Sản phẩm
+        ('create_product',     'Tạo sản phẩm'),
+        ('update_product',     'Sửa sản phẩm'),
+        ('delete_product',     'Xóa sản phẩm'),
+        ('import_stock',       'Nhập hàng'),
+        ('add_variants',       'Thêm biến thể'),
+        ('update_variant',     'Sửa biến thể'),
+        # Danh mục
+        ('create_category',    'Tạo danh mục'),
+        ('update_category',    'Sửa danh mục'),
+        ('delete_category',    'Xóa danh mục'),
+        # Nhân viên
+        ('create_staff',       'Tạo nhân viên'),
+        ('update_staff_role',  'Đổi quyền nhân viên'),
+        ('delete_staff',       'Xóa nhân viên'),
+        # Voucher
+        ('create_voucher',     'Tạo voucher'),
+        ('update_voucher',     'Sửa voucher'),
+        ('delete_voucher',     'Xóa voucher'),
+        ('deactivate_voucher', 'Tắt voucher'),
+        # Đơn hàng
+        ('update_order',       'Cập nhật đơn hàng'),
+        ('cancel_order',       'Hủy đơn hàng'),
+        # Trả hàng
+        ('process_return',     'Xử lý trả hàng'),
+        # Bài viết
+        ('create_post',        'Tạo bài viết'),
+        ('update_post',        'Sửa bài viết'),
+        ('delete_post',        'Xóa bài viết'),
+        # Banner
+        ('create_banner',      'Tạo banner'),
+        ('update_banner',      'Sửa banner'),
+        ('delete_banner',      'Xóa banner'),
+        ('add_banner_item',    'Thêm item banner'),
+        ('delete_banner_item', 'Xóa item banner'),
+    ]
+
+    LogID     = models.AutoField(primary_key=True)
+    StaffID   = models.ForeignKey(
+        'Staff', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        db_column='StaffID', related_name='activity_logs'
+    )
+    Action    = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    Detail    = models.TextField(blank=True, default='')   # mô tả chi tiết
+    IPAddress = models.CharField(max_length=45, blank=True, default='')
+    CreatedAt = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ActivityLog'
+        ordering = ['-CreatedAt']
+
+    def __str__(self):
+        who = self.StaffID.FullName if self.StaffID else 'Unknown'
+        # [FIX #TIMESTAMP] Tránh crash khi CreatedAt=None hoặc aware datetime lỗi
+        try:
+            ts = self.CreatedAt.strftime("%Y-%m-%d %H:%M") if self.CreatedAt else "N/A"
+        except Exception:
+            ts = str(self.CreatedAt)
+        return f"[{ts}] {who} – {self.Action}"

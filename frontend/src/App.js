@@ -15,6 +15,7 @@ import Cartpage from "./Cart";
 import Orders from "./Orders";
 import Blog, { BlogDetail } from "./Blog";
 import Searchage from "./Searchpage";
+import Chatbot from "./Chatbot";   // [NEW]
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
 function App() {
@@ -41,6 +42,9 @@ function App() {
           <Route path="/search" element={<Searchage />} />
           <Route path="*" element={<Login />} />
         </Routes>
+
+        {/* [NEW] Chatbot gợi ý sản phẩm — hiển thị trên tất cả trang customer */}
+        <Chatbot />
       </CartProvider>
     </Router>
   );

@@ -129,7 +129,8 @@ LOGGING = {
 }
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE     = "UTC"
+# [FIX #TIMESTAMP] Đổi sang múi giờ Việt Nam để log hiển thị đúng giờ
+TIME_ZONE     = "Asia/Ho_Chi_Minh"
 USE_I18N      = True
 USE_TZ        = True
 
@@ -178,3 +179,9 @@ VNPAY_CONFIG = {
     "url":         "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
     "return_url":  "http://localhost:3000/payment/vnpay-return",
 }
+# ── Upload size limits ────────────────────────────────────────
+# [FIX #413] Cho phép upload file lớn (video review, banner...)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+ANTHROPIC_API_KEY = "sk-ant-api03-..."

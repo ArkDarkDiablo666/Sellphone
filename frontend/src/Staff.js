@@ -5,13 +5,13 @@ import { ToastContainer, useToast } from "./Toast";
 import {
   User, LogOut, Camera, Settings, Package,
   PackagePlus, Users, ChevronRight, Eye, EyeOff,
-  Pencil, Check, X, Plus, Shield, AlertTriangle, LayoutGrid, Ticket,
+  Pencil, Check, X, Plus, Scissors, Shield, AlertTriangle, LayoutGrid, Ticket,
   AlignLeft, AlignCenter, AlignRight, Image as ImageIcon,
   ShoppingBag, RefreshCw,
   RotateCcw, FileVideo, AlertCircle, FileText, Newspaper, Trash2,
   Table as TableIcon, Highlighter, Type, List, ListOrdered, Palette,
   MessageCircle, Heart, Star, Bell, Search as SearchIcon, CornerDownRight, Loader2,
-  BarChart2
+  BarChart2, GalleryHorizontal, Play
 } from "lucide-react";
 
 // ── A) Import RevenueDashboard ────────────────────────────────
@@ -741,7 +741,40 @@ function RichEditor({ value, onChange }) {
 // ============================================================
 // MAIN ADMIN
 // ============================================================
-export default function Staff() {
+export default // ─── ConfirmModal — thay thế window.confirm() ────────────────
+function ConfirmModal({ message, subMessage = "", onConfirm, onCancel, confirmLabel = "Xác nhận", confirmColor = "bg-red-500 hover:bg-red-600" }) {
+  return (
+    <div className="fixed inset-0 z-[999] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel}/>
+      <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-[360px] shadow-2xl z-10">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center shrink-0 mt-0.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff3b30" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div>
+            <p className="text-white text-sm font-medium leading-snug">{message}</p>
+            {subMessage && <p className="text-white/40 text-xs mt-1">{subMessage}</p>}
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel}
+            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm text-white/70 border border-white/10 transition focus:outline-none">
+            Hủy
+          </button>
+          <button onClick={onConfirm}
+            className={`px-4 py-2 rounded-xl text-sm text-white font-medium transition focus:outline-none ${confirmColor}`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Staff() {
   const navigate   = useNavigate();
   const adminLocal = JSON.parse(localStorage.getItem("admin_user") || "{}");
 
@@ -808,6 +841,7 @@ export default function Staff() {
   const [editVariantId,   setEditVariantId]   = useState(null);
   const [editVariantData, setEditVariantData] = useState({});
   const [editVariantSaving, setEditVariantSaving] = useState(false);
+  const [removeBgLoading, setRemoveBgLoading] = useState(null); // variantId đang tách nền
   const [productDetailMap, setProductDetailMap] = useState({});
   const [loadingDetailId,  setLoadingDetailId]  = useState(null);
   const [existingVariants,  setExistingVariants]  = useState([]);
@@ -1022,7 +1056,117 @@ export default function Staff() {
     }
   };
 
-  const handleDeleteVariant = (variantId, productId) => {
+
+const handleRemoveBg = async (variantId, productId) => {
+  setRemoveBgLoading(variantId);
+  try {
+    const fd = new FormData();
+    fd.append("variant_id", variantId);
+    if (editVariantData.imageFile) fd.append("image", editVariantData.imageFile);
+
+    // Bước 1: Gửi request, nhận job_id ngay (không chờ xử lý)
+    const r = await authFetch(
+      `${API}/api/variant/remove-bg/`,
+      { method: "POST", body: fd, headers: getAuthHeadersFormData("admin") },
+      "admin"
+    );
+    if (!r || r === AUTH_REDIRECTED) return;
+    const d = await r.json();
+    if (!r.ok) { toast.error(d.message || "Lỗi tách nền"); return; }
+
+    const jobId = d.job_id;
+    if (!jobId) { toast.error(d.message || "Không nhận được job_id"); return; }
+    // Nếu backend báo lỗi tải ảnh → gợi ý upload ảnh mới
+    if (d.status === "error" || (d.message && d.message.includes("upload"))) {
+      toast.info("💡 Hãy dùng nút 'Đổi ảnh' để chọn ảnh từ máy tính rồi bấm Tách nền lại!");
+      return;
+    }
+
+    // Bước 2: Poll trạng thái mỗi 2 giây (tối đa 3 phút)
+    const maxAttempts = 90;
+    let attempts = 0;
+    const poll = async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        toast.error("Tách nền quá thời gian (3 phút). Thử lại nhé!");
+        setRemoveBgLoading(null);
+        return;
+      }
+      try {
+        const statusRes = await authFetch(
+          `${API}/api/variant/remove-bg/status/?job_id=${jobId}`,
+          {}, "admin"
+        );
+        if (!statusRes || statusRes === AUTH_REDIRECTED) return;
+        const statusData = await statusRes.json();
+
+        if (statusData.status === "done") {
+          setEditVariantData(prev => ({ ...prev, imagePreview: statusData.image_url, imageFile: null }));
+          setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+          loadProducts();
+          toast.success("Tách nền thành công!");
+          setRemoveBgLoading(null);
+        } else if (statusData.status === "error") {
+          toast.error(statusData.message || "Tách nền thất bại");
+          setRemoveBgLoading(null);
+        } else {
+          // pending — tiếp tục poll
+          setTimeout(poll, 2000);
+        }
+      } catch {
+        setTimeout(poll, 2000);
+      }
+    };
+    setTimeout(poll, 2000);
+
+  } catch {
+    toast.error("Không thể kết nối server");
+    setRemoveBgLoading(null);
+  }
+};
+
+  
+const handleRemoveBgWithFile = async (variantId, productId, imageFile) => {
+  setRemoveBgLoading(variantId);
+  try {
+    const fd = new FormData();
+    fd.append("variant_id", variantId);
+    fd.append("image", imageFile);
+    const r = await authFetch(
+      `${API}/api/variant/remove-bg/`,
+      { method: "POST", body: fd, headers: getAuthHeadersFormData("admin") },
+      "admin"
+    );
+    if (!r || r === AUTH_REDIRECTED) return;
+    const d = await r.json();
+    if (!r.ok) { toast.error(d.message || "Lỗi tách nền"); setRemoveBgLoading(null); return; }
+    const jobId = d.job_id;
+    if (!jobId) { toast.error("Không nhận được job_id"); setRemoveBgLoading(null); return; }
+    const maxAttempts = 90; let attempts = 0;
+    const poll = async () => {
+      attempts++;
+      if (attempts > maxAttempts) { toast.error("Tách nền quá thời gian. Thử lại nhé!"); setRemoveBgLoading(null); return; }
+      try {
+        const sr = await authFetch(`${API}/api/variant/remove-bg/status/?job_id=${jobId}`, {}, "admin");
+        if (!sr || sr === AUTH_REDIRECTED) return;
+        const sd = await sr.json();
+        if (sd.status === "done") {
+          setEditVariantData(prev => ({ ...prev, imagePreview: sd.image_url, imageFile: null }));
+          setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+          loadProducts();
+          toast.success("Tách nền thành công! ✂️");
+          setRemoveBgLoading(null);
+        } else if (sd.status === "error") {
+          toast.error(sd.message || "Tách nền thất bại");
+          setRemoveBgLoading(null);
+        } else { setTimeout(poll, 2000); }
+      } catch { setTimeout(poll, 2000); }
+    };
+    setTimeout(poll, 2000);
+  } catch { toast.error("Không thể kết nối server"); setRemoveBgLoading(null); }
+};
+
+const handleDeleteVariant = (variantId, productId) => {
     setConfirmModal({ message: "Xóa biến thể này?", onConfirm: async () => {
       const r = await authFetch(`${API}/api/product/delete-variant/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1150,6 +1294,7 @@ export default function Staff() {
     { key:"posts",           label:"Bài viết",             icon:Newspaper   },
     { key:"product_content", label:"Mô tả sản phẩm",      icon:FileText    },
     { key:"reviews",         label:"Đánh giá & Bình luận", icon:MessageCircle, badge: unansweredCount },
+    { key:"banner",          label:"Quản lý Banner",        icon:GalleryHorizontal },
     { key:"settings",        label:"Cài đặt",              icon:Settings    },
   ];
 
@@ -1620,6 +1765,33 @@ export default function Staff() {
                                 <X size={11} /> Huỷ
                               </button>
                             )}
+                            {(v.image || editVariantData.imagePreview) && (
+                              <>
+                                <label
+                                  title="Chọn ảnh từ máy tính để tách nền (không cần internet)"
+                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs transition cursor-pointer
+                                    ${removeBgLoading === v.id
+                                      ? "bg-purple-500/10 border-purple-500/20 text-purple-400 opacity-50 pointer-events-none"
+                                      : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"}`}>
+                                  {removeBgLoading === v.id
+                                    ? <><span className="w-3 h-3 border border-purple-400/40 border-t-purple-400 rounded-full animate-spin inline-block mr-1" />Đang tách...</>
+                                    : <><Scissors size={11} /> Tách nền</>}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    disabled={removeBgLoading === v.id}
+                                    onChange={e => {
+                                      const f = e.target.files[0];
+                                      if (!f) return;
+                                      e.target.value = "";
+                                      setEditVariantData(d => ({ ...d, imageFile: f, imagePreview: URL.createObjectURL(f) }));
+                                      setTimeout(() => handleRemoveBgWithFile(v.id, p.id, f), 100);
+                                    }}
+                                  />
+                                </label>
+                              </>
+                            )}
                           </div>
                           {editVariantData.imageFile && (
                             <p className="text-xs text-yellow-400/70 mt-2 flex items-center gap-1">
@@ -2049,6 +2221,11 @@ export default function Staff() {
             </div>
           )}
 
+          {/* BANNER */}
+          {activeTab==="banner" && (
+            <BannerSection toast={toast} />
+          )}
+
           {/* SETTINGS */}
           {activeTab==="settings"&&(
             <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20"><Settings size={40} className="mx-auto mb-3 opacity-30"/><p className="text-sm">Đang phát triển</p></div>
@@ -2056,6 +2233,398 @@ export default function Staff() {
 
         </div>
       </main>
+    </div>
+  );
+}
+
+
+
+// ════════════════════════════════════════════════════════════
+// BANNER SECTION — Quản lý banner (Staff & Admin đều dùng được)
+// ════════════════════════════════════════════════════════════
+
+function BannerFormModal({ banner, onClose, onSaved, toast }) {
+  const [title,    setTitle]    = useState(banner?.title    || "");
+  const [autoPlay, setAutoPlay] = useState(banner?.auto_play ?? true);
+  const [interval, setInterval] = useState(banner?.interval  || 4000);
+  const [saving,   setSaving]   = useState(false);
+  const isEdit = !!banner;
+
+  const handleSubmit = async () => {
+    setSaving(true);
+    try {
+      const url  = isEdit ? `${API}/api/banner/update/` : `${API}/api/banner/create/`;
+      const body = { title, page: "all", is_active: true, auto_play: autoPlay, interval };
+      if (isEdit) body.id = banner.id;
+      const res  = await authFetch(url, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(body),
+      }, "admin");
+      if (!res || res === AUTH_REDIRECTED) return;
+      const data = await res.json();
+      if (res.ok) { toast.success(isEdit ? "Đã cập nhật banner" : "Đã tạo banner"); onSaved(); onClose(); }
+      else toast.error(data.message || "Có lỗi xảy ra");
+    } catch { toast.error("Không thể kết nối server"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-[420px] shadow-2xl z-10">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold text-white">{isEdit ? "Sửa banner" : "Tạo banner mới"}</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white focus:outline-none"><X size={16}/></button>
+        </div>
+        <div className="flex flex-col gap-3 mb-5">
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Tên banner (tuỳ chọn)"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50 transition"/>
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 border border-white/10">
+            <span className="text-sm text-white/70">Tự động lướt</span>
+            <button onClick={() => setAutoPlay(a => !a)} className="focus:outline-none">
+              <span className={`text-2xl ${autoPlay ? "text-orange-400" : "text-white/30"}`}>{autoPlay ? "●" : "○"}</span>
+            </button>
+          </div>
+          {autoPlay && (
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10">
+              <span className="text-sm text-white/70 flex-1">Thời gian mỗi slide</span>
+              <input type="number" value={interval} onChange={e => setInterval(Math.max(1000, +e.target.value))}
+                min={1000} max={30000} step={500}
+                className="w-24 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white text-center outline-none focus:border-orange-500/50"/>
+              <span className="text-xs text-white/30">ms</span>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition focus:outline-none">Hủy</button>
+          <button onClick={handleSubmit} disabled={saving}
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium text-white disabled:opacity-60 flex items-center justify-center gap-2 focus:outline-none transition">
+            {saving && <Loader2 size={14} className="animate-spin"/>}
+            {isEdit ? "Lưu thay đổi" : "Tạo banner"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BannerItemModal({ bannerId, onClose, onSaved, toast }) {
+  const [file,      setFile]      = useState(null);
+  const [preview,   setPreview]   = useState(null);
+  const [mediaType, setMediaType] = useState("image");
+  const [videoMode, setVideoMode] = useState("autoplay");
+  const [caption,   setCaption]   = useState("");
+  const [linkUrl,   setLinkUrl]   = useState("");
+  const [sortOrder, setSortOrder] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef();
+
+  const handleFile = (f) => {
+    if (!f) return;
+    setFile(f);
+    setMediaType(f.type.startsWith("video/") ? "video" : "image");
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(URL.createObjectURL(f));
+  };
+
+  const handleSubmit = async () => {
+    if (!file) { toast.error("Vui lòng chọn file"); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("banner_id",  bannerId);
+      fd.append("file",       file);
+      fd.append("media_type", mediaType);
+      fd.append("video_mode", videoMode);
+      fd.append("caption",    caption);
+      fd.append("link_url",   linkUrl);
+      fd.append("sort_order", sortOrder);
+      const res = await authFetch(`${API}/api/banner/item/add/`, { method:"POST", body: fd }, "admin");
+      if (!res || res === AUTH_REDIRECTED) return;
+      const data = await res.json();
+      if (res.ok) { toast.success("Đã thêm item!"); onSaved(); onClose(); }
+      else toast.error(data.message || "Lỗi upload");
+    } catch { toast.error("Không thể kết nối server"); }
+    finally { setUploading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-[500px] shadow-2xl z-10 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold text-white">Thêm ảnh / video</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white focus:outline-none"><X size={16}/></button>
+        </div>
+        <div onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+          className="border-2 border-dashed border-white/15 rounded-xl h-44 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500/50 transition mb-4 relative overflow-hidden">
+          {preview ? (
+            mediaType==="video"
+              ? <video src={preview} className="w-full h-full object-cover rounded-xl" muted/>
+              : <img src={preview} alt="" className="w-full h-full object-contain rounded-xl p-2"/>
+          ) : (
+            <>
+              <ImageIcon size={28} className="text-white/20 mb-2"/>
+              <p className="text-xs text-white/30">Kéo thả hoặc click để chọn ảnh / video</p>
+              <p className="text-[10px] text-white/20 mt-1">Ảnh ≤ 50MB · Video ≤ 500MB</p>
+            </>
+          )}
+          <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden"
+            onChange={e => handleFile(e.target.files[0])}/>
+        </div>
+        {mediaType==="video" && (
+          <div className="mb-4">
+            <p className="text-xs text-white/50 mb-2">Chế độ video</p>
+            <div className="flex gap-2">
+              {[{v:"autoplay",l:"Autoplay (tắt tiếng)"},{v:"click",l:"Click để phát"}].map(opt => (
+                <button key={opt.v} onClick={() => setVideoMode(opt.v)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-medium border transition focus:outline-none
+                    ${videoMode===opt.v?"bg-orange-500/10 border-orange-500/40 text-orange-400":"bg-white/5 border-white/10 text-white/40 hover:border-white/20"}`}>
+                  {opt.l}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex flex-col gap-3 mb-5">
+          <input value={caption} onChange={e => setCaption(e.target.value)} placeholder="Caption (tuỳ chọn)"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50 transition"/>
+          <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="Link khi click (tuỳ chọn)"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50 transition"/>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-white/40">Thứ tự:</label>
+            <input type="number" value={sortOrder} onChange={e => setSortOrder(+e.target.value)} min={0}
+              className="w-20 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white text-center outline-none focus:border-orange-500/50"/>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition focus:outline-none">Hủy</button>
+          <button onClick={handleSubmit} disabled={uploading}
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium text-white disabled:opacity-60 flex items-center justify-center gap-2 focus:outline-none transition">
+            {uploading ? <><Loader2 size={14} className="animate-spin"/> Đang tải...</> : "Thêm vào banner"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BannerSection({ toast }) {
+  const [banners,     setBanners]     = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [selected,    setSelected]    = useState(null);
+  const [showCreate,  setShowCreate]  = useState(false);
+  const [editBanner,  setEditBanner]  = useState(null);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [deleting,    setDeleting]    = useState(null);
+
+  const fetchBanners = async () => {
+    setLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/banner/list/`, {}, "admin");
+      if (!res || res === AUTH_REDIRECTED) return;
+      const data = await res.json();
+      const list = data.banners || [];
+      setBanners(list);
+      if (selected) setSelected(list.find(b => b.id === selected.id) || null);
+    } catch { toast.error("Không thể tải danh sách banner"); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchBanners(); }, []); // eslint-disable-line
+
+  const toggleActive = async (banner) => {
+    const res = await authFetch(`${API}/api/banner/update/`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ id: banner.id, is_active: !banner.is_active }),
+    }, "admin");
+    if (!res || res === AUTH_REDIRECTED) return;
+    if (res.ok) { toast.success(banner.is_active ? "Đã tắt banner" : "Đã bật banner"); fetchBanners(); }
+  };
+
+  const [confirmCfg, setConfirmCfg] = useState(null);
+  const askConfirm = (message, subMessage, onConfirm) => setConfirmCfg({ message, subMessage, onConfirm });
+
+  const deleteBanner = (id) => {
+    askConfirm("Xóa banner này?", "Toàn bộ ảnh / video trong banner cũng sẽ bị xóa.", async () => {
+      setConfirmCfg(null);
+      const res = await authFetch(`${API}/api/banner/delete/`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ id }),
+      }, "admin");
+      if (!res || res === AUTH_REDIRECTED) return;
+      if (res.ok) { toast.success("Đã xóa banner"); if (selected?.id===id) setSelected(null); fetchBanners(); }
+    });
+  };
+
+  const deleteItem = (itemId) => {
+    askConfirm("Xóa item này?", "Ảnh / video sẽ bị xóa khỏi banner.", async () => {
+      setConfirmCfg(null);
+      setDeleting(itemId);
+      try {
+        const res = await authFetch(`${API}/api/banner/item/delete/`, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ id: itemId }),
+        }, "admin");
+        if (!res || res === AUTH_REDIRECTED) return;
+        if (res.ok) { toast.success("Đã xóa item"); fetchBanners(); }
+        else { const d = await res.json(); toast.error(d.message || "Lỗi xóa"); }
+      } catch { toast.error("Lỗi kết nối"); }
+      finally { setDeleting(null); }
+    });
+  };
+
+  const moveItem = async (bannerId, items, idx, dir) => {
+    const arr = [...items]; const t = idx + dir;
+    if (t < 0 || t >= arr.length) return;
+    [arr[idx], arr[t]] = [arr[t], arr[idx]];
+    await authFetch(`${API}/api/banner/item/reorder/`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ banner_id: bannerId, order: arr.map(it => it.id) }),
+    }, "admin");
+    fetchBanners();
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <GalleryHorizontal size={20} className="text-orange-400"/> Quản lý Banner
+          </h2>
+          <p className="text-xs text-white/30 mt-0.5">Banner dùng chung cho Trang chủ / Sản phẩm / Blog</p>
+        </div>
+        <button onClick={() => setShowCreate(true)}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition focus:outline-none">
+          <Plus size={15}/> Tạo banner
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20"><Loader2 size={28} className="animate-spin text-orange-400"/></div>
+      ) : banners.length===0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4 border border-dashed border-white/10 rounded-2xl">
+          <GalleryHorizontal size={40} className="text-white/15"/>
+          <p className="text-white/30 text-sm">Chưa có banner nào</p>
+          <button onClick={() => setShowCreate(true)}
+            className="px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-medium hover:bg-orange-600 transition focus:outline-none">Tạo banner đầu tiên</button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {banners.map(banner => (
+            <div key={banner.id}
+              className={`rounded-2xl border transition-all ${selected?.id===banner.id?"border-orange-500/40 bg-orange-500/[0.02]":"border-white/8 bg-white/[0.02]"}`}>
+              <div className="flex items-center gap-4 p-4">
+                <div className="flex gap-1.5 shrink-0">
+                  {banner.items.slice(0,3).map((it,i) => (
+                    <div key={i} className="w-16 h-11 rounded-lg overflow-hidden bg-gray-800 border border-white/10">
+                      {it.media_type==="video"
+                        ? <div className="w-full h-full flex items-center justify-center"><Play size={12} className="text-white/40"/></div>
+                        : <img src={it.media_url} alt="" className="w-full h-full object-cover"/>}
+                    </div>
+                  ))}
+                  {banner.items.length>3 && <div className="w-16 h-11 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-xs text-white/30">+{banner.items.length-3}</div>}
+                  {banner.items.length===0 && <div className="w-16 h-11 rounded-lg bg-white/5 border border-dashed border-white/10 flex items-center justify-center"><ImageIcon size={14} className="text-white/20"/></div>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-white truncate">{banner.title || `Banner #${banner.id}`}</p>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${banner.is_active?"bg-green-500/10 text-green-400 border-green-500/20":"bg-white/5 text-white/30 border-white/10"}`}>
+                      {banner.is_active?"Đang bật":"Đã tắt"}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] border bg-white/5 text-white/30 border-white/10">{banner.items.length} items</span>
+                    {banner.auto_play && <span className="px-2 py-0.5 rounded-full text-[10px] border bg-orange-500/10 text-orange-400 border-orange-500/20">Auto {(banner.interval/1000).toFixed(1)}s</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => toggleActive(banner)}
+                    className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/40 hover:text-white transition focus:outline-none">
+                    {banner.is_active ? <Eye size={14}/> : <EyeOff size={14}/>}
+                  </button>
+                  <button onClick={() => setEditBanner(banner)}
+                    className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/40 hover:text-white transition focus:outline-none">
+                    <Pencil size={14}/>
+                  </button>
+                  <button onClick={() => deleteBanner(banner.id)}
+                    className="w-8 h-8 rounded-lg bg-white/5 hover:bg-red-500/20 flex items-center justify-center text-white/40 hover:text-red-400 transition focus:outline-none">
+                    <Trash2 size={14}/>
+                  </button>
+                  <button onClick={() => setSelected(selected?.id===banner.id ? null : banner)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition focus:outline-none
+                      ${selected?.id===banner.id?"bg-orange-500/20 text-orange-400 border-orange-500/30":"bg-white/5 text-white/40 border-white/10 hover:border-white/20"}`}>
+                    {selected?.id===banner.id ? "Đang xem ▲" : "Quản lý items ▼"}
+                  </button>
+                </div>
+              </div>
+
+              {selected?.id===banner.id && (
+                <div className="border-t border-white/8 p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-xs font-semibold text-white/50 uppercase tracking-wider">Items ({banner.items.length})</p>
+                    <button onClick={() => setShowAddItem(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-medium hover:bg-orange-500/20 transition focus:outline-none">
+                      <Plus size={12}/> Thêm ảnh / video
+                    </button>
+                  </div>
+                  {banner.items.length===0 ? (
+                    <div className="flex flex-col items-center gap-3 py-10 border border-dashed border-white/10 rounded-xl">
+                      <ImageIcon size={28} className="text-white/15"/>
+                      <p className="text-xs text-white/30">Chưa có item nào.</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {banner.items.map((item, idx) => (
+                        <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl border border-white/6 bg-white/[0.02] group">
+                          <div className="w-20 h-14 rounded-lg overflow-hidden bg-gray-800 border border-white/10 shrink-0">
+                            {item.media_type==="video"
+                              ? <div className="w-full h-full flex items-center justify-center"><Play size={16} className="text-white/40"/></div>
+                              : <img src={item.media_url} alt="" className="w-full h-full object-cover"/>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] border ${item.media_type==="video"?"bg-orange-500/10 text-orange-400 border-orange-500/20":"bg-white/5 text-white/40 border-white/10"}`}>
+                                {item.media_type==="video" ? "🎬 Video" : "🖼 Ảnh"}
+                              </span>
+                              {item.media_type==="video" && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                                  {item.video_mode==="autoplay"?"Autoplay":"Click-to-play"}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-white/20">#{item.sort_order}</span>
+                            </div>
+                            {item.caption && <p className="text-xs text-white/50 truncate">{item.caption}</p>}
+                            {item.link_url && <p className="text-[10px] text-blue-400/60 truncate">{item.link_url}</p>}
+                          </div>
+                          <div className="flex flex-col gap-0.5 shrink-0">
+                            <button onClick={() => moveItem(banner.id, banner.items, idx, -1)} disabled={idx===0}
+                              className="w-6 h-5 rounded flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/30 disabled:opacity-20 focus:outline-none">
+                              <ChevronRight size={11} className="-rotate-90"/>
+                            </button>
+                            <button onClick={() => moveItem(banner.id, banner.items, idx, 1)} disabled={idx===banner.items.length-1}
+                              className="w-6 h-5 rounded flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/30 disabled:opacity-20 focus:outline-none">
+                              <ChevronRight size={11} className="rotate-90"/>
+                            </button>
+                          </div>
+                          <button onClick={() => deleteItem(item.id)} disabled={deleting===item.id}
+                            className="w-8 h-8 rounded-lg hover:bg-red-500/15 flex items-center justify-center text-white/20 hover:text-red-400 transition opacity-0 group-hover:opacity-100 focus:outline-none shrink-0">
+                            {deleting===item.id ? <Loader2 size={13} className="animate-spin"/> : <Trash2 size={13}/>}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showCreate && <BannerFormModal onClose={() => setShowCreate(false)} onSaved={fetchBanners} toast={toast}/>}
+      {editBanner  && <BannerFormModal banner={editBanner} onClose={() => setEditBanner(null)} onSaved={fetchBanners} toast={toast}/>}
+      {showAddItem && selected && <BannerItemModal bannerId={selected.id} onClose={() => setShowAddItem(false)} onSaved={fetchBanners} toast={toast}/>}
+      {confirmCfg && <ConfirmModal message={confirmCfg.message} subMessage={confirmCfg.subMessage} onConfirm={confirmCfg.onConfirm} onCancel={() => setConfirmCfg(null)} confirmLabel="Xóa" />}
     </div>
   );
 }

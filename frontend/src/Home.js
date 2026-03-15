@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "./Cart";
 import bgImage from "./Image/image-177.png";
@@ -10,12 +10,10 @@ import { SearchModal } from "./Searchbar";
 import { isLoggedIn, clearSession } from "./authUtils";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
+import BannerSlider from "./BannerSlider";
 
 const API = "http://localhost:8000";
 
-const fmt = (n) => n != null ? n.toLocaleString("vi-VN") + "đ" : null;
-
-// ── helpers for discount calc (mirrors Product.jsx) ──────────
 function calcDiscHome(v, price, productId, categoryId, variantId) {
   if (!v || !price) return 0;
   if (v.scope === "category" && v.category_id && String(categoryId) !== String(v.category_id)) return 0;
@@ -50,7 +48,7 @@ function getBestHome(variant, productId, categoryId, voucherList, cartVoucher) {
   };
 }
 
-// ── Product card — giống hệt Product.jsx ─────────────────────
+// ── ProductCard — [FIX] chỉ dùng ảnh biến thể + animation slide ─────────────
 function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast }) {
   const navigate = useNavigate();
   const variants = product.variants || [];
@@ -67,10 +65,8 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
     toast.success("Đã thêm vào giỏ hàng!");
   };
 
-  // unique colors
   const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
 
-  // pick display variant based on active color or cheapest
   const displayVariant = (() => {
     if (activeColor) return variants.find(v => v.color === activeColor) || null;
     return variants.length > 0
@@ -88,6 +84,39 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
     ? [displayVariant.ram, displayVariant.storage].filter(Boolean).join(" · ")
     : null;
 
+  // ── [FIX] Chỉ lấy ảnh từ biến thể, KHÔNG dùng product.image ────────────
+  const variantImages = (() => {
+    const imgs = [];
+    if (displayVariant?.image) imgs.push(displayVariant.image);
+    variants
+      .filter(v => v.image && !imgs.includes(v.image))
+      .forEach(v => imgs.push(v.image));
+    return imgs;
+  })();
+
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [fading,   setFading]   = useState(false);
+  const slideRef = useRef(null);
+
+  // Reset khi đổi variant
+  useEffect(() => { setSlideIdx(0); }, [displayVariant?.image]);
+
+  // Auto-slide ảnh biến thể
+  useEffect(() => {
+    clearInterval(slideRef.current);
+    if (activeColor || variantImages.length <= 1) return;
+    slideRef.current = setInterval(() => {
+      setFading(true);
+      setTimeout(() => {
+        setSlideIdx(i => (i + 1) % variantImages.length);
+        setFading(false);
+      }, 150);
+    }, 2500);
+    return () => clearInterval(slideRef.current);
+  }, [activeColor, variantImages.length]);
+
+  const currentImg = variantImages.length > 0 ? variantImages[slideIdx % variantImages.length] : null;
+
   return (
     <article
       onClick={onClick}
@@ -97,37 +126,49 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
         shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
         hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]"
     >
-      <div className="w-full h-32 bg-gradient-to-br from-gray-800 to-gray-900
-        flex items-center justify-center relative overflow-hidden">
-        {(displayVariant?.image || product.image)
-          ? <img src={displayVariant?.image || product.image} alt={product.name}
-              className="w-full h-full object-contain p-2" />
-          : <Package size={24} className="text-white/10" />}
+      <div className="w-full h-32 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">
+        {currentImg ? (
+          <img
+            key={currentImg}
+            src={currentImg}
+            alt={product.name}
+            className="w-full h-full object-contain p-2 transition-opacity duration-300"
+            style={{ opacity: fading ? 0 : 1 }}
+          />
+        ) : (
+          <Package size={24} className="text-white/10" />
+        )}
+
+        {/* Badge giảm giá hoặc badge tuỳ chỉnh */}
         {hasDisc && bestVoucher ? (
-          <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white
-            text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
+          <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
             {bestVoucher.type === "percent" ? `-${bestVoucher.value}%` : `-${(basePrice - finalPrice).toLocaleString("vi-VN")}đ`}
           </div>
         ) : badge ? (
-          <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white
-            text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
+          <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
             {badge}
           </div>
         ) : null}
+
+        {/* Dot indicators */}
+        {variantImages.length > 1 && !activeColor && (
+          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1">
+            {variantImages.map((_, i) => (
+              <span key={i} className={`rounded-full transition-all ${i === slideIdx % variantImages.length ? "w-3 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/30"}`} />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5 p-2.5">
-        <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2
-          hover:text-orange-400 transition">
+        <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">
           {product.name}
         </h3>
-
         {comboLabel && (
           <span className="inline-block px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9px] font-semibold text-white/50 w-fit">
             {comboLabel}
           </span>
         )}
-
         {colors.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {colors.map(col => {
@@ -138,7 +179,7 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
                   onClick={e => { e.stopPropagation(); if (hasStock) setActiveColor(prev => prev === col ? null : col); }}
                   disabled={!hasStock} title={!hasStock ? `${col} - Hết hàng` : col}
                   className={`px-1.5 py-0.5 rounded text-[9px] border transition font-medium
-                    ${isActive ? "bg-white text-black border-white"
+                    ${isActive ? "bg-orange-500/20 border-orange-500/40 text-orange-300"
                       : !hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through cursor-not-allowed"
                       : "bg-white/5 border-white/10 text-white/50 hover:border-white/40 hover:text-white"}`}>
                   {col}
@@ -147,8 +188,6 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
             })}
           </div>
         )}
-
-        {/* Rating — luôn chiếm chiều cao cố định để nút Mua thẳng hàng */}
         <div className="h-5 flex items-center">
           {product.rating_avg > 0 && (
             <div className="flex items-center gap-0.5">
@@ -163,7 +202,6 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
             </div>
           )}
         </div>
-
         <div className="flex items-center justify-between mt-auto pt-1 gap-1">
           <div className="min-w-0">
             {hasDisc && (
@@ -192,10 +230,9 @@ function ProductCard({ product, badge, onClick, voucherList, cartVoucher, toast 
   );
 }
 
-// ── Featured Products Section ─────────────────────────────────
 function FeaturedProducts({ navigate }) {
-  const [products, setProducts] = useState([]);
-  const [loading,  setLoading]  = useState(true);
+  const [products,    setProducts]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
   const [voucherList, setVoucherList] = useState([]);
   const { voucher: cartVoucher } = useCart();
   const { toast } = useToast();
@@ -206,7 +243,6 @@ function FeaturedProducts({ navigate }) {
       .then(r => r.json())
       .then(async (featuredData) => {
         const featured = featuredData.products || [];
-        // Fetch detail for each product to get variants
         const detailed = await Promise.all(
           featured.map(fp =>
             fetch(`${API}/api/product/${fp.id}/detail/`)
@@ -235,13 +271,11 @@ function FeaturedProducts({ navigate }) {
       <div className="w-7 h-7 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
     </div>
   );
-
   if (products.length === 0) return null;
 
   return (
     <section className="relative z-10 px-10 pb-16">
       <div className="max-w-5xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-bold text-white">Sản phẩm gợi ý</h2>
@@ -249,14 +283,11 @@ function FeaturedProducts({ navigate }) {
           </div>
           <button
             onClick={() => navigate("/product")}
-            className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition
-              px-3 py-1.5 rounded-xl border border-orange-500/20 hover:border-orange-500/40 bg-orange-500/5"
+            className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition px-3 py-1.5 rounded-xl border border-orange-500/20 hover:border-orange-500/40 bg-orange-500/5"
           >
             Xem tất cả <ChevronRight size={12} />
           </button>
         </div>
-
-        {/* Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
           {products.map((p, i) => (
             <ProductCard
@@ -275,15 +306,14 @@ function FeaturedProducts({ navigate }) {
   );
 }
 
-// ── Main Home ─────────────────────────────────────────────────
 export default function Home() {
   const navigate = useNavigate();
   const { totalCount } = useCart();
   const { toast, toasts, removeToast } = useToast();
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
-  const [searchOpen,   setSearchOpen]   = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [confirmLogout,setConfirmLogout]= useState(false);
+  const [searchOpen,    setSearchOpen]    = useState(false);
+  const [dropdownOpen,  setDropdownOpen]  = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -300,8 +330,7 @@ export default function Home() {
 
   useEffect(() => {
     const fn = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
-        setDropdownOpen(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false);
     };
     document.addEventListener("mousedown", fn);
     return () => document.removeEventListener("mousedown", fn);
@@ -314,7 +343,6 @@ export default function Home() {
     navigate("/login");
   };
 
-  // Hiển thị toast sau khi đăng nhập / đăng ký thành công
   useEffect(() => {
     const msg = sessionStorage.getItem("login_toast");
     if (msg) {
@@ -328,19 +356,15 @@ export default function Home() {
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* Background */}
-      <div className="absolute inset-0 bg-cover bg-center scale-105"
-        style={{ backgroundImage: `url(${bgImage})` }} />
+      <div className="absolute inset-0 bg-cover bg-center scale-105" style={{ backgroundImage: `url(${bgImage})` }} />
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-
-      {/* Gradient fade — hero → products */}
       <div className="absolute bottom-0 left-0 right-0 h-64 pointer-events-none"
         style={{ background: "linear-gradient(to bottom, transparent, #1C1C1E)" }} />
 
       {/* LOGOUT DIALOG */}
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setConfirmLogout(false)} />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
           <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
@@ -368,13 +392,11 @@ export default function Home() {
       {/* NAVBAR */}
       <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 bg-[#0a0a0a] border-b border-white/[0.06]">
         <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
-
         <div className="flex gap-8 text-gray-300">
           <Link to="/"        className="text-white font-medium transition">Trang chủ</Link>
           <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
           <Link to="/blog"    className="hover:text-white transition">Bài viết</Link>
         </div>
-
         <div className="flex gap-5 items-center text-gray-300">
           <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
             <Search size={20} />
@@ -387,7 +409,6 @@ export default function Home() {
               </span>
             )}
           </button>
-
           {user ? (
             <div className="relative" ref={dropdownRef}>
               <button onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -398,7 +419,6 @@ export default function Home() {
                   : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
                 <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
-
               {dropdownOpen && (
                 <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
                   <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
@@ -433,12 +453,11 @@ export default function Home() {
 
       {/* HERO */}
       <div className="relative z-10 pt-24">
-        <section className="flex flex-col items-center justify-center text-center py-32 px-6">
+        <section className="flex flex-col items-center justify-center text-center py-20 px-6">
           <p className="text-orange-400 text-sm tracking-widest uppercase mb-4 font-medium">
             Chào mừng đến với PHONEZONE
           </p>
-          <h1 className="text-5xl font-bold mb-6 drop-shadow-lg
-            bg-gradient-to-r from-gray-200 to-gray-400 bg-clip-text text-transparent leading-tight">
+          <h1 className="text-5xl font-bold mb-6 drop-shadow-lg bg-gradient-to-r from-gray-200 to-gray-400 bg-clip-text text-transparent leading-tight">
             Công nghệ trong tầm tay bạn
           </h1>
           <p className="text-gray-400 max-w-xl mb-10 text-base leading-relaxed">
@@ -446,24 +465,26 @@ export default function Home() {
           </p>
           <div className="flex gap-4 flex-wrap justify-center">
             <Link to="/product"
-              className="px-8 py-3 rounded-full bg-orange-500 hover:bg-orange-600
-                text-white font-semibold text-sm transition duration-300 shadow-lg shadow-orange-500/30">
+              className="px-8 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition duration-300 shadow-lg shadow-orange-500/30">
               Khám phá ngay
             </Link>
             <Link to="/blog"
-              className="px-8 py-3 rounded-full bg-white/10 border border-white/20
-                backdrop-blur-md hover:bg-white/20 text-sm transition duration-300">
+              className="px-8 py-3 rounded-full bg-white/10 border border-white/20 backdrop-blur-md hover:bg-white/20 text-sm transition duration-300">
               Đọc bài viết
             </Link>
           </div>
         </section>
       </div>
 
-      {/* FEATURED PRODUCTS */}
+      {/* FEATURED PRODUCTS + BANNER */}
       <div className="relative" style={{ background: "#1C1C1E" }}>
-        {/* Separator gradient */}
         <div className="h-16 pointer-events-none"
           style={{ background: "linear-gradient(to bottom, transparent, #1C1C1E)" }} />
+
+        <div className="max-w-5xl mx-auto px-10 mb-10">
+          <BannerSlider height="h-[420px]" className="w-full" />
+        </div>
+
         <FeaturedProducts navigate={navigate} />
         <Footer />
       </div>

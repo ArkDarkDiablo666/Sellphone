@@ -19,6 +19,7 @@ import { useCart } from "./Cart";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { isLoggedIn, clearSession } from "./authUtils";
+import BannerSlider from "./BannerSlider";
 
 const API = "http://localhost:8000";
 
@@ -273,6 +274,10 @@ export function BlogDetail() {
       </nav>
 
       <div className="pt-20 pb-16 px-6 max-w-3xl mx-auto">
+        {/* BANNER */}
+        <div className="mb-8">
+          <BannerSlider height="h-[220px]" className="w-full" />
+        </div>
         <div className="flex items-center gap-3 mb-4">
           <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-orange-500/15 text-orange-400">
             {post.category}
@@ -546,6 +551,11 @@ export default function Blog() {
 
       {/* ── Main content ── */}
       <div className="pt-24 pb-16 px-8 max-w-5xl mx-auto">
+
+        {/* BANNER */}
+        <div className="mb-8">
+          <BannerSlider height="h-[300px]" className="w-full" />
+        </div>
 
         {/* SEARCH BAR — full width, prominent */}
         <div className="relative mb-6">

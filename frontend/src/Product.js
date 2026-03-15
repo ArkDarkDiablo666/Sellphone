@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useCart } from "./Cart";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -10,6 +10,7 @@ import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
 import { isLoggedIn, clearSession } from "./authUtils";
+import BannerSlider from "./BannerSlider";
 
 const API = "http://localhost:8000";
 
@@ -90,7 +91,7 @@ export default function Product() {
   const [searchQ,          setSearchQ]          = useState("");
   const [filtered,         setFiltered]         = useState([]);
   const [showVoucherPanel, setShowVoucherPanel] = useState(false);
-  const [sortBy, setSortBy] = useState("default"); // default|price_asc|price_desc|name_asc|name_desc|rating_asc|rating_desc|sold_asc|sold_desc
+  const [sortBy, setSortBy] = useState("default");
 
   const toggleItem = (setter, val) => setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
 
@@ -123,7 +124,6 @@ export default function Product() {
       const prods = prodData.products || prodData || [];
       setProducts(prods);
       setCategories(catData.categories || catData || []);
-      // fetch rating stats for all products in background
       Promise.all(
         prods.map(p =>
           fetch(`${API}/api/review/list/?product_id=${p.id}`)
@@ -175,27 +175,12 @@ export default function Product() {
         });
       }
     }
-    // ── Sort ──
-    if (sortBy === "price_asc") {
-      result.sort((a, b) => {
-        const ap = parseFloat(a.min_price || 0), bp = parseFloat(b.min_price || 0);
-        return ap - bp;
-      });
-    } else if (sortBy === "price_desc") {
-      result.sort((a, b) => parseFloat(b.min_price || 0) - parseFloat(a.min_price || 0));
-    } else if (sortBy === "name_asc") {
-      result.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
-    } else if (sortBy === "name_desc") {
-      result.sort((a, b) => (b.name || "").localeCompare(a.name || "", "vi"));
-    } else if (sortBy === "rating_asc") {
-      result.sort((a, b) => (a.rating_avg || 0) - (b.rating_avg || 0));
-    } else if (sortBy === "rating_desc") {
-      result.sort((a, b) => (b.rating_avg || 0) - (a.rating_avg || 0));
-    } else if (sortBy === "sold_asc") {
-      result.sort((a, b) => (a.sold_count || 0) - (b.sold_count || 0));
-    } else if (sortBy === "sold_desc") {
-      result.sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0));
-    }
+    if (sortBy === "price_asc")   result.sort((a, b) => parseFloat(a.min_price || 0) - parseFloat(b.min_price || 0));
+    else if (sortBy === "price_desc") result.sort((a, b) => parseFloat(b.min_price || 0) - parseFloat(a.min_price || 0));
+    else if (sortBy === "name_asc")  result.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
+    else if (sortBy === "name_desc") result.sort((a, b) => (b.name || "").localeCompare(a.name || "", "vi"));
+    else if (sortBy === "rating_asc")  result.sort((a, b) => (a.rating_avg || 0) - (b.rating_avg || 0));
+    else if (sortBy === "rating_desc") result.sort((a, b) => (b.rating_avg || 0) - (a.rating_avg || 0));
     setFiltered(result);
   }, [products, searchQ, selectedCats, selectedRams, selectedStorages, selectedPrices, voucherList, cartVoucher, sortBy]);
 
@@ -206,7 +191,6 @@ export default function Product() {
     <div className="min-h-screen bg-[#1C1C1E] text-white">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      {/* LOGOUT DIALOG */}
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
@@ -228,7 +212,6 @@ export default function Product() {
         </div>
       )}
 
-      {/* VOUCHER PANEL */}
       {showVoucherPanel && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowVoucherPanel(false)} />
@@ -252,9 +235,6 @@ export default function Product() {
                           {v.max_discount ? ` · Tối đa ${parseInt(v.max_discount).toLocaleString("vi-VN")}đ` : ""}
                         </p>
                         {v.min_order > 0 && <p className="text-[10px] text-white/25 mt-0.5">Đơn từ {parseInt(v.min_order).toLocaleString("vi-VN")}đ</p>}
-                        {v.scope && v.scope !== "all" && (
-                          <p className="text-[10px] text-orange-400/50 mt-0.5">{v.scope === "category" ? "Theo danh mục" : "Sản phẩm cụ thể"}</p>
-                        )}
                       </div>
                       <Tag size={18} className="text-orange-400/30 shrink-0" />
                     </div>
@@ -276,12 +256,9 @@ export default function Product() {
           <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
         </div>
         <div className="flex gap-5 items-center text-gray-300">
-          {/* SEARCH BUTTON */}
-          <button onClick={() => setSearchOpen(true)}
-            className="text-gray-300 hover:text-white transition">
+          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
             <Search size={20} />
           </button>
-
           <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative">
             <ShoppingCart className="hover:text-white transition" size={22} />
             {totalCount > 0 && (
@@ -294,7 +271,7 @@ export default function Product() {
             <div className="relative" ref={dropdownRef}>
               <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition">
                 {user.avatar
-                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={e => { e.currentTarget.style.display = "none"; }} />
                   : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
                 <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
@@ -302,7 +279,7 @@ export default function Product() {
                 <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
                   <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
                     {user.avatar
-                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" />
                       : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
                     <div className="overflow-hidden">
                       <p className="text-sm font-medium truncate">{user.fullName}</p>
@@ -327,16 +304,15 @@ export default function Product() {
         </div>
       </nav>
 
-      {/* HERO BANNER */}
-      <div className="relative h-52 flex items-center justify-center overflow-hidden mt-[0px]">
-        <img src={bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#1C1C1E]" />
+      {/* BANNER */}
+      <div className="pt-20 px-10 pb-4 max-w-7xl mx-auto">
+        <BannerSlider height="h-[340px]" className="w-full" />
       </div>
 
       {/* CONTENT */}
       <div className="flex gap-6 px-10 py-8">
 
-        {/* SIDEBAR FILTER */}
+        {/* SIDEBAR */}
         <aside className="w-52 shrink-0 flex flex-col gap-3 sticky top-24 h-fit">
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -406,34 +382,24 @@ export default function Product() {
 
         {/* PRODUCT GRID */}
         <div className="flex-1 min-w-0">
-
-          {/* ── SORT BAR ── */}
           {!loading && filtered.length > 0 && (
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               <span className="text-[11px] text-white/30 shrink-0">Sắp xếp:</span>
               {[
-                { key: "price",  label: "Giá",      asc: "price_asc",   desc: "price_desc"  },
-                { key: "rating", label: "Sao",      asc: "rating_asc",  desc: "rating_desc" },
-                { key: "name",   label: "Tên",      asc: "name_asc",    desc: "name_desc"   },
+                { key: "price",  label: "Giá",  asc: "price_asc",  desc: "price_desc"  },
+                { key: "rating", label: "Sao",  asc: "rating_asc", desc: "rating_desc" },
+                { key: "name",   label: "Tên",  asc: "name_asc",   desc: "name_desc"   },
               ].map(opt => {
                 const isAsc  = sortBy === opt.asc;
                 const isDesc = sortBy === opt.desc;
                 const active = isAsc || isDesc;
-                const handleClick = () => {
-                  if (!active)   setSortBy(opt.asc);
-                  else if (isAsc) setSortBy(opt.desc);
-                  else           setSortBy("default");
-                };
                 return (
-                  <button key={opt.key} onClick={handleClick}
+                  <button key={opt.key}
+                    onClick={() => { if (!active) setSortBy(opt.asc); else if (isAsc) setSortBy(opt.desc); else setSortBy("default"); }}
                     className={`w-24 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium border transition select-none
-                      ${active
-                        ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
-                        : "bg-white/[0.04] border-white/10 text-white/40 hover:border-white/25 hover:text-white/70"}`}>
+                      ${active ? "bg-orange-500/20 border-orange-500/50 text-orange-300" : "bg-white/[0.04] border-white/10 text-white/40 hover:border-white/25 hover:text-white/70"}`}>
                     {opt.label}
-                    <span className="text-[10px] w-3 text-center">
-                      {isAsc ? "↑" : isDesc ? "↓" : "⇅"}
-                    </span>
+                    <span className="text-[10px] w-3 text-center">{isAsc ? "↑" : isDesc ? "↓" : "⇅"}</span>
                   </button>
                 );
               })}
@@ -490,6 +456,8 @@ export default function Product() {
     </div>
   );
 }
+
+// ── ProductCard — [FIX] chỉ dùng ảnh biến thể, có animation slide ──
 function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navigate, toast }) {
   const variants   = p.variants || [];
   const comboKey   = comboVariant ? `${comboVariant.ram || ""}|${comboVariant.storage || ""}` : null;
@@ -516,6 +484,48 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
     : { finalPrice: basePrice, voucher: null };
   const hasDisc = finalPrice < basePrice;
 
+  // ── [FIX] Chỉ dùng ảnh BIẾN THỂ, không dùng p.image ──────────────────────
+  const variantImages = (() => {
+    const imgs = [];
+    // Ưu tiên ảnh variant đang chọn (activeColor)
+    if (displayVariant?.image) imgs.push(displayVariant.image);
+    // Thêm ảnh các variant khác cùng combo (không trùng)
+    if (comboKey) {
+      variants
+        .filter(v => `${v.ram || ""}|${v.storage || ""}` === comboKey && v.image && !imgs.includes(v.image))
+        .forEach(v => imgs.push(v.image));
+    } else {
+      variants
+        .filter(v => v.image && !imgs.includes(v.image))
+        .forEach(v => imgs.push(v.image));
+    }
+    return imgs;
+  })();
+
+  const [slideIdx, setSlideIdx] = useState(0);
+  const slideRef = useRef(null);
+  const [fading, setFading] = useState(false);
+
+  // Reset về ảnh variant khi activeColor/comboKey thay đổi
+  useEffect(() => { setSlideIdx(0); }, [displayVariant?.image]);
+
+  // Auto-slide: chỉ khi có nhiều ảnh và chưa chọn màu cụ thể
+  const frozen = !!(activeColor && comboKey);
+  useEffect(() => {
+    clearInterval(slideRef.current);
+    if (frozen || variantImages.length <= 1) return;
+    slideRef.current = setInterval(() => {
+      setFading(true);
+      setTimeout(() => {
+        setSlideIdx(i => (i + 1) % variantImages.length);
+        setFading(false);
+      }, 150);
+    }, 2500);
+    return () => clearInterval(slideRef.current);
+  }, [frozen, variantImages.length]);
+
+  const currentImg = variantImages.length > 0 ? variantImages[slideIdx % variantImages.length] : null;
+
   const handleColorClick = (col) => {
     const hasStock = variants.some(v => v.color === col && (!comboKey || `${v.ram || ""}|${v.storage || ""}` === comboKey) && (v.stock ?? 1) > 0);
     if (!hasStock) return;
@@ -541,25 +551,45 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
     toast.success("Đã thêm vào giỏ hàng!");
   };
 
-  const displayImage = displayVariant?.image || p.image || null;
-
   return (
     <article onClick={() => navigate(`/product/${p.id}`)} className="flex flex-col h-full rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-0.5 cursor-pointer
       bg-[#00000001] backdrop-blur-[2px]
       shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
       hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]">
-      <div className="w-full h-32 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">        {displayImage
-          ? <img key={displayImage} src={displayImage} alt={p.name} className="w-full h-full object-contain p-2" />
-          : <Package size={24} className="text-white/10" />}
+      <div className="w-full h-32 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">
+        {currentImg ? (
+          <img
+            key={currentImg}
+            src={currentImg}
+            alt={p.name}
+            className="w-full h-full object-contain p-2 transition-opacity duration-300"
+            style={{ opacity: fading ? 0 : 1 }}
+          />
+        ) : (
+          <Package size={24} className="text-white/10" />
+        )}
         {hasDisc && bestVoucher && (
           <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
             {bestVoucher.type === "percent" ? `-${bestVoucher.value}%` : `-${(basePrice - finalPrice).toLocaleString("vi-VN")}đ`}
           </div>
         )}
+        {/* Dot indicators — chỉ hiện khi có nhiều ảnh biến thể */}
+        {variantImages.length > 1 && !frozen && (
+          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1">
+            {variantImages.map((_, i) => (
+              <span key={i} className={`rounded-full transition-all ${i === slideIdx % variantImages.length ? "w-3 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/30"}`} />
+            ))}
+          </div>
+        )}
+        {/* Badge số lượng màu sắc */}
+        {variantImages.length > 1 && (
+          <div className="absolute top-1.5 right-1.5 bg-black/50 text-white/60 text-[8px] px-1.5 py-0.5 rounded-full pointer-events-none">
+            {variantImages.length} màu
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-1.5 p-2.5 flex-1">
-        <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition"
-          onClick={() => navigate(`/product/${p.id}`)}>
+        <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">
           {p.name}
         </h3>
         {comboLabel && (
@@ -573,9 +603,11 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
               const hasStock = variants.some(v => v.color === col && (!comboKey || `${v.ram || ""}|${v.storage || ""}` === comboKey) && (v.stock ?? 1) > 0);
               return (
                 <span key={col} title={!hasStock ? `${col} - Hết hàng` : col}
-                  className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
-                    ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through"
-                      : "bg-white/5 border-white/10 text-white/50"}`}>
+                  className={`px-1.5 py-0.5 rounded text-[9px] border font-medium cursor-pointer transition
+                    ${activeColor === col ? "bg-orange-500/20 border-orange-500/40 text-orange-300"
+                      : !hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through cursor-not-allowed"
+                      : "bg-white/5 border-white/10 text-white/50 hover:border-white/30"}`}
+                  onClick={e => { e.stopPropagation(); handleColorClick(col); }}>
                   {col}
                 </span>
               );
@@ -586,12 +618,8 @@ function ProductCard({ product: p, comboVariant, voucherList, cartVoucher, navig
           <div className="flex items-center gap-1">
             <Tag size={8} className="text-orange-400 shrink-0" />
             <span className="text-[8px] text-orange-400 font-mono font-semibold">{bestVoucher.code}</span>
-            <span className="text-[8px] text-white/30">
-              -{bestVoucher.type === "percent" ? `${bestVoucher.value}%` : `${parseInt(bestVoucher.value).toLocaleString("vi-VN")}đ`}
-            </span>
           </div>
         )}
-        {/* Rating — chiều cao cố định */}
         <div className="h-5 flex items-center">
           {p.rating_avg > 0 && (
             <div className="flex items-center gap-0.5">
