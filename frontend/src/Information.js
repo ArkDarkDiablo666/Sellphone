@@ -7,7 +7,7 @@ import bgImage from "./Image/image-177.png";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { useToast, ToastContainer } from "./Toast";
-import { getUser, authFetch, clearSession, AUTH_REDIRECTED } from "./authUtils";
+import { getUser, authFetch, clearSession, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 
 const API = "http://localhost:8000";
 
@@ -52,6 +52,7 @@ export default function Information() {
 
   // ===== LẤY THÔNG TIN CUSTOMER =====
   useEffect(() => {
+    if (checkAndHandleExpiry("user")) return;
     if (!userLocal.id) { navigate("/login"); return; }
     authFetch(`${API}/api/customer/${userLocal.id}/`)
       .then((r) => { if (!r || r === AUTH_REDIRECTED) return; return r.json(); })
@@ -96,6 +97,7 @@ export default function Information() {
         localStorage.setItem("user", JSON.stringify(updated));
         setCustomer((prev) => ({ ...prev, avatar: data.avatar_url }));
         window.dispatchEvent(new Event("userUpdated"));
+        toast.success("Cập nhật ảnh đại diện thành công!");
       } else {
         toast.error(data.message || "Lỗi upload ảnh");
       }
@@ -113,7 +115,7 @@ export default function Information() {
         body: JSON.stringify({ id: userLocal.id, phone_number: phone }),
       });
       if (!res || res === AUTH_REDIRECTED) return;
-      if (res.ok) { setCustomer((prev) => ({ ...prev, phone_number: phone })); setEditPhone(false); setErrors({}); }
+      if (res.ok) { setCustomer((prev) => ({ ...prev, phone_number: phone })); setEditPhone(false); setErrors({}); toast.success("Cập nhật số điện thoại thành công!"); }
     } finally { setSaving(false); }
   };
 
@@ -127,7 +129,7 @@ export default function Information() {
         body: JSON.stringify({ id: userLocal.id, address }),
       });
       if (!res || res === AUTH_REDIRECTED) return;
-      if (res.ok) { setCustomer((prev) => ({ ...prev, address })); setEditAddress(false); setErrors({}); }
+      if (res.ok) { setCustomer((prev) => ({ ...prev, address })); setEditAddress(false); setErrors({}); toast.success("Cập nhật địa chỉ thành công!"); }
     } finally { setSaving(false); }
   };
 

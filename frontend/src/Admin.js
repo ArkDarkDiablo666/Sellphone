@@ -1393,6 +1393,7 @@ const handleDeleteVariant = (variantId, productId) => {
     if (r.ok) {
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
       loadProducts();
+      toast.success("Đã xóa biến thể!");
     } else toast.error(d.message);
   }});
 };
@@ -1405,6 +1406,7 @@ const handleDeleteProductImage = (imageId, productId) => {
     }, "admin");
     if (r.ok) {
       setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
+      toast.success("Đã xóa ảnh!");
     } else { const d = await r.json(); toast.error(d.message); }
   }});
 };
@@ -1416,7 +1418,8 @@ const handleSetPrimaryImage = async (imageId, productId) => {
   }, "admin");
   if (r.ok) {
     setProductDetailMap(prev => { const n = { ...prev }; delete n[productId]; return n; });
-  }
+    toast.success("Đã đặt ảnh chính!");
+  } else { const d = await r.json(); toast.error(d.message || "Lỗi đặt ảnh chính"); }
 };
 
 const handleDeleteProduct = (productId) => {
@@ -1473,7 +1476,7 @@ const handleDeleteProduct = (productId) => {
   const handleImport = async()=>{ const entries=Object.entries(importQty).filter(([,q])=>parseInt(q)>0); if(entries.length===0){toast.error("Chưa nhập số lượng");return;} setImportSaving(true); try{ const r=await authFetch(`${API}/api/product/import/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:entries.map(([vid,qty])=>({variant_id:parseInt(vid),quantity:parseInt(qty)}))})}, "admin"); const d=await r.json(); if(r.ok){toast.success("Nhập hàng thành công!");loadImportVariants(importProductId);}else toast.error(d.message); }finally{setImportSaving(false);} };
 
   const handleAddCategory = async()=>{ if(!newCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("name",newCatName.trim()); if(newCatImage)fd.append("image",newCatImage); const r=await authFetch(`${API}/api/product/category/create/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){setShowAddCat(false);setNewCatName("");setNewCatImage(null);setNewCatPreview("");loadCategories();setCategories(p=>[...p,{id:d.id,name:d.name}]);toast.success("Tạo danh mục thành công!");}else toast.error(d.message); }finally{setCatSaving(false);} };
-  const handleSaveCatEdit = async(catId)=>{ if(!editCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("id",catId); fd.append("name",editCatName.trim()); if(editCatImage)fd.append("image",editCatImage); const r=await authFetch(`${API}/api/product/category/update/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){setEditCatId(null);setEditCatName("");setEditCatImage(null);setEditCatPreview("");loadCategories();}else toast.error(d.message); }finally{setCatSaving(false);} };
+  const handleSaveCatEdit = async(catId)=>{ if(!editCatName.trim()){toast.error("Vui lòng nhập tên danh mục");return;} setCatSaving(true); try{ const fd=new FormData(); fd.append("id",catId); fd.append("name",editCatName.trim()); if(editCatImage)fd.append("image",editCatImage); const r=await authFetch(`${API}/api/product/category/update/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){setEditCatId(null);setEditCatName("");setEditCatImage(null);setEditCatPreview("");loadCategories();toast.success("Cập nhật danh mục thành công!");}else toast.error(d.message); }finally{setCatSaving(false);} };
 
   const handleAvatarChange = async(e)=>{ const f=e.target.files[0];if(!f)return; if(!f.type.startsWith("image/")){toast.error("Vui lòng chọn file ảnh");return;} if(f.size>5*1024*1024){toast.error("Ảnh không được vượt quá 5MB");return;} setAvatarLoading(true); try{ const fd=new FormData(); fd.append("id",adminLocal.id); fd.append("avatar_file",f); const r=await authFetch(`${API}/api/staff/upload-avatar/`,{method:"POST",body:fd, headers:getAuthHeadersFormData("admin")}, "admin"); const d=await r.json(); if(r.ok){ setAdmin(p=>({...p,avatar:d.avatar_url})); const s=JSON.parse(localStorage.getItem("admin_user")||"{}"); localStorage.setItem("admin_user",JSON.stringify({...s,avatar:d.avatar_url})); window.dispatchEvent(new Event("userUpdated")); }else toast.error(d.message); }catch{toast.error("Không thể kết nối server");}finally{setAvatarLoading(false);} };
 
@@ -1640,7 +1643,7 @@ const handleDeleteProduct = (productId) => {
                     <PwInput placeholder="Mật khẩu mới" value={passForm.newPass} show={showPass.newPass} onToggle={()=>setShowPass(p=>({...p,newPass:!p.newPass}))} onChange={v=>setPassForm(p=>({...p,newPass:v}))} error={errors.newPass}/>
                     <PwInput placeholder="Nhập lại mật khẩu mới" value={passForm.confirm} show={showPass.confirm} onToggle={()=>setShowPass(p=>({...p,confirm:!p.confirm}))} onChange={v=>setPassForm(p=>({...p,confirm:v}))} error={errors.confirm}/>
                     <div className="flex gap-2 mt-1">
-                      <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> Lưu</button>
+                      <button onClick={savePassword} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> Lưu</button>
                       <button onClick={()=>{setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});}} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm transition"><X size={14}/> Hủy</button>
                     </div>
                   </div>
@@ -1728,7 +1731,7 @@ const handleDeleteProduct = (productId) => {
                             <input ref={editCatImgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files[0];if(f){setEditCatImage(f);setEditCatPreview(URL.createObjectURL(f));}}}/>
                             <input value={editCatName} onChange={e=>setEditCatName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50"/>
                             <div className="flex gap-2">
-                              <button onClick={()=>handleSaveCatEdit(cat.id)} disabled={catSaving} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-xs font-medium transition disabled:opacity-50"><Check size={12}/> Lưu</button>
+                              <button onClick={()=>handleSaveCatEdit(cat.id)} disabled={catSaving} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-xs font-medium transition disabled:opacity-50"><Check size={12}/> Lưu</button>
                               <button onClick={()=>{setEditCatId(null);setEditCatImage(null);setEditCatPreview("");}} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs transition"><X size={12}/> Hủy</button>
                             </div>
                           </div>
@@ -2070,7 +2073,7 @@ const handleDeleteProduct = (productId) => {
                         </details>
                         <div className="flex gap-2 pt-2 border-t border-white/5">
                           <button onClick={() => handleSaveEditVariant(v.id, p.id)} disabled={editVariantSaving}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
                             <Check size={14} /> {editVariantSaving ? "Đang lưu..." : "Lưu biến thể"}
                           </button>
                           <button onClick={() => { setEditVariantId(null); setEditVariantData({}); }}
@@ -2089,7 +2092,7 @@ const handleDeleteProduct = (productId) => {
           {/* Lưu thông tin chung */}
           <div className="flex gap-2 pt-2 border-t border-white/5">
             <button onClick={() => handleSaveEditProduct(p.id)} disabled={editProductSaving}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">
               <Check size={14} /> {editProductSaving ? "Đang lưu..." : "Lưu thông tin sản phẩm"}
             </button>
             <button onClick={() => { setEditProductId(null); setEditProductData({}); }}
@@ -2179,7 +2182,7 @@ const handleDeleteProduct = (productId) => {
                         <p className="text-xs text-orange-400 font-medium mb-3">Cập nhật trạng thái đơn hàng</p>
                         <input placeholder="Ghi chú cho khách hàng (tùy chọn)" value={statusNote} onChange={e=>setStatusNote(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-500/50 transition mb-3"/>
                         <div className="flex gap-2">
-                          <button onClick={()=>handleUpdateOrderStatus(orderDetail.id,ORDER_STATUS_MAP[orderDetail.status].next)} disabled={updatingOrder===orderDetail.id} className="flex-1 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">{updatingOrder===orderDetail.id?"Đang cập nhật...":ORDER_STATUS_MAP[orderDetail.status].nextLabel}</button>
+                          <button onClick={()=>handleUpdateOrderStatus(orderDetail.id,ORDER_STATUS_MAP[orderDetail.status].next)} disabled={updatingOrder===orderDetail.id} className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50">{updatingOrder===orderDetail.id?"Đang cập nhật...":ORDER_STATUS_MAP[orderDetail.status].nextLabel}</button>
                           {["Pending","Processing"].includes(orderDetail.status) && <button onClick={()=>handleCancelOrder(orderDetail.id)} disabled={updatingOrder===orderDetail.id} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition disabled:opacity-50">Hủy đơn</button>}
                         </div>
                       </div>
@@ -2711,6 +2714,7 @@ function getActionColor(action) {
 }
 
 function ActivityLogSection() {
+  const { toast } = useToast();
   const [logs,       setLogs]       = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [total,      setTotal]      = useState(0);
@@ -2753,7 +2757,7 @@ function ActivityLogSection() {
     try {
       const res = await authFetch(`${API}/api/activity-log/clear/`, { method: "POST", headers: { "Content-Type": "application/json" } }, "admin");
       if (!res || res === AUTH_REDIRECTED) return;
-      if (res.ok) { setLogs([]); setTotal(0); setPage(1); }
+      if (res.ok) { setLogs([]); setTotal(0); setPage(1); toast.success("Đã xóa toàn bộ nhật ký!"); }
     } finally { setClearing(false); }
   };
 

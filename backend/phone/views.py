@@ -309,7 +309,7 @@ def get_tokens_for_customer(customer):
         "customer_id": customer.CustomerID,
         "type":        "customer",
         "iat":         datetime.now(timezone.utc),
-        "exp":         datetime.now(timezone.utc) + timedelta(hours=8),
+        "exp":         datetime.now(timezone.utc) + timedelta(hours=720),  # 30 ngày
     }
     return pyjwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
@@ -328,7 +328,7 @@ def get_tokens_for_staff(staff):
         "role":     staff.Role,
         "type":     "staff",
         "iat":      datetime.now(timezone.utc),
-        "exp":      datetime.now(timezone.utc) + timedelta(hours=8),
+        "exp":      datetime.now(timezone.utc) + timedelta(hours=720),  # 30 ngàys
     }
     return pyjwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 

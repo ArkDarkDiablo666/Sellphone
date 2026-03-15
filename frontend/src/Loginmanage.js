@@ -16,8 +16,13 @@ export default function Loginmanage() {
   const { toast, toasts, removeToast } = useToast();
 
   useEffect(() => {
-    const msg = sessionStorage.getItem("logout_toast");
-    if (msg) { sessionStorage.removeItem("logout_toast"); setTimeout(() => toast.info(msg), 100); }
+    const msg  = sessionStorage.getItem("logout_toast");
+    const type = sessionStorage.getItem("logout_toast_type") || "info";
+    if (msg) {
+      sessionStorage.removeItem("logout_toast");
+      sessionStorage.removeItem("logout_toast_type");
+      setTimeout(() => type === "error" ? toast.error(msg) : toast.info(msg), 100);
+    }
   }, []); // eslint-disable-line
 
   const handleChange = (e) => {

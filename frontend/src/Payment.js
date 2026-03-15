@@ -7,7 +7,7 @@ import {
   Building2, CreditCard, Copy, CheckCheck
 } from "lucide-react";
 import { useCart } from "./Cart";
-import { getUser, authFetch, AUTH_REDIRECTED } from "./authUtils";
+import { getUser, authFetch, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 
 const API           = "http://localhost:8000";
 const PROVINCES_API = "https://provinces.open-api.vn/api";
@@ -407,6 +407,7 @@ export default function Payment() {
   const [confirmModal, setConfirmModal] = useState(null);
 
   useEffect(() => {
+    if (checkAndHandleExpiry("user")) return;
     if (!user?.id) { navigate("/login"); return; }
     if (selectedItems.length === 0) { navigate("/cart"); return; }
     authFetch(`${API}/api/customer/${user.id}/addresses/`)
@@ -442,6 +443,7 @@ export default function Payment() {
     try {
       const res = await authFetch(`${API}/api/order/create/`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customer_id:      user.id,
           items:            selectedItems.map((i) => ({ variant_id: i.variantId, qty: i.qty, price: i.price })),
@@ -469,6 +471,7 @@ export default function Payment() {
           try {
             const vnRes = await authFetch(`${API}/api/payment/vnpay/create/`, {
               method: "POST",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ order_id: data.order_id, amount: total }),
             });
             if (!vnRes || vnRes === AUTH_REDIRECTED) return;
@@ -496,7 +499,7 @@ export default function Payment() {
       const body = editAddr
         ? { name, phone, address: fullAddress, id: editAddr.id, customer_id: user.id }
         : { name, phone, address: fullAddress, customer_id: user.id };
-      const res  = await authFetch(url, { method: "POST", body: JSON.stringify(body) });
+      const res  = await authFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
       if (res.ok) {
@@ -515,6 +518,7 @@ export default function Payment() {
       onConfirm: async () => {
         const res = await authFetch(`${API}/api/customer/address/delete/`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, customer_id: user.id }),
         });
         if (!res || res === AUTH_REDIRECTED) return;

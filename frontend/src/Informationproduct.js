@@ -17,6 +17,149 @@ import ProductImageSlider from "./ProductImageSlider";
 
 const API = "http://localhost:8000";
 
+// ═══════════════════════════════════════════════════════
+// COMPONENT: Card sản phẩm gợi ý — ảnh auto-slide như Product.js
+// ═══════════════════════════════════════════════════════
+function SuggestedProductCard({ p, onNavigate, onAddCart, onCompare, compareList, extraButton }) {
+  const variants    = p.variants || [];
+  const variantImgs = (() => {
+    const imgs = [];
+    // Ưu tiên variant rẻ nhất trước
+    const sorted = [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0));
+    sorted.forEach(v => { if (v.image && !imgs.includes(v.image)) imgs.push(v.image); });
+    return imgs;
+  })();
+
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [fading,   setFading]   = useState(false);
+  const slideRef = useRef(null);
+
+  // Auto-slide mỗi 2.5s
+  useEffect(() => {
+    clearInterval(slideRef.current);
+    if (variantImgs.length <= 1) return;
+    slideRef.current = setInterval(() => {
+      setFading(true);
+      setTimeout(() => {
+        setSlideIdx(i => (i + 1) % variantImgs.length);
+        setFading(false);
+      }, 150);
+    }, 2500);
+    return () => clearInterval(slideRef.current);
+  }, [variantImgs.length]);
+
+  const currentImg = variantImgs.length > 0 ? variantImgs[slideIdx % variantImgs.length] : (p.image || null);
+
+  const dv       = variants.length > 0
+    ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
+    : null;
+  const rColors  = [...new Set(variants.map(v => v.color).filter(Boolean))];
+  const rCombo   = dv ? [dv.ram, dv.storage].filter(Boolean).join(" · ") : null;
+
+  return (
+    <article
+      onClick={() => onNavigate(p.id)}
+      className="flex flex-col rounded-2xl overflow-hidden cursor-pointer hover:-translate-y-1 transition-all duration-300
+        shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
+        hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),0_8px_32px_rgba(0,0,0,0.4)]"
+    >
+      {/* ── Ảnh ── */}
+      <div className="w-full h-36 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden relative">
+        {currentImg
+          ? <img
+              key={currentImg}
+              src={currentImg}
+              alt={p.name}
+              className="w-full h-full object-contain p-2 transition-opacity duration-300"
+              style={{ opacity: fading ? 0 : 1 }}
+              draggable={false}
+            />
+          : <Package size={28} className="text-white/10" />}
+
+        {/* Dots */}
+        {variantImgs.length > 1 && (
+          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1">
+            {variantImgs.map((_, i) => (
+              <span key={i} className={`rounded-full transition-all
+                ${i === slideIdx % variantImgs.length ? "w-3 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/30"}`} />
+            ))}
+          </div>
+        )}
+
+        {/* Badge số màu */}
+        {variantImgs.length > 1 && (
+          <div className="absolute top-1.5 right-1.5 bg-black/50 text-white/60 text-[8px] px-1.5 py-0.5 rounded-full pointer-events-none">
+            {variantImgs.length} màu
+          </div>
+        )}
+      </div>
+
+      {/* ── Info ── */}
+      <div className="flex flex-col gap-1.5 p-2.5">
+        <h3 className="font-semibold text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">{p.name}</h3>
+        {rCombo && (
+          <span className="inline-block px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9px] font-semibold text-white/50 w-fit">
+            {rCombo}
+          </span>
+        )}
+        {rColors.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {rColors.map(col => {
+              const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
+              return (
+                <span key={col}
+                  className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
+                    ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through" : "bg-white/5 border-white/10 text-white/50"}`}>
+                  {col}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <div className="h-5 flex items-center">
+          {p.rating_avg > 0 && (
+            <div className="flex items-center gap-0.5">
+              {[1,2,3,4,5].map(n => (
+                <svg key={n} width="9" height="9" viewBox="0 0 24 24"
+                  fill={n <= Math.round(p.rating_avg) ? "#f59e0b" : "none"}
+                  stroke="#f59e0b" strokeWidth="2">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              ))}
+              <span className="text-[9px] text-white/30 ml-0.5">({p.rating_count})</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-end justify-between mt-auto pt-1 gap-1">
+          <div className="min-w-0">
+            <p className="font-bold text-sm text-[#ff3b30] leading-tight truncate">
+              {p.min_price ? parseFloat(p.min_price).toLocaleString("vi-VN") + "đ" : "Liên hệ"}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0 mt-auto">
+            {extraButton && extraButton(p, dv)}
+            {onAddCart && (
+              <button
+                onClick={e => { e.stopPropagation(); if (dv) onAddCart(p, dv); }}
+                className="shrink-0 h-7 w-7 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition focus:outline-none">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={e => { e.stopPropagation(); onNavigate(p.id); }}
+              className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium bg-orange-500 hover:bg-orange-600 transition focus:outline-none">
+              Mua
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 const applyVoucherDiscount = (price, voucher) => {
   if (!price || !voucher) return price;
   let disc = 0;
@@ -1181,128 +1324,32 @@ export default function InformationProduct() {
           <div className="max-w-7xl mx-auto px-6 lg:px-10 pb-12 border-t border-white/5 pt-8">
             <h2 className="text-lg font-semibold mb-5">Sản phẩm tương tự</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-              {related.map(p => {
-                const rVariants = p.variants || [];
-                const rColors = [...new Set(rVariants.map(v => v.color).filter(Boolean))];
-                const rDv = rVariants.length > 0
-                  ? [...rVariants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
-                  : null;
-                const rBase = rDv ? parseFloat(rDv.price) : parseFloat(p.min_price || 0);
-                const rCombo = rDv ? [rDv.ram, rDv.storage].filter(Boolean).join(" · ") : null;
-                let rFinal = rBase;
-                let rBestV = null;
-                const allV = voucher ? [voucher, ...activeVoucherList] : activeVoucherList;
-                if (rBase) {
-                  let bestD = 0;
-                  for (const v of allV) {
-                    if (!v) continue;
-                    if (v.scope === "category" && v.category_id && String(p.category_id) !== String(v.category_id)) continue;
-                    if (v.scope === "product" && v.product_id && String(p.id) !== String(v.product_id)) continue;
-                    if (rBase < (v.min_order || 0)) continue;
-                    let d = v.type === "percent"
-                      ? Math.round(rBase * Math.min(v.value, 100) / 100)
-                      : Math.min(v.value, rBase);
-                    if (v.max_discount) d = Math.min(d, v.max_discount);
-                    if (d > bestD) { bestD = d; rBestV = v; }
-                  }
-                  if (bestD > 0) rFinal = Math.max(0, rBase - bestD);
-                }
-                const rHasDisc = rFinal < rBase;
-                return (
-                  <article key={p.id} onClick={() => navigate(`/product/${p.id}`)}
-                    className="flex flex-col rounded-2xl overflow-hidden cursor-pointer hover:-translate-y-1 transition-all duration-300
-                      shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
-                      hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),0_8px_32px_rgba(0,0,0,0.4)]">
-                    <div className="w-full h-36 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden relative">
-                      {(rDv?.image || p.image)
-                        ? <img src={rDv?.image || p.image} alt={p.name} className="w-full h-full object-contain p-3" />
-                        : <Package size={28} className="text-white/10" />}
-                      {rHasDisc && rBestV && (
-                        <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
-                          {rBestV.type === "percent" ? `-${rBestV.value}%` : `-${(rBase - rFinal).toLocaleString("vi-VN")}đ`}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1.5 p-2.5">
-                      <h3 className="font-semibold text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">{p.name}</h3>
-                      {rCombo && (
-                        <span className="inline-block px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9px] font-semibold text-white/50 w-fit">
-                          {rCombo}
-                        </span>
-                      )}
-                      {rColors.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {rColors.map(col => {
-                            const hasStock = rVariants.some(v => v.color === col && (v.stock ?? 1) > 0);
-                            return (
-                              <span key={col}
-                                className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
-                                  ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through" : "bg-white/5 border-white/10 text-white/50"}`}>
-                                {col}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <div className="h-5 flex items-center">
-                        {p.rating_avg > 0 && (
-                          <div className="flex items-center gap-0.5">
-                            {[1,2,3,4,5].map(n => (
-                              <svg key={n} width="9" height="9" viewBox="0 0 24 24"
-                                fill={n <= Math.round(p.rating_avg) ? "#f59e0b" : "none"}
-                                stroke="#f59e0b" strokeWidth="2">
-                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                              </svg>
-                            ))}
-                            <span className="text-[9px] text-white/30 ml-0.5">({p.rating_count})</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-end justify-between mt-auto pt-1 gap-1">
-                        <div className="min-w-0">
-                          {rHasDisc && (
-                            <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">{rBase.toLocaleString("vi-VN")}đ</p>
-                          )}
-                          <p className="font-bold text-sm text-[#ff3b30]">
-                            {rFinal ? rFinal.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0 mt-auto">
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              if (compareList.some(c => c.id === p.id)) {
-                                setCompareList(prev => prev.filter(c => c.id !== p.id));
-                              } else if (compareList.length < 3) {
-                                setCompareList(prev => [...prev, p]);
-                              }
-                            }}
-                            title="So sánh"
-                            className={`shrink-0 h-7 w-7 flex items-center justify-center rounded-full border transition focus:outline-none
-                              ${compareList.some(c => c.id === p.id)
-                                ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
-                                : "bg-white/5 border-white/10 text-white/40 hover:border-orange-500/40 hover:text-orange-400"}`}>
-                            {compareList.some(c => c.id === p.id) ? <Check size={10} /> : <GitCompare size={10} />}
-                          </button>
-                          <button
-                            onClick={e => { e.stopPropagation(); if (rDv) { addItem(p, rDv, 1); } }}
-                            className="shrink-0 h-7 w-7 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition focus:outline-none">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-                              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-                            </svg>
-                          </button>
-                          <button
-                            onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
-                            className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium bg-orange-500 hover:bg-orange-600 transition focus:outline-none">
-                            Mua
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
+              {related.map(p => (
+                <SuggestedProductCard
+                  key={p.id}
+                  p={p}
+                  onNavigate={id => navigate(`/product/${id}`)}
+                  onAddCart={(prod, dv) => addItem(prod, dv, 1)}
+                  extraButton={(prod, dv) => (
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (compareList.some(c => c.id === prod.id)) {
+                          setCompareList(prev => prev.filter(c => c.id !== prod.id));
+                        } else if (compareList.length < 3) {
+                          setCompareList(prev => [...prev, prod]);
+                        }
+                      }}
+                      title="So sánh"
+                      className={`shrink-0 h-7 w-7 flex items-center justify-center rounded-full border transition focus:outline-none
+                        ${compareList.some(c => c.id === prod.id)
+                          ? "bg-orange-500/20 border-orange-500/50 text-orange-300"
+                          : "bg-white/5 border-white/10 text-white/40 hover:border-orange-500/40 hover:text-orange-400"}`}>
+                      {compareList.some(c => c.id === prod.id) ? <Check size={10} /> : <GitCompare size={10} />}
+                    </button>
+                  )}
+                />
+              ))}
             </div>
             {compareList.length > 0 && (
               <div className="mt-5 flex items-center justify-between px-4 py-3 rounded-2xl bg-orange-500/10 border border-orange-500/20">

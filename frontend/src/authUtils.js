@@ -10,6 +10,52 @@ const ADMIN_KEY       = "admin_user";
 // ── Cờ toàn cục để tránh redirect nhiều lần ─────────────────
 let _isRedirecting = false;
 
+// ── Decode JWT payload (không verify signature) ──────────────
+function _decodeJwtPayload(token) {
+  try {
+    const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));
+    return JSON.parse(atob(base64 + pad));
+  } catch {
+    return null;
+  }
+}
+
+// ── Kiểm tra token có hết hạn chưa ───────────────────────────
+export function isTokenExpired(type = "user") {
+  const tokenKey = type === "admin" ? TOKEN_KEY_ADMIN : TOKEN_KEY_USER;
+  const token    = localStorage.getItem(tokenKey);
+  if (!token) return true;
+  const payload = _decodeJwtPayload(token);
+  if (!payload?.exp) return true;
+  // buffer 30s để tránh race condition
+  return Date.now() / 1000 >= payload.exp - 30;
+}
+
+// ── Kiểm tra và xử lý hết hạn khi vào trang ─────────────────
+// Gọi trong useEffect khi mount: checkAndHandleExpiry("user")
+// Trả về true nếu đã redirect (token hết hạn), false nếu còn hạn
+export function checkAndHandleExpiry(type = "user") {
+  const tokenKey = type === "admin" ? TOKEN_KEY_ADMIN : TOKEN_KEY_USER;
+  const token    = localStorage.getItem(tokenKey);
+  if (!token) return false; // chưa đăng nhập → không cần xử lý
+
+  if (!isTokenExpired(type)) return false; // còn hạn → không làm gì
+
+  // Token hết hạn → đăng xuất và thông báo
+  if (!_isRedirecting) {
+    _isRedirecting = true;
+    clearSession(type);
+    sessionStorage.setItem("logout_toast_type", "error");
+    sessionStorage.setItem(
+      "logout_toast",
+      "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+    );
+    window.location.replace(type === "admin" ? "/admin/login" : "/login");
+  }
+  return true;
+}
+
 // ── Lưu session sau đăng nhập ────────────────────────────────
 export function saveSession(type, profile, token) {
   if (type === "user") {
@@ -101,6 +147,7 @@ export async function authFetch(url, options = {}, type = "user") {
     if (!_isRedirecting) {
       _isRedirecting = true;
       clearSession(type);
+      sessionStorage.setItem("logout_toast_type", "error");
       sessionStorage.setItem(
         "logout_toast",
         "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."

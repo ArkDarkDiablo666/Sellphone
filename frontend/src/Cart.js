@@ -9,7 +9,7 @@ import {
 import { Link } from "react-router-dom";
 import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
-import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
+import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 
 const API = "http://localhost:8000";
 
@@ -377,6 +377,7 @@ function CartPopup() {
               </div>
               <button onClick={() => {
                 setShow(false);
+                if (checkAndHandleExpiry("user")) return;
                 if (!isLoggedIn()) { navigate("/login"); return; }
                 navigate("/cart");
               }} className="w-full mt-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition focus:outline-none">
@@ -1089,6 +1090,7 @@ export default function CartPage() {
                 <button
                   onClick={() => {
                     if (selectedItems.length === 0) return;
+                    if (checkAndHandleExpiry("user")) return;
                     if (!isLoggedIn()) { navigate("/login"); return; }
                     navigate("/payment");
                   }}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
-import { getUser, authFetch, AUTH_REDIRECTED } from "./authUtils";
+import { getUser, authFetch, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 import {
   ArrowLeft, Package, ChevronRight, Clock, CheckCircle2,
   Truck, MapPin, XCircle, RefreshCw, ShoppingBag, Check,
@@ -636,6 +636,7 @@ export default function Orders({ embedded = false }) {
   const [showInvoice,    setShowInvoice]    = useState(false);  // [NEW]
 
   useEffect(() => {
+    if (checkAndHandleExpiry("user")) return;
     if (!user.id) { navigate("/login"); return; }
     loadOrders();
   }, []); // eslint-disable-line
