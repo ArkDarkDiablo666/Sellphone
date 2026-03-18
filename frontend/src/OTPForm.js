@@ -3,7 +3,7 @@ import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 
-const API          = "http://localhost:8000";
+import { API } from "./config";
 const MAX_ATTEMPTS = 5;   // [FIX] Tối đa 5 lần nhập sai
 const RESEND_WAIT  = 60;  // giây
 

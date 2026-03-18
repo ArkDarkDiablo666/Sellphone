@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, Play, Pause } from "lucide-react";
 
-const API = "http://localhost:8000";
+import { API } from "./config";
 
 // ─── Hook fetch banner active ────────────────────────────────
 export function useBanner() {

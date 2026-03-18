@@ -8,9 +8,9 @@ import { ToastContainer, useToast } from "./Toast";
 import { useGoogleLogin } from "@react-oauth/google";
 import FacebookLogin from "@greatsumini/react-facebook-login";
 import { saveSession } from "./authUtils";   // [FIX] dùng authUtils
-
+import { API } from "./config"; 
 const FACEBOOK_APP_ID = "2817792315239726";
-const API = "http://localhost:8000";
+
 
 export default function Login() {
   const [isLogin,      setIsLogin]      = useState(true);

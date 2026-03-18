@@ -9,7 +9,7 @@ import { useCart } from "./Cart";
 import { useToast } from "./Toast";
 import { getUser } from "./authUtils";
 
-const API = "http://localhost:8000";
+import { API } from "./config";
 
 const QUICK_REPLIES = [
   "📱 iPhone mới nhất",

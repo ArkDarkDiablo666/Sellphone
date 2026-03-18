@@ -45,9 +45,9 @@ except ImportError:
     pass  # certifi chưa cài — pip install certifi requests
 
 cloudinary.config(
-    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "dag3scrwl"),
-    api_key    = os.environ.get("CLOUDINARY_API_KEY",    "997941784142674"),
-    api_secret = os.environ.get("CLOUDINARY_API_SECRET", "5QXdjv-HeiJEPPhEUcukPFIRyFU"),
+    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
+    api_key    = os.environ.get("CLOUDINARY_API_KEY",    ""),
+    api_secret = os.environ.get("CLOUDINARY_API_SECRET", ""),
     secure     = True,
 )
 
@@ -285,6 +285,8 @@ from datetime import date as _date
 import re as _re
 import io
 import time
+import os as _os
+import django.conf as _dj_conf
 
 logger = logging.getLogger(__name__)
 otp_storage     = {}          # fallback in-memory; replaced by cache below
@@ -453,8 +455,15 @@ def customer_data(customer):
     return {"id": customer.CustomerID, "full_name": customer.FullName, "email": customer.Email, "avatar": customer.Avatar or "", "login_type": customer.LoginType}
 
 def create_customer(**kwargs):
-    customer_id = generate_customer_id()
-    return Customer.objects.create(CustomerID=customer_id, **kwargs)
+    from django.db import IntegrityError
+    import time
+    for _ in range(5):  # retry tối đa 5 lần nếu race condition
+        try:
+            customer_id = generate_customer_id()
+            return Customer.objects.create(CustomerID=customer_id, **kwargs)
+        except IntegrityError:
+            time.sleep(0.05)  # đợi 50ms rồi thử lại
+    raise IntegrityError("Không thể tạo CustomerID sau nhiều lần thử")
 
 def email_exists_message(existing_login_type):
     if existing_login_type == 'google':   return "Email này đã được đăng ký bằng Google, vui lòng đăng nhập bằng Google"
@@ -760,14 +769,41 @@ def delete_customer_address(request):
 
 @api_view(['POST'])
 def admin_login(request):
+    from django.core.cache import cache as _cache
+    MAX_LOGIN_ATTEMPTS = 5
+    LOCKOUT_SECONDS    = 300  # 5 phút
+
     username = request.data.get('username', '').strip()
     password = request.data.get('password', '').strip()
     if not username: return Response({"message": "Vui lòng nhập tên tài khoản", "field": "username"}, status=status.HTTP_400_BAD_REQUEST)
     if not password: return Response({"message": "Vui lòng nhập mật khẩu", "field": "password"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Brute-force protection: lock 5 phút sau 5 lần sai
+    lock_key     = f"admin_login_lock:{username}"
+    attempts_key = f"admin_login_attempts:{username}"
+    if _cache.get(lock_key):
+        return Response({"message": "Tài khoản tạm thời bị khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 5 phút.", "field": "general"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
     staff = Staff.objects.filter(Email=username).first()
-    if not staff:                                    return Response({"message": "Tài khoản không tồn tại", "field": "username"}, status=status.HTTP_404_NOT_FOUND)
-    if not check_password(password, staff.Password): return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
-    if staff.Role == 'Unentitled':                   return Response({"message": "Bạn không có quyền truy cập", "field": "general"}, status=status.HTTP_403_FORBIDDEN)
+    if not staff:
+        return Response({"message": "Tài khoản không tồn tại", "field": "username"}, status=status.HTTP_404_NOT_FOUND)
+
+    if not check_password(password, staff.Password):
+        attempts = _cache.get(attempts_key, 0) + 1
+        _cache.set(attempts_key, attempts, timeout=LOCKOUT_SECONDS)
+        remaining = MAX_LOGIN_ATTEMPTS - attempts
+        if attempts >= MAX_LOGIN_ATTEMPTS:
+            _cache.set(lock_key, True, timeout=LOCKOUT_SECONDS)
+            _cache.delete(attempts_key)
+            return Response({"message": "Tài khoản bị khóa 5 phút do đăng nhập sai quá nhiều lần.", "field": "general"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({"message": f"Mật khẩu không đúng (còn {remaining} lần thử)", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if staff.Role == 'Unentitled':
+        return Response({"message": "Bạn không có quyền truy cập", "field": "general"}, status=status.HTTP_403_FORBIDDEN)
+
+    # Đăng nhập thành công — reset bộ đếm
+    _cache.delete(attempts_key)
+    _cache.delete(lock_key)
     _write_log(request, staff, 'login', f'Đăng nhập thành công — {staff.Email} ({staff.Role})')
     return Response({"message": "Đăng nhập thành công", "token": get_tokens_for_staff(staff), "admin": {"id": staff.StaffID, "full_name": staff.FullName, "username": staff.Email, "role": staff.Role, "avatar": ""}}, status=status.HTTP_200_OK)
 
@@ -2225,21 +2261,10 @@ def search_model_info(request):
 # PAYMENT — MoMo & VNPay
 # ══════════════════════════════════════════════════════════════
 
-MOMO_CONFIG = {
-    "partner_code": "MOMO",
-    "access_key":   "F8BBA842ECF85",
-    "secret_key":   "K951B6PE1waDMi640xX08PD3vg6EkVlz",
-    "endpoint":     "https://test-payment.momo.vn/v2/gateway/api/create",
-    "redirect_url": "http://localhost:3000/payment/momo-return",
-    "ipn_url":      "http://localhost:8000/api/payment/momo/ipn/",
-}
-
-VNPAY_CONFIG = {
-    "tmn_code":    "SQIUFSBH",
-    "hash_secret": "AG0866KYZ7XEOJ5IEYBNJ9595KT4Y4UB",
-    "url":         "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
-    "return_url":  "http://localhost:3000/payment/vnpay-return",
-}
+# Dùng config từ settings.py — KHÔNG hardcode secret ở đây
+from django.conf import settings as _payment_settings
+MOMO_CONFIG  = _payment_settings.MOMO_CONFIG
+VNPAY_CONFIG = _payment_settings.VNPAY_CONFIG
 
 
 @api_view(['POST'])

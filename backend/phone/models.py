@@ -6,15 +6,20 @@ from django.db import models
 # ============================================
 
 # ===== HÀM TẠO CUSTOMER ID TỰ ĐỘNG =====
-# KH001, KH002, ... KH999
+# KH001, KH002, ... (tự mở rộng khi vượt KH999)
 def generate_customer_id():
-    last = Customer.objects.order_by('-CustomerID').first()
-    if not last:
+    from django.db import connection
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT TOP 1 CustomerID FROM Customer ORDER BY CustomerID DESC")
+        row = cursor.fetchone()
+    if not row:
         return 'KH001'
-    # Lấy số từ ID cuối, ví dụ 'KH001' → 1
-    last_num = int(last.CustomerID[2:])
-    if last_num >= 999:
-        raise ValueError("Đã đạt giới hạn 999 khách hàng")
+    last_id = row[0]  # VD: 'KH001'
+    try:
+        last_num = int(last_id[2:])
+    except (ValueError, IndexError):
+        last_num = 0
+    # Tự mở rộng độ dài khi vượt 999: KH1000, KH1001, ...
     return f"KH{str(last_num + 1).zfill(3)}"
 
 
@@ -25,7 +30,7 @@ class Customer(models.Model):
         ('facebook', 'Facebook'),
     ]
 
-    CustomerID  = models.CharField(max_length=5, primary_key=True)  # KH001 → KH999
+    CustomerID  = models.CharField(max_length=5, primary_key=True)
     FullName    = models.CharField(max_length=100)
     Email       = models.EmailField(max_length=150, unique=True)
     Password    = models.CharField(max_length=255, blank=True, null=True)
