@@ -4,20 +4,28 @@ import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 
 import { API } from "./config";
-const MAX_ATTEMPTS = 5;   // [FIX] Tối đa 5 lần nhập sai
+const MAX_ATTEMPTS = 5;
 const RESEND_WAIT  = 60;  // giây
 
 export default function OTPForm() {
-  const [otp,         setOtp]         = useState(["", "", "", "", "", ""]);
-  const [error,       setError]       = useState("");
-  const [loading,     setLoading]     = useState(false);
-  const [countdown,   setCountdown]   = useState(RESEND_WAIT);
-  const [canResend,   setCanResend]   = useState(false);
-  const [attempts,    setAttempts]    = useState(0);   // [FIX] đếm lần sai
-  const [isLocked,    setIsLocked]    = useState(false); // [FIX] khóa sau MAX_ATTEMPTS
+  const [otp,       setOtp]       = useState(["", "", "", "", "", ""]);
+  const [error,     setError]     = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [countdown, setCountdown] = useState(RESEND_WAIT);
+  const [canResend, setCanResend] = useState(false);
+  const [attempts,  setAttempts]  = useState(0);
+  const [isLocked,  setIsLocked]  = useState(false);
   const inputRefs = useRef([]);
   const navigate  = useNavigate();
   const { toast, toasts, removeToast } = useToast();
+
+  // ── [FIX #9] Guard: nếu không có reset_email → redirect về forgot-password ──
+  useEffect(() => {
+    const email = sessionStorage.getItem("reset_email");
+    if (!email || !email.trim()) {
+      navigate("/login/forgot_password", { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Đếm ngược 60 giây ─────────────────────────────────────
   useEffect(() => {
@@ -55,7 +63,6 @@ export default function OTPForm() {
 
   // ── Xác nhận OTP ──────────────────────────────────────────
   const handleVerify = async () => {
-    // [FIX] Chặn nếu đã bị khóa
     if (isLocked) {
       setError("Quá nhiều lần thử sai. Vui lòng yêu cầu mã OTP mới.");
       return;
@@ -75,9 +82,10 @@ export default function OTPForm() {
       const data = await res.json();
 
       if (res.ok) {
+        // [FIX #10] Đánh dấu OTP đã verify để Resetpassword kiểm tra
+        sessionStorage.setItem("otp_verified", "true");
         navigate("/login/forgot_password/otp/reset_password");
       } else {
-        // [FIX] Tăng bộ đếm lần sai
         const newAttempts = attempts + 1;
         setAttempts(newAttempts);
 
@@ -101,9 +109,10 @@ export default function OTPForm() {
     const email = sessionStorage.getItem("reset_email");
     setError("");
     setOtp(["", "", "", "", "", ""]);
-    // [FIX] Reset bộ đếm khi gửi lại OTP mới
     setAttempts(0);
     setIsLocked(false);
+    // Xóa flag verify cũ khi gửi lại OTP mới
+    sessionStorage.removeItem("otp_verified");
 
     try {
       const res = await fetch(`${API}/api/auth/forgot-password/`, {
@@ -138,7 +147,6 @@ export default function OTPForm() {
           <p className="text-gray-300 mb-2">Nhập mã OTP được gửi đến email của bạn.</p>
           <p className="text-blue-300 text-sm mb-8">{sessionStorage.getItem("reset_email")}</p>
 
-          {/* Cảnh báo bị khóa */}
           {isLocked && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30">
               <p className="text-red-400 text-sm">
@@ -147,7 +155,6 @@ export default function OTPForm() {
             </div>
           )}
 
-          {/* 6 Ô OTP */}
           <div className="flex gap-3 mb-4">
             {otp.map((digit, index) => (
               <input
@@ -158,7 +165,7 @@ export default function OTPForm() {
                 onChange={e => handleChange(e.target.value, index)}
                 onKeyDown={e => handleKeyDown(e, index)}
                 onPaste={handlePaste}
-                disabled={isLocked}  // [FIX] disable khi bị khóa
+                disabled={isLocked}
                 className={`w-14 h-14 text-center text-xl rounded-lg bg-transparent border
                   focus:ring-2 outline-none transition
                   ${isLocked ? "opacity-40 cursor-not-allowed" : ""}
@@ -169,7 +176,6 @@ export default function OTPForm() {
 
           {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
 
-          {/* Đếm ngược / Gửi lại */}
           <div className="mb-6">
             {canResend ? (
               <button onClick={handleResend} className="text-blue-400 text-sm hover:underline">
@@ -178,7 +184,6 @@ export default function OTPForm() {
             ) : (
               <p className="text-gray-400 text-sm">
                 Gửi lại sau <span className="text-white font-medium">{countdown}s</span>
-                {/* [FIX] Gợi ý gửi lại khi bị khóa */}
                 {isLocked && <span className="text-red-400 ml-2">— cần mã mới</span>}
               </p>
             )}

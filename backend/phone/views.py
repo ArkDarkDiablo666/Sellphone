@@ -2177,7 +2177,11 @@ def admin_reply(request):
     if not target_type or not target_id: return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
     if target_type not in ("review", "comment"): return Response({"ok": False, "error": "type không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     if not content: return Response({"ok": False, "error": "Nội dung phản hồi không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
-    obj, _ = AdminReply.objects.update_or_create(target_type=target_type, target_id=int(target_id), defaults={"content": content})
+    obj, created = AdminReply.objects.update_or_create(target_type=target_type, target_id=int(target_id), defaults={"content": content})
+    action = "reply_comment" if target_type == "comment" else "reply_review"
+    label  = "bình luận" if target_type == "comment" else "đánh giá"
+    verb   = "Trả lời" if created else "Sửa phản hồi"
+    _write_log(request, None, action, f"{verb} {label} #{target_id}: {content[:100]}")
     return Response({"ok": True, "message": "Đã phản hồi thành công", "reply": {"id": obj.id, "content": obj.content}}, status=status.HTTP_200_OK)
 
 
@@ -2189,6 +2193,8 @@ def admin_delete_reply(request):
     reply = AdminReply.objects.filter(target_type=target_type, target_id=target_id).first()
     if not reply: return Response({"ok": False, "error": "Không tìm thấy phản hồi"}, status=status.HTTP_404_NOT_FOUND)
     reply.delete()
+    label = "bình luận" if target_type == "comment" else "đánh giá"
+    _write_log(request, None, "delete_reply", f"Xóa phản hồi {label} #{target_id}")
     return Response({"ok": True, "message": "Đã xóa phản hồi"}, status=status.HTTP_200_OK)
 
 

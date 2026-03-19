@@ -19,7 +19,7 @@ import {
 import { TrendingUp, Calendar, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown } from "lucide-react";
 import { authFetch, getAuthHeaders, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
 
-const API="http://localhost:8000",DASH_API="http://localhost:8000";
+const API="http://localhost:8000";
 const ORANGE="#ff9500",PURPLE="#bf5af2",CYAN="#32d7d2",GREEN="#34c759",RED="#ff3b30",PINK="#ff2d78",BLUE="#0a84ff";
 const BRAND_COLORS=[ORANGE,PURPLE,CYAN,GREEN,PINK,BLUE,"#ffd60a","#30d158","#64d2ff","#ff9f0a"];
 
@@ -30,7 +30,7 @@ function ConfirmModal({message,subMessage="",onConfirm,onCancel,confirmLabel="X�
 const fmt=(n)=>n.toLocaleString("vi-VN");
 const fmtFull=(n)=>Math.round(n).toLocaleString("vi-VN")+"đ";
 
-function useDashFetch(url){const[data,setData]=useState(null);const[loading,setLoading]=useState(true);const[tick,setTick]=useState(0);const refresh=useCallback(()=>setTick(t=>t+1),[]);useEffect(()=>{if(!url)return;setLoading(true);authFetch(`${DASH_API}${url}`,{},"admin").then(r=>{if(!r||r===AUTH_REDIRECTED)return;return r.json();}).then(d=>{if(d){setData(d);setLoading(false);}}).catch(()=>setLoading(false));},[url,tick]);return{data,loading,refresh};}
+function useDashFetch(url){const[data,setData]=useState(null);const[loading,setLoading]=useState(true);const[tick,setTick]=useState(0);const refresh=useCallback(()=>setTick(t=>t+1),[]);useEffect(()=>{if(!url)return;setLoading(true);authFetch(`${API}${url}`,{},"admin").then(r=>{if(!r||r===AUTH_REDIRECTED)return;return r.json();}).then(d=>{if(d){setData(d);setLoading(false);}}).catch(()=>setLoading(false));},[url,tick]);return{data,loading,refresh};}
 function DashKpiCard({label,value,sub,pct,icon:Icon,color=ORANGE}){const up=pct>0,same=pct===null||pct===undefined;return(<div className="rounded-2xl border border-white/5 p-5 flex flex-col gap-3" style={{background:"#111"}}><div className="flex items-center justify-between"><span className="text-xs text-white/40 font-medium uppercase tracking-wider">{label}</span><div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background:`${color}18`,border:`1px solid ${color}30`}}><Icon size={15} style={{color}}/></div></div><div><p className="text-2xl font-bold tracking-tight">{value}</p>{sub&&<p className="text-xs text-white/40 mt-0.5">{sub}</p>}</div>{!same&&<div className="flex items-center gap-1 text-xs font-medium" style={{color:up?GREEN:RED}}>{up?<ArrowUpRight size={13}/>:<ArrowDownRight size={13}/>}{Math.abs(pct)}% so với kỳ trước</div>}{same&&<div className="flex items-center gap-1 text-xs text-white/30"><Minus size={11}/> Chưa có dữ liệu</div>}</div>);}
 function DashSelect({value,onChange,options}){return(<div className="relative"><select value={value} onChange={e=>onChange(e.target.value)} className="appearance-none rounded-xl px-3 pr-7 py-1.5 text-xs border outline-none cursor-pointer" style={{background:"#222",borderColor:"rgba(255,255,255,0.1)",color:"white"}}>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select><ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/40"/></div>);}
 function DashTabs({tabs,value,onChange}){return(<div className="flex gap-1 p-1 rounded-xl" style={{background:"rgba(255,255,255,0.05)"}}>{tabs.map(t=>(<button key={t.value} onClick={()=>onChange(t.value)} className="px-4 py-1.5 rounded-lg text-xs font-medium transition" style={{background:value===t.value?ORANGE:"transparent",color:value===t.value?"white":"rgba(255,255,255,0.45)"}}>{t.label}</button>))}</div>);}
@@ -173,8 +173,12 @@ export default function Admin() {
   const[voucherFilterActive,setVoucherFilterActive]=useState("");
   // Nhập hàng
   const[importSearch,setImportSearch]=useState("");
+  const[importFilterCat,setImportFilterCat]=useState("");
+  const[importSort,setImportSort]=useState("newest");
   // Mô tả sản phẩm
   const[pcSearch,setPcSearch]=useState("");
+  const[pcFilterCat,setPcFilterCat]=useState("");
+  const[pcSort,setPcSort]=useState("newest");
   // Bài viết
   const[postSearch,setPostSearch]=useState("");
   const[postFilterCat,setPostFilterCat]=useState("");
@@ -205,7 +209,7 @@ export default function Admin() {
   const loadPosts=async()=>{setPostLoading(true);try{const r=await fetch(`${API}/api/post/list/?category=all`);const d=await r.json();setPostList(d.posts||[]);}catch{}finally{setPostLoading(false);}};
   const loadReturns=async()=>{setReturnLoading(true);try{const r=await authFetch(`${API}/api/order/return/list/`,{},"admin");if(!r||r===AUTH_REDIRECTED)return;const d=await r.json();setReturnList(d.returns||[]);}catch{}finally{setReturnLoading(false);}};
   const loadReviews=async()=>{setReviewLoading(true);try{const r=await authFetch(`${API}/api/admin/reviews/`,{},"admin");if(!r||r===AUTH_REDIRECTED)return;const d=await r.json();setReviewList(d.items||[]);setUnansweredCount(d.unanswered_count||0);}catch{}finally{setReviewLoading(false);}};
-  const submitAdminReply=async()=>{if(!replyText.trim()||!replyTarget)return;setReplySaving(true);try{const res=await authFetch(`${API}/api/admin/reply/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:replyTarget.type,target_id:replyTarget.id,content:replyText})},"admin");const d=await res.json();if(d.ok){setReplyTarget(null);setReplyText("");loadReviews();}}finally{setReplySaving(false);}};
+  const submitAdminReply=async()=>{if(!replyText.trim()||!replyTarget)return;setReplySaving(true);try{const res=await authFetch(`${API}/api/admin/reply/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:replyTarget.type,target_id:replyTarget.id,content:replyText})},"admin");const d=await res.json();if(d.ok){setReplyTarget(null);setReplyText("");loadReviews();toast.success("Đã gửi phản hồi!");}else{toast.error(d.error||"Gửi phản hồi thất bại");}}finally{setReplySaving(false);}};
 
   // ── Variant helpers ──
   const addVariant=()=>setVariants(v=>[...v,{...EMPTY_VARIANT}]);
@@ -229,8 +233,8 @@ export default function Admin() {
 
   // ── Other handlers ──
   const handleSaveVoucher=async()=>{if(!newVoucher.code.trim()){toast.error("Vui lòng nhập mã voucher");return;}if(!newVoucher.value||parseFloat(newVoucher.value)<=0){toast.error("Vui lòng nhập giá trị voucher");return;}setVoucherSaving(true);try{const r=await authFetch(`${API}/api/voucher/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...newVoucher,value:parseFloat(newVoucher.value),variant_id:newVoucher.variant_id||null})},"admin");const d=await r.json();if(r.ok){setShowAddVoucher(false);setVoucherVariants([]);setNewVoucher({code:"",type:"percent",value:"",scope:"all",category_id:"",product_id:"",variant_id:"",min_order:"",max_discount:"",start_date:"",end_date:"",usage_limit:""});loadVouchers();toast.success("Tạo voucher thành công!");}else toast.error(d.message);}finally{setVoucherSaving(false);}};
-  const deactivateVoucher=async id=>{const r=await authFetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})},"admin");if(r.ok)loadVouchers();};
-  const handleUpdateOrderStatus=async(orderId,newStatus)=>{setUpdatingOrder(orderId);try{const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})},"admin");const d=await r.json();if(r.ok){setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o));if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote}));setStatusNote("");}else toast.error(d.message);}catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);}};
+  const deactivateVoucher=async id=>{const r=await authFetch(`${API}/api/voucher/deactivate/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})},"admin");if(r.ok){loadVouchers();toast.success("Đã vô hiệu hóa voucher!");}else{const d=await r.json();toast.error(d.message||"Có lỗi xảy ra");}};
+  const handleUpdateOrderStatus=async(orderId,newStatus)=>{setUpdatingOrder(orderId);try{const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:newStatus,note:statusNote})},"admin");const d=await r.json();if(r.ok){setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:newStatus,status_note:statusNote}:o));if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:newStatus,status_note:statusNote}));setStatusNote("");toast.success("Cập nhật trạng thái thành công!");}else toast.error(d.message);}catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);}};
   const handleCancelOrder=orderId=>{setConfirmModal({title:"Hủy đơn hàng",message:`Bạn có chắc muốn hủy đơn hàng #${orderId}?`,onConfirm:async()=>{setUpdatingOrder(orderId);try{const r=await authFetch(`${API}/api/order/update-status/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:orderId,status:"Cancelled",note:"Admin hủy đơn"})},"admin");if(r.ok){setOrderList(p=>p.map(o=>o.id===orderId?{...o,status:"Cancelled"}:o));if(orderDetail?.id===orderId)setOrderDetail(d=>({...d,status:"Cancelled"}));toast.success("Đã hủy đơn hàng thành công!");}else{const d=await r.json();toast.error(d.message);}}catch{toast.error("Lỗi kết nối");}finally{setUpdatingOrder(null);}}});};
   const handleProcessReturn=async(returnId,action)=>{setProcessingReturn(true);try{const r=await authFetch(`${API}/api/order/return/process/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({return_id:returnId,action,note:returnNote})},"admin");const d=await r.json();if(r.ok){const s={approve:"Approved",reject:"Rejected",returning:"Returning",complete:"Completed"}[action];setReturnList(p=>p.map(rr=>rr.return_id===returnId?{...rr,status:s,admin_note:returnNote}:rr));if(returnDetail?.return_id===returnId)setReturnDetail(dd=>({...dd,status:s,admin_note:returnNote}));setReturnNote("");toast.success(d.message);}else toast.error(d.message);}catch{toast.error("Lỗi kết nối");}finally{setProcessingReturn(false);}};
   const loadImportVariants=async pid=>{if(!pid)return;setImportLoading(true);try{const r=await fetch(`${API}/api/product/${pid}/variants/`);const d=await r.json();if(r.ok){setImportVariants(d.variants||[]);setImportQty({});}}finally{setImportLoading(false);}};
@@ -240,8 +244,8 @@ export default function Admin() {
   const handleAvatarChange=async e=>{const f=e.target.files[0];if(!f)return;if(!f.type.startsWith("image/")){toast.error("Vui lòng chọn file ảnh");return;}if(f.size>5*1024*1024){toast.error("Ảnh không được vượt quá 5MB");return;}setAvatarLoading(true);try{const fd=new FormData();fd.append("id",adminLocal.id);fd.append("avatar_file",f);const r=await authFetch(`${API}/api/staff/upload-avatar/`,{method:"POST",body:fd,headers:getAuthHeadersFormData("admin")},"admin");const d=await r.json();if(r.ok){setAdmin(p=>({...p,avatar:d.avatar_url}));const s=JSON.parse(localStorage.getItem("admin_user")||"{}");localStorage.setItem("admin_user",JSON.stringify({...s,avatar:d.avatar_url}));window.dispatchEvent(new Event("userUpdated"));}else toast.error(d.message);}catch{toast.error("Không thể kết nối server");}finally{setAvatarLoading(false);}};
   const savePassword=async()=>{const ne={};if(!passForm.current)ne.current="Vui lòng nhập mật khẩu hiện tại";if(!passForm.newPass)ne.newPass="Vui lòng nhập mật khẩu mới";else if(passForm.newPass.includes(" "))ne.newPass="Không được chứa dấu cách";else if(passForm.newPass.length<6)ne.newPass="Ít nhất 6 ký tự";if(!passForm.confirm)ne.confirm="Vui lòng nhập lại";else if(passForm.newPass!==passForm.confirm)ne.confirm="Không trùng khớp";setErrors(ne);if(Object.keys(ne).length>0)return;setSaving(true);try{const r=await authFetch(`${API}/api/staff/change-password/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:adminLocal.id,current_password:passForm.current,new_password:passForm.newPass})},"admin");const d=await r.json();if(r.ok){setEditPass(false);setPassForm({current:"",newPass:"",confirm:""});setErrors({});toast.success("Đổi mật khẩu thành công!");}else setErrors({current:d.message});}finally{setSaving(false);}};
   const handleAddStaff=async()=>{const errs={};if(!newStaff.fullname.trim())errs.fullname="Vui lòng nhập họ tên";if(!newStaff.email.trim())errs.email="Vui lòng nhập email";if(!newStaff.password.trim())errs.password="Vui lòng nhập mật khẩu";else if(newStaff.password.length<6)errs.password="Ít nhất 6 ký tự";setNewStaffErrors(errs);if(Object.keys(errs).length>0)return;setSaving(true);try{const r=await authFetch(`${API}/api/staff/create/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:newStaff.fullname,email:newStaff.email,password:newStaff.password,role:newStaff.role})},"admin");const d=await r.json();if(r.ok){setShowAddStaff(false);setNewStaff({fullname:"",email:"",password:"",role:"Staff"});loadStaff();toast.success("Tạo tài khoản thành công!");}else setNewStaffErrors({general:d.message});}finally{setSaving(false);}};
-  const changeRole=async(staffId,newRole)=>{try{const r=await authFetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})},"admin");if(r.ok)loadStaff();}catch{toast.error("Lỗi cập nhật quyền");}};
-  const savePost=async()=>{if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;}setPostSaving(true);try{const fd=new FormData();fd.append("title",postForm.title);fd.append("category",postForm.category);fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin");fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r)));Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);});if(editingPost)fd.append("post_id",editingPost.id);const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`;const r=await authFetch(url,{method:"POST",body:fd,headers:getAuthHeadersFormData("admin")},"admin");const d=await r.json();if(r.ok){setShowPostForm(false);setEditingPost(null);setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message);}catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);}};
+  const changeRole=async(staffId,newRole)=>{try{const r=await authFetch(`${API}/api/staff/update-role/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:staffId,role:newRole})},"admin");if(r.ok){loadStaff();toast.success("Đã cập nhật quyền!");}else{const d=await r.json();toast.error(d.message||"Lỗi cập nhật quyền");}}catch{toast.error("Lỗi cập nhật quyền");}};
+  const savePost=async()=>{if(!postForm.title.trim()){toast.error("Vui lòng nhập tiêu đề");return;}setPostSaving(true);try{const fd=new FormData();fd.append("title",postForm.title);fd.append("category",postForm.category);fd.append("author",adminLocal?.fullName||adminLocal?.full_name||"Admin");fd.append("blocks",JSON.stringify(postForm.blocks.map(({_pendingFile,file,...r})=>r)));Object.entries(postForm.mediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);});if(editingPost)fd.append("post_id",editingPost.id);const url=editingPost?`${API}/api/post/update/`:`${API}/api/post/create/`;const r=await authFetch(url,{method:"POST",body:fd,headers:getAuthHeadersFormData("admin")},"admin");const d=await r.json();if(r.ok){setShowPostForm(false);setEditingPost(null);toast.success(editingPost?"Cập nhật bài viết thành công!":"Đăng bài viết thành công!");setPostForm({title:"",category:"Mẹo vặt",blocks:[],mediaFiles:{}});loadPosts();}else toast.error(d.message);}catch{toast.error("Lỗi kết nối");}finally{setPostSaving(false);}};
   const deletePost=postId=>{setConfirmModal({message:"Xóa bài viết này?",onConfirm:async()=>{const r=await authFetch(`${API}/api/post/delete/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({post_id:postId})},"admin");if(r.ok)setPostList(p=>p.filter(x=>x.id!==postId));else{const d=await r.json();toast.error(d.message);}}});};
   const loadProductContent=async pid=>{if(!pid)return;setPcLoaded(false);try{const r=await authFetch(`${API}/api/product/${pid}/content/`,{},"admin");if(!r||r===AUTH_REDIRECTED){setPcLoaded(true);return;}const d=await r.json();setPcBlocks(d.content?.blocks||[]);setPcMediaFiles({});setPcLoaded(true);}catch{setPcBlocks([]);setPcLoaded(true);}};
   const saveProductContent=async()=>{if(!pcProductId){toast.error("Vui lòng chọn sản phẩm");return;}setPcSaving(true);try{const fd=new FormData();fd.append("product_id",pcProductId);fd.append("blocks",JSON.stringify(pcBlocks.map(({_pendingFile,file,...r})=>r)));Object.entries(pcMediaFiles).forEach(([k,f])=>{if(f)fd.append(k,f);});const r=await authFetch(`${API}/api/product/content/save/`,{method:"POST",body:fd,headers:getAuthHeadersFormData("admin")},"admin");const d=await r.json();if(r.ok)toast.success(d.message);else toast.error(d.message);}catch{toast.error("Lỗi kết nối");}finally{setPcSaving(false);}};
@@ -473,23 +477,99 @@ export default function Admin() {
             </div>
           )}
 
-          {/* IMPORT — with search */}
+          {/* IMPORT — card grid + filter */}
           {activeTab==="import"&&(
             <div className="flex flex-col gap-6">
-              <p className="text-sm text-white/40">Chọn sản phẩm để nhập thêm hàng</p>
-              <div className="bg-[#161616] border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
-                <p className="text-xs text-white/40 uppercase tracking-wider">Chọn sản phẩm</p>
-                <div className="relative"><SearchIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20"/><input value={importSearch} onChange={e=>setImportSearch(e.target.value)} placeholder="Tìm tên / hãng sản phẩm..." className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-8 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition"/>{importSearch&&<button onClick={()=>setImportSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60"><X size={12}/></button>}</div>
-                <select value={importProductId} onChange={e=>{setImportProductId(e.target.value);loadImportVariants(e.target.value);}} className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
-                  <option value="">-- Chọn sản phẩm</option>
-                  {productList.filter(p=>!importSearch||p.name?.toLowerCase().includes(importSearch.toLowerCase())||p.brand?.toLowerCase().includes(importSearch.toLowerCase())).map(p=><option key={p.id} value={p.id}>{p.name} {p.brand?`(${p.brand})`:""} — {p.variant_count} biến thể</option>)}
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-white/40 mr-auto">{productList.length} sản phẩm</p>
+                <SearchBar value={importSearch} onChange={setImportSearch} placeholder="Tìm tên / hãng..." width="w-52"/>
+                <select value={importFilterCat} onChange={e=>setImportFilterCat(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50 transition">
+                  <option value="">Tất cả danh mục</option>
+                  {categories.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
-                {importSearch&&<p className="text-xs text-white/30">{productList.filter(p=>p.name?.toLowerCase().includes(importSearch.toLowerCase())||p.brand?.toLowerCase().includes(importSearch.toLowerCase())).length} kết quả</p>}
+                <select value={importSort} onChange={e=>setImportSort(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50 transition">
+                  <option value="newest">Mới nhất</option>
+                  <option value="oldest">Cũ nhất</option>
+                  <option value="name_az">Tên A → Z</option>
+                  <option value="name_za">Tên Z → A</option>
+                </select>
               </div>
-              {importLoading?<div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin"/></div>:importVariants.length>0&&(
+              {(importSearch||importFilterCat)&&(
+                <div className="flex items-center gap-2 text-xs">
+                  <Filter size={11} className="text-white/30"/>
+                  <span className="text-white/30">Đang lọc:</span>
+                  {importSearch&&<span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400">"{importSearch}"<button onClick={()=>setImportSearch("")}><X size={10}/></button></span>}
+                  {importFilterCat&&<span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">{importFilterCat}<button onClick={()=>setImportFilterCat("")}><X size={10}/></button></span>}
+                  <button onClick={()=>{setImportSearch("");setImportFilterCat("");}} className="text-white/20 hover:text-red-400 transition ml-1">Xóa tất cả</button>
+                </div>
+              )}
+              {(()=>{
+                const fp=productList
+                  .filter(p=>!importSearch||p.name?.toLowerCase().includes(importSearch.toLowerCase())||p.brand?.toLowerCase().includes(importSearch.toLowerCase()))
+                  .filter(p=>!importFilterCat||p.category===importFilterCat)
+                  .sort((a,b)=>{
+                    if(importSort==="name_az")return(a.name||"").localeCompare(b.name||"");
+                    if(importSort==="name_za")return(b.name||"").localeCompare(a.name||"");
+                    if(importSort==="oldest")return a.id-b.id;
+                    return b.id-a.id;
+                  });
+                if(fp.length===0)return(
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20">
+                    <PackagePlus size={36} className="mx-auto mb-2 opacity-20"/>
+                    <p className="text-sm">Không tìm thấy sản phẩm nào</p>
+                    <button onClick={()=>{setImportSearch("");setImportFilterCat("");}} className="mt-2 text-xs text-orange-400/60 hover:text-orange-400">Xóa bộ lọc</button>
+                  </div>
+                );
+                return(
+                  <div className="grid grid-cols-3 gap-4">
+                    {fp.map(p=>{
+                      const isSelected=importProductId===String(p.id);
+                      return(
+                        <div key={p.id}
+                          onClick={()=>{
+                            const newId=isSelected?"":String(p.id);
+                            setImportProductId(newId);
+                            if(newId){loadImportVariants(newId);}
+                            else{setImportVariants([]);setImportQty({});}
+                          }}
+                          className={`bg-[#161616] border rounded-2xl p-4 cursor-pointer transition hover:border-white/15 flex flex-col gap-3 ${isSelected?"border-orange-500/50 ring-1 ring-orange-500/20":"border-white/5"}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
+                              {p.primary_image?<img src={p.primary_image} alt="" className="w-full h-full object-contain p-1"/>:<Package size={20} className="text-white/15"/>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{p.name}</p>
+                              <p className="text-xs text-white/30 mt-0.5">{p.brand||"—"} · {p.variant_count} biến thể</p>
+                              <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-white/40">{p.category}</span>
+                            </div>
+                            {isSelected&&<div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center shrink-0"><Check size={11} className="text-white"/></div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              {importLoading&&<div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin"/></div>}
+              {!importLoading&&importVariants.length>0&&(
                 <div className="flex flex-col gap-4">
-                  <div className="bg-[#161616] border border-white/5 rounded-2xl overflow-hidden"><div className="grid grid-cols-5 px-6 py-3 border-b border-white/5 text-xs text-white/30 uppercase tracking-wider"><span className="col-span-2">Biến thể</span><span>Giá</span><span>Tồn kho</span><span>Nhập thêm</span></div>{importVariants.map(v=>(<div key={v.id} className="grid grid-cols-5 px-6 py-4 border-b border-white/5 last:border-0 items-center"><div className="col-span-2"><p className="text-sm font-medium">{[v.color,v.storage,v.ram].filter(Boolean).join(" / ")||`Variant #${v.id}`}</p><p className="text-xs text-white/30 mt-0.5">#{v.id}</p></div><span className="text-sm text-orange-300">{parseInt(v.price).toLocaleString("vi-VN")}đ</span><span className={`text-sm font-medium ${v.stock<=5?"text-red-400":"text-white/60"}`}>{v.stock}</span><input type="number" min="0" placeholder="0" value={importQty[v.id]||""} onChange={e=>setImportQty(q=>({...q,[v.id]:e.target.value}))} className="w-24 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-orange-500/50 transition"/></div>))}</div>
-                  <div className="flex gap-3 items-center"><button onClick={handleImport} disabled={importSaving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> {importSaving?"Đang nhập...":"Xác nhận nhập hàng"}</button><p className="text-xs text-white/30">{Object.values(importQty).filter(q=>parseInt(q)>0).length} biến thể được chọn</p></div>
+                  <p className="text-sm font-medium text-orange-400">Nhập hàng cho: <span className="text-white">{productList.find(p=>String(p.id)===importProductId)?.name}</span></p>
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl overflow-hidden">
+                    <div className="grid grid-cols-5 px-6 py-3 border-b border-white/5 text-xs text-white/30 uppercase tracking-wider"><span className="col-span-2">Biến thể</span><span>Giá</span><span>Tồn kho</span><span>Nhập thêm</span></div>
+                    {importVariants.map(v=>(
+                      <div key={v.id} className="grid grid-cols-5 px-6 py-4 border-b border-white/5 last:border-0 items-center">
+                        <div className="col-span-2"><p className="text-sm font-medium">{[v.color,v.storage,v.ram].filter(Boolean).join(" / ")||`Variant #${v.id}`}</p><p className="text-xs text-white/30 mt-0.5">#{v.id}</p></div>
+                        <span className="text-sm text-orange-300">{parseInt(v.price).toLocaleString("vi-VN")}đ</span>
+                        <span className={`text-sm font-medium ${v.stock<=5?"text-red-400":"text-white/60"}`}>{v.stock}</span>
+                        <input type="number" min="0" placeholder="0" value={importQty[v.id]||""} onChange={e=>setImportQty(q=>({...q,[v.id]:e.target.value}))} className="w-24 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-orange-500/50 transition"/>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-3 items-center">
+                    <button onClick={handleImport} disabled={importSaving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition disabled:opacity-50"><Check size={14}/> {importSaving?"Đang nhập...":"Xác nhận nhập hàng"}</button>
+                    <p className="text-xs text-white/30">{Object.values(importQty).filter(q=>parseInt(q)>0).length} biến thể được chọn</p>
+                  </div>
                 </div>
               )}
             </div>
@@ -706,21 +786,90 @@ export default function Admin() {
             </div>
           )}
 
-          {/* PRODUCT CONTENT — with search */}
+          {/* PRODUCT CONTENT — card grid + filter */}
           {activeTab==="product_content"&&(
-            <div className="flex flex-col gap-5">
-              <p className="text-sm text-white/40">Chọn sản phẩm và tạo mô tả chi tiết (ảnh, video, văn bản)</p>
-              <div className="bg-[#161616] border border-white/5 rounded-2xl p-5 flex flex-col gap-3">
-                <p className="text-xs text-white/40 uppercase tracking-wider">Chọn sản phẩm cần viết mô tả</p>
-                <div className="relative"><SearchIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20"/><input value={pcSearch} onChange={e=>setPcSearch(e.target.value)} placeholder="Tìm tên sản phẩm..." className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-8 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition"/>{pcSearch&&<button onClick={()=>setPcSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60"><X size={12}/></button>}</div>
-                <select value={pcProductId} onChange={e=>{setPcProductId(e.target.value);if(e.target.value)loadProductContent(e.target.value);}} className="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition">
-                  <option value="">-- Chọn sản phẩm --</option>
-                  {productList.filter(p=>!pcSearch||p.name?.toLowerCase().includes(pcSearch.toLowerCase())).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-white/40 mr-auto">{productList.length} sản phẩm</p>
+                <SearchBar value={pcSearch} onChange={setPcSearch} placeholder="Tìm tên / hãng..." width="w-52"/>
+                <select value={pcFilterCat} onChange={e=>setPcFilterCat(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50 transition">
+                  <option value="">Tất cả danh mục</option>
+                  {categories.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
-                {pcSearch&&<p className="text-xs text-white/30">{productList.filter(p=>p.name?.toLowerCase().includes(pcSearch.toLowerCase())).length} kết quả</p>}
+                <select value={pcSort} onChange={e=>setPcSort(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50 transition">
+                  <option value="newest">Mới nhất</option>
+                  <option value="oldest">Cũ nhất</option>
+                  <option value="name_az">Tên A → Z</option>
+                  <option value="name_za">Tên Z → A</option>
+                </select>
               </div>
-              {pcProductId&&pcLoaded&&(<><div className="bg-[#161616] border border-white/5 rounded-2xl p-5"><p className="text-xs text-white/40 mb-4 uppercase tracking-wider">Nội dung mô tả (Block Editor)</p><Blockeditor blocks={pcBlocks} onChange={setPcBlocks} mediaFiles={pcMediaFiles} onMediaChange={setPcMediaFiles}/></div><button onClick={saveProductContent} disabled={pcSaving} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">{pcSaving?"Đang lưu...":"Lưu mô tả sản phẩm"}</button></>)}
+              {(pcSearch||pcFilterCat)&&(
+                <div className="flex items-center gap-2 text-xs">
+                  <Filter size={11} className="text-white/30"/>
+                  <span className="text-white/30">Đang lọc:</span>
+                  {pcSearch&&<span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400">"{pcSearch}"<button onClick={()=>setPcSearch("")}><X size={10}/></button></span>}
+                  {pcFilterCat&&<span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">{pcFilterCat}<button onClick={()=>setPcFilterCat("")}><X size={10}/></button></span>}
+                  <button onClick={()=>{setPcSearch("");setPcFilterCat("");}} className="text-white/20 hover:text-red-400 transition ml-1">Xóa tất cả</button>
+                </div>
+              )}
+              {(()=>{
+                const fp=productList
+                  .filter(p=>!pcSearch||p.name?.toLowerCase().includes(pcSearch.toLowerCase())||p.brand?.toLowerCase().includes(pcSearch.toLowerCase()))
+                  .filter(p=>!pcFilterCat||p.category===pcFilterCat)
+                  .sort((a,b)=>{
+                    if(pcSort==="name_az")return(a.name||"").localeCompare(b.name||"");
+                    if(pcSort==="name_za")return(b.name||"").localeCompare(a.name||"");
+                    if(pcSort==="oldest")return a.id-b.id;
+                    return b.id-a.id;
+                  });
+                if(fp.length===0)return(
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20">
+                    <FileText size={36} className="mx-auto mb-2 opacity-20"/>
+                    <p className="text-sm">Không tìm thấy sản phẩm nào</p>
+                    <button onClick={()=>{setPcSearch("");setPcFilterCat("");}} className="mt-2 text-xs text-orange-400/60 hover:text-orange-400">Xóa bộ lọc</button>
+                  </div>
+                );
+                return(
+                  <div className="grid grid-cols-3 gap-4">
+                    {fp.map(p=>{
+                      const isSelected=pcProductId===String(p.id);
+                      return(
+                        <div key={p.id}
+                          onClick={()=>{
+                            const newId=isSelected?"":String(p.id);
+                            setPcProductId(newId);
+                            setPcLoaded(false);
+                            if(newId)loadProductContent(newId);
+                          }}
+                          className={`bg-[#161616] border rounded-2xl p-4 cursor-pointer transition hover:border-white/15 flex flex-col gap-3 ${isSelected?"border-orange-500/50 ring-1 ring-orange-500/20":"border-white/5"}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
+                              {p.primary_image?<img src={p.primary_image} alt="" className="w-full h-full object-contain p-1"/>:<Package size={20} className="text-white/15"/>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{p.name}</p>
+                              <p className="text-xs text-white/30 mt-0.5">{p.brand||"—"}</p>
+                              <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-white/40">{p.category}</span>
+                            </div>
+                            {isSelected&&<div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center shrink-0"><Check size={11} className="text-white"/></div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               {pcProductId&&!pcLoaded&&<div className="text-center py-10 text-white/20 text-sm">Đang tải nội dung...</div>}
+              {pcProductId&&pcLoaded&&(
+                <>
+                  <div className="bg-[#161616] border border-white/5 rounded-2xl p-5">
+                    <p className="text-xs text-white/40 mb-4 uppercase tracking-wider">Nội dung mô tả (Block Editor)</p>
+                    <Blockeditor blocks={pcBlocks} onChange={setPcBlocks} mediaFiles={pcMediaFiles} onMediaChange={setPcMediaFiles}/>
+                  </div>
+                  <button onClick={saveProductContent} disabled={pcSaving} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 font-semibold text-sm transition">{pcSaving?"Đang lưu...":"Lưu mô tả sản phẩm"}</button>
+                </>
+              )}
             </div>
           )}
 
@@ -802,8 +951,8 @@ function BannerSection({toast}){
 // ════════════════════════════════════════════════════════════
 // ACTIVITY LOG SECTION
 // ════════════════════════════════════════════════════════════
-const ACTION_LABELS={login:"Đăng nhập",logout:"Đăng xuất",create_product:"Tạo sản phẩm",update_product:"Sửa sản phẩm",delete_product:"Xóa sản phẩm",import_stock:"Nhập hàng",add_variants:"Thêm biến thể",update_variant:"Sửa biến thể",create_category:"Tạo danh mục",update_category:"Sửa danh mục",delete_category:"Xóa danh mục",create_staff:"Tạo nhân viên",update_staff_role:"Đổi quyền nhân viên",delete_staff:"Xóa nhân viên",create_voucher:"Tạo voucher",update_voucher:"Sửa voucher",delete_voucher:"Xóa voucher",deactivate_voucher:"Tắt voucher",update_order:"Cập nhật đơn hàng",cancel_order:"Hủy đơn hàng",process_return:"Xử lý trả hàng",create_post:"Tạo bài viết",update_post:"Sửa bài viết",delete_post:"Xóa bài viết",create_banner:"Tạo banner",update_banner:"Sửa banner",delete_banner:"Xóa banner",add_banner_item:"Thêm item banner",delete_banner_item:"Xóa item banner"};
-const ACTION_COLORS={login:"text-green-400 bg-green-500/10 border-green-500/20",logout:"text-gray-400 bg-white/5 border-white/10",create_product:"text-blue-400 bg-blue-500/10 border-blue-500/20",update_product:"text-orange-400 bg-orange-500/10 border-orange-500/20",delete_product:"text-red-400 bg-red-500/10 border-red-500/20",delete_staff:"text-red-400 bg-red-500/10 border-red-500/20",delete_voucher:"text-red-400 bg-red-500/10 border-red-500/20",delete_post:"text-red-400 bg-red-500/10 border-red-500/20",delete_banner:"text-red-400 bg-red-500/10 border-red-500/20",cancel_order:"text-red-400 bg-red-500/10 border-red-500/20"};
+const ACTION_LABELS={login:"Đăng nhập",logout:"Đăng xuất",create_product:"Tạo sản phẩm",update_product:"Sửa sản phẩm",delete_product:"Xóa sản phẩm",import_stock:"Nhập hàng",add_variants:"Thêm biến thể",update_variant:"Sửa biến thể",create_category:"Tạo danh mục",update_category:"Sửa danh mục",delete_category:"Xóa danh mục",create_staff:"Tạo nhân viên",update_staff_role:"Đổi quyền nhân viên",delete_staff:"Xóa nhân viên",create_voucher:"Tạo voucher",update_voucher:"Sửa voucher",delete_voucher:"Xóa voucher",deactivate_voucher:"Tắt voucher",update_order:"Cập nhật đơn hàng",cancel_order:"Hủy đơn hàng",process_return:"Xử lý trả hàng",create_post:"Tạo bài viết",update_post:"Sửa bài viết",delete_post:"Xóa bài viết",create_banner:"Tạo banner",update_banner:"Sửa banner",delete_banner:"Xóa banner",add_banner_item:"Thêm item banner",delete_banner_item:"Xóa item banner",reply_comment:"Trả lời bình luận",reply_review:"Trả lời đánh giá",delete_reply:"Xóa phản hồi"};
+const ACTION_COLORS={login:"text-green-400 bg-green-500/10 border-green-500/20",logout:"text-slate-400 bg-slate-500/10 border-slate-500/20",create_product:"text-blue-400 bg-blue-500/10 border-blue-500/20",update_product:"text-orange-400 bg-orange-500/10 border-orange-500/20",delete_product:"text-red-500 bg-red-500/10 border-red-500/20",import_stock:"text-emerald-400 bg-emerald-500/10 border-emerald-500/20",add_variants:"text-sky-400 bg-sky-500/10 border-sky-500/20",update_variant:"text-amber-400 bg-amber-500/10 border-amber-500/20",create_category:"text-violet-400 bg-violet-500/10 border-violet-500/20",update_category:"text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20",delete_category:"text-rose-500 bg-rose-500/10 border-rose-500/20",create_staff:"text-teal-400 bg-teal-500/10 border-teal-500/20",update_staff_role:"text-indigo-400 bg-indigo-500/10 border-indigo-500/20",delete_staff:"text-pink-500 bg-pink-500/10 border-pink-500/20",create_voucher:"text-lime-400 bg-lime-500/10 border-lime-500/20",update_voucher:"text-yellow-400 bg-yellow-500/10 border-yellow-500/20",delete_voucher:"text-red-400 bg-red-400/10 border-red-400/20",deactivate_voucher:"text-orange-300 bg-orange-400/10 border-orange-400/20",update_order:"text-cyan-400 bg-cyan-500/10 border-cyan-500/20",cancel_order:"text-red-300 bg-red-300/10 border-red-300/20",process_return:"text-pink-400 bg-pink-400/10 border-pink-400/20",create_post:"text-blue-300 bg-blue-300/10 border-blue-300/20",update_post:"text-orange-300 bg-orange-300/10 border-orange-300/20",delete_post:"text-rose-400 bg-rose-400/10 border-rose-400/20",create_banner:"text-purple-400 bg-purple-500/10 border-purple-500/20",update_banner:"text-fuchsia-300 bg-fuchsia-300/10 border-fuchsia-300/20",delete_banner:"text-rose-300 bg-rose-300/10 border-rose-300/20",add_banner_item:"text-sky-300 bg-sky-300/10 border-sky-300/20",delete_banner_item:"text-orange-500 bg-orange-500/10 border-orange-500/20",reply_comment:"text-cyan-300 bg-cyan-300/10 border-cyan-300/20",reply_review:"text-violet-300 bg-violet-300/10 border-violet-300/20",delete_reply:"text-red-200 bg-red-200/10 border-red-200/20"};
 function getActionColor(action){if(ACTION_COLORS[action])return ACTION_COLORS[action];if(action.startsWith("create_"))return"text-blue-400 bg-blue-500/10 border-blue-500/20";if(action.startsWith("update_")||action.startsWith("process_"))return"text-orange-400 bg-orange-500/10 border-orange-500/20";if(action.startsWith("delete_")||action.startsWith("deactivate_")||action.startsWith("cancel_"))return"text-red-400 bg-red-500/10 border-red-500/20";return"text-white/50 bg-white/5 border-white/10";}
 
 function ActivityLogSection(){

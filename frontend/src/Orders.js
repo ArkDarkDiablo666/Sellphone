@@ -10,8 +10,7 @@ import {
   Printer, FileText,
 } from "lucide-react";
 
-const API = "http://localhost:8000";
-
+import { API } from "./config";  
 const STATUS_MAP = {
   Pending:          { label: "Chờ xác nhận",          color: "#ff9500", bg: "rgba(255,149,0,0.12)",  icon: Clock,        step: 0 },
   Processing:       { label: "Đang xử lý",             color: "#0a84ff", bg: "rgba(10,132,255,0.12)", icon: RefreshCw,    step: 1 },

@@ -11,7 +11,7 @@ import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 
-const API = "http://localhost:8000";
+import { API } from "./config";  
 
 // ============================================================
 // HELPERS

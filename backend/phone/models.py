@@ -1,5 +1,5 @@
 from django.db import models
-
+from django.db.models import F
 
 # ============================================
 # USER GROUP
@@ -192,8 +192,8 @@ class OrderDetail(models.Model):
     def save(self, *args, **kwargs):
         if not self.pk:
             variant = self.VariantID
-            variant.StockQuantity -= self.Quantity
-            variant.save()
+            variant.StockQuantity = F('StockQuantity') - self.Quantity
+            variant.save(update_fields=['StockQuantity'])
             Cart.objects.filter(
                 CustomerID=self.OrderID.CustomerID,
                 VariantID=self.VariantID
@@ -555,6 +555,10 @@ class ActivityLog(models.Model):
         ('delete_banner',      'Xóa banner'),
         ('add_banner_item',    'Thêm item banner'),
         ('delete_banner_item', 'Xóa item banner'),
+        # Bình luận & Đánh giá
+        ('reply_comment',      'Trả lời bình luận'),
+        ('reply_review',       'Trả lời đánh giá'),
+        ('delete_reply',       'Xóa phản hồi'),
     ]
 
     LogID     = models.AutoField(primary_key=True)

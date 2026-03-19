@@ -9,7 +9,7 @@ import Footer from "./Footer";
 import { useToast, ToastContainer } from "./Toast";
 import { getUser, authFetch, clearSession, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 
-const API = "http://localhost:8000";
+import { API } from "./config";  
 
 export default function Information() {
   const navigate  = useNavigate();

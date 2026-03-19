@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
@@ -7,14 +7,23 @@ import { ToastContainer, useToast } from "./Toast";
 import { API } from "./config";
 
 export default function Resetpassword() {
-  const [showPass, setShowPass]       = useState(false);
+  const [showPass,    setShowPass]    = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [password, setPassword]       = useState("");
-  const [confirm, setConfirm]         = useState("");
-  const [errors, setErrors]           = useState({});
-  const [loading, setLoading]         = useState(false);
+  const [password,    setPassword]    = useState("");
+  const [confirm,     setConfirm]     = useState("");
+  const [errors,      setErrors]      = useState({});
+  const [loading,     setLoading]     = useState(false);
   const { toasts, removeToast, toast } = useToast();
   const navigate = useNavigate();
+
+  // ── [FIX #10] Guard: phải có reset_email VÀ otp_verified mới được vào ──
+  useEffect(() => {
+    const email    = sessionStorage.getItem("reset_email");
+    const verified = sessionStorage.getItem("otp_verified");
+    if (!email || !email.trim() || verified !== "true") {
+      navigate("/login/forgot_password", { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const validatePassword = (pass) => {
     if (!pass)              return "Vui lòng nhập mật khẩu";
@@ -29,9 +38,9 @@ export default function Resetpassword() {
     const passError = validatePassword(password);
     if (passError) newErrors.password = passError;
 
-    if (!confirm)                    newErrors.confirm = "Vui lòng nhập lại mật khẩu";
-    else if (confirm.includes(" "))  newErrors.confirm = "Mật khẩu không được chứa dấu cách";
-    else if (password !== confirm)   newErrors.confirm = "Mật khẩu không trùng khớp";
+    if (!confirm)                   newErrors.confirm = "Vui lòng nhập lại mật khẩu";
+    else if (confirm.includes(" ")) newErrors.confirm = "Mật khẩu không được chứa dấu cách";
+    else if (password !== confirm)  newErrors.confirm = "Mật khẩu không trùng khớp";
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
@@ -47,7 +56,9 @@ export default function Resetpassword() {
       const data = await res.json();
 
       if (res.ok) {
+        // Dọn sạch toàn bộ session liên quan đến reset flow
         sessionStorage.removeItem("reset_email");
+        sessionStorage.removeItem("otp_verified");
         toast.success("Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại.");
         navigate("/login");
       } else {
@@ -64,14 +75,13 @@ export default function Resetpassword() {
     <div className="relative h-screen flex items-center justify-center overflow-hidden">
       <img src={bg} alt="" className="absolute inset-0 w-full h-full object-cover blur-[1px] brightness-75 scale-110" />
       <div className="absolute inset-0 bg-black/60"></div>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div className="relative w-[1200px] h-[700px] rounded-3xl overflow-hidden flex shadow-2xl">
-        {/* LEFT — ảnh */}
         <div className="w-1/2">
           <img src={bg} alt="" className="w-full h-full object-cover" />
         </div>
 
-        {/* RIGHT — form */}
         <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col justify-center px-20 text-white">
           <h2 className="text-3xl font-semibold text-white mb-6">Tạo mật khẩu mới</h2>
 

@@ -1,8 +1,7 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Phone, Mail, MapPin, Facebook, Youtube, Instagram, Smartphone } from "lucide-react";
 
-// Icon TikTok (lucide chưa có, dùng SVG inline)
 function TikTokIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -37,7 +36,24 @@ const SOCIAL_LINKS = [
   },
 ];
 
+// Hook tạo handler: nếu đang ở cùng trang → scroll top, ngược lại → navigate
+function useNavLink() {
+  const location = useLocation();
+  const navigate  = useNavigate();
+
+  return (to) => (e) => {
+    e.preventDefault();
+    if (location.pathname === to) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      navigate(to);
+    }
+  };
+}
+
 export default function Footer() {
+  const handleNav = useNavLink();
+
   return (
     <footer className="bg-[#0e0e0e] border-t border-white/[0.06] text-white">
       <div className="max-w-7xl mx-auto px-10 py-14 grid grid-cols-1 md:grid-cols-4 gap-10">
@@ -79,10 +95,14 @@ export default function Footer() {
             { to: "/cart",        label: "Giỏ hàng"  },
             { to: "/information", label: "Tài khoản" },
           ].map(({ to, label }) => (
-            <Link key={to} to={to}
-              className="text-sm text-white/40 hover:text-orange-400 transition w-fit">
+            <a
+              key={to}
+              href={to}
+              onClick={handleNav(to)}
+              className="text-sm text-white/40 hover:text-orange-400 transition w-fit cursor-pointer"
+            >
               {label}
-            </Link>
+            </a>
           ))}
         </div>
 
@@ -124,7 +144,6 @@ export default function Footer() {
             <p className="text-xs text-white/30">Chủ nhật: 9:00 – 18:00</p>
           </div>
 
-          {/* Social links (lặp lại ở mobile-friendly) */}
           <div className="flex gap-2 flex-wrap mt-1">
             {SOCIAL_LINKS.map(({ label, href, icon }) => (
               <a
