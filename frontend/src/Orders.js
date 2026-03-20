@@ -484,11 +484,8 @@ function PaymentSection({ order, onPaid }) {
             ))}
           </div>
           <div className="flex flex-col gap-1.5 pt-1 border-t border-white/5">
-            <p className="text-[10px] text-white/25">Không quét được? Dùng link:</p>
-            <div className="flex gap-1.5">
-              <button onClick={() => window.open(payUrl, "_blank")} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition" style={{ background: accentColor + "20", color: accentColor, border: `1px solid ${accentColor}40` }}><ArrowRight size={11} /> Mở trang TT</button>
-              <button onClick={async () => { try { await navigator.clipboard.writeText(payUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition" style={{ background: "rgba(255,255,255,0.05)", color: copied ? "#30d158" : "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.08)" }}>{copied ? <><Check size={11}/> Đã copy</> : "Copy link"}</button>
-            </div>
+            <p className="text-[10px] text-white/25">Không quét được? Copy link để mở trên điện thoại:</p>
+            <button onClick={async () => { try { await navigator.clipboard.writeText(payUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} }} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition" style={{ background: "rgba(255,255,255,0.05)", color: copied ? "#30d158" : "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.08)" }}>{copied ? <><Check size={11}/> Đã copy link</> : "Copy link thanh toán"}</button>
           </div>
         </div>
       </div>

@@ -50,18 +50,19 @@ function loadYouTubeAPI(cb) {
 }
 
 // ─── Video item ───────────────────────────────────────────────
-function VideoItem({ item, isActive, onPauseSlider, onResumeSlider, onVideoEnded }) {
-  const videoRef   = useRef(null);
-  const ytDivRef   = useRef(null);   // div container để YT.Player mount vào
+// [FIX] Xóa prop onResumeSlider — không được dùng trong component này.
+//       Slider resume được xử lý hoàn toàn qua onVideoEnded.
+function VideoItem({ item, isActive, onPauseSlider, onVideoEnded }) {
+  const videoRef    = useRef(null);
+  const ytDivRef    = useRef(null);
   const ytPlayerRef = useRef(null);
-  const endedRef   = useRef(onVideoEnded); // stable ref tránh re-create effect
-  const [muted,    setMuted]   = useState(true);
-  const [playing,  setPlaying] = useState(false);
+  const endedRef    = useRef(onVideoEnded);
+  const [muted,   setMuted]   = useState(true);
+  const [playing, setPlaying] = useState(false);
 
   const videoType = getVideoType(item.media_url);
   const videoId   = extractYouTubeId(item.media_url);
 
-  // Cập nhật endedRef khi prop thay đổi
   useEffect(() => { endedRef.current = onVideoEnded; }, [onVideoEnded]);
 
   // ── Khởi tạo YouTube Player khi isActive lần đầu ──────────
@@ -69,7 +70,7 @@ function VideoItem({ item, isActive, onPauseSlider, onResumeSlider, onVideoEnded
     if (videoType !== "youtube" || !isActive) return;
 
     loadYouTubeAPI(() => {
-      if (ytPlayerRef.current) return; // đã init rồi
+      if (ytPlayerRef.current) return;
       if (!ytDivRef.current)   return;
 
       ytPlayerRef.current = new window.YT.Player(ytDivRef.current, {
@@ -80,11 +81,10 @@ function VideoItem({ item, isActive, onPauseSlider, onResumeSlider, onVideoEnded
           controls:    1,
           rel:         0,
           playsinline: 1,
-          loop:        0,   // KHÔNG loop để fire ENDED
+          loop:        0,
         },
         events: {
           onStateChange: (e) => {
-            // YT.PlayerState: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
             if (e.data === 0) {
               endedRef.current?.();
             }
@@ -106,7 +106,6 @@ function VideoItem({ item, isActive, onPauseSlider, onResumeSlider, onVideoEnded
     if (isActive) {
       onPauseSlider?.();
     } else {
-      // Dừng khi rời slide
       if (videoType === "direct" && videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
@@ -143,7 +142,6 @@ function VideoItem({ item, isActive, onPauseSlider, onResumeSlider, onVideoEnded
   if (videoType === "youtube") {
     return (
       <div className="relative w-full h-full bg-black">
-        {/* div này sẽ bị YT.Player thay thế bằng iframe */}
         <div ref={ytDivRef} className="w-full h-full" />
       </div>
     );
@@ -258,14 +256,16 @@ export default function BannerSlider({ className = "", height = "h-[460px]" }) {
             ${idx === current ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}
         >
           {it.media_type === "video" ? (
-            <VideoItem item={it} isActive={idx === current}
+            // [FIX] Bỏ prop onResumeSlider — slider resume được xử lý qua onVideoEnded
+            <VideoItem
+              item={it}
+              isActive={idx === current}
               onPauseSlider={() => setSliderPaused(true)}
-              onResumeSlider={() => setSliderPaused(false)}
               onVideoEnded={() => {
-                // Phát hết video → tự động lướt sang item tiếp
                 setSliderPaused(false);
                 setCurrent(c => (c + 1) % total);
-              }} />
+              }}
+            />
           ) : it.link_url ? (
             <a href={it.link_url} target="_blank" rel="noopener noreferrer" className="block w-full h-full">
               <img src={it.media_url} alt={it.caption || `Banner ${idx + 1}`} className="w-full h-full object-cover" draggable={false} />

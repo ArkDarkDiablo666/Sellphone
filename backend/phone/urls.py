@@ -132,6 +132,8 @@ urlpatterns = [
     path('admin/dashboard/revenue/product/',    views.dashboard_revenue_by_product, name='dashboard_revenue_product'),
     path('admin/dashboard/revenue/brand/',      views.dashboard_revenue_by_brand,   name='dashboard_revenue_brand'),
     path('admin/dashboard/revenue/compare/',    views.dashboard_revenue_compare,    name='dashboard_revenue_compare'),
+    path('admin/dashboard/revenue/category/',   views.dashboard_revenue_by_category, name='dashboard_revenue_category'),
+    path('admin/dashboard/order-stats/',        views.dashboard_order_stats,         name='dashboard_order_stats'),
 
     # Home
     path('home/featured/',           views.home_featured,      name='home_featured'),
@@ -148,7 +150,17 @@ urlpatterns = [
     path('banner/item/delete/',      views.delete_banner_item,   name='banner_item_delete'),
     path('banner/item/reorder/',     views.reorder_banner_items, name='banner_item_reorder'),
 
-    # Activity Log (chỉ Admin)
-    path('activity-log/list/',       views.list_activity_logs,   name='activity_log_list'),
-    path('activity-log/clear/',      views.clear_activity_logs,  name='activity_log_clear'),
+    # Activity Log — Staff/Admin (chỉ Admin)
+    path('activity-log/list/',           views.list_activity_logs,           name='activity_log_list'),
+    path('activity-log/clear/',          views.clear_activity_logs,          name='activity_log_clear'),
+
+    # Customer Activity Log
+    path('customer-log/list/',           views.list_customer_activity_logs,  name='customer_log_list'),
+    path('customer-log/me/',             views.get_my_activity_log,          name='customer_log_me'),
+    path('customer-log/clear/',          views.clear_customer_activity_logs, name='customer_log_clear'),
+    path('customer-log/stats/',          views.customer_activity_stats,      name='customer_log_stats'),
+
+    path('stats/reviews/',  views.stats_reviews,  name='stats_reviews'),
+    path('stats/products/', views.stats_products, name='stats_products'),
+    path('stats/vouchers/', views.stats_vouchers, name='stats_vouchers'),
 ]

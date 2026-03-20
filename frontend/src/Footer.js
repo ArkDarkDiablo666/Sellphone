@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Phone, Mail, MapPin, Facebook, Youtube, Instagram, Smartphone } from "lucide-react";
 
 function TikTokIcon({ size = 15 }) {
@@ -36,10 +36,12 @@ const SOCIAL_LINKS = [
   },
 ];
 
-// Hook tạo handler: nếu đang ở cùng trang → scroll top, ngược lại → navigate
-function useNavLink() {
+// [FIX] Hook điều hướng thông minh:
+//   - Đang ở trang đó → scroll lên đầu (smooth)
+//   - Khác trang → navigate + scroll lên đầu ngay lập tức
+function useSmartNav() {
   const location = useLocation();
-  const navigate  = useNavigate();
+  const navigate = useNavigate();
 
   return (to) => (e) => {
     e.preventDefault();
@@ -47,12 +49,13 @@ function useNavLink() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       navigate(to);
+      window.scrollTo({ top: 0, behavior: "instant" });
     }
   };
 }
 
 export default function Footer() {
-  const handleNav = useNavLink();
+  const handleNav = useSmartNav();
 
   return (
     <footer className="bg-[#0e0e0e] border-t border-white/[0.06] text-white">
@@ -62,7 +65,13 @@ export default function Footer() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
             <Smartphone size={20} className="text-orange-500" />
-            <span className="text-xl font-bold tracking-tight">PHONEZONE</span>
+            {/* [FIX] Logo cũng dùng handleNav để scroll top khi click */}
+            <span
+              className="text-xl font-bold tracking-tight cursor-pointer hover:text-orange-400 transition"
+              onClick={handleNav("/")}
+            >
+              PHONEZONE
+            </span>
           </div>
           <p className="text-sm text-white/40 leading-relaxed">
             Điểm đến công nghệ uy tín — điện thoại chính hãng, giá tốt, dịch vụ tận tâm.

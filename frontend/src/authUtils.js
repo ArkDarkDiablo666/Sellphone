@@ -33,16 +33,13 @@ export function isTokenExpired(type = "user") {
 }
 
 // ── Kiểm tra và xử lý hết hạn khi vào trang ─────────────────
-// Gọi trong useEffect khi mount: checkAndHandleExpiry("user")
-// Trả về true nếu đã redirect (token hết hạn), false nếu còn hạn
 export function checkAndHandleExpiry(type = "user") {
   const tokenKey = type === "admin" ? TOKEN_KEY_ADMIN : TOKEN_KEY_USER;
   const token    = localStorage.getItem(tokenKey);
-  if (!token) return false; // chưa đăng nhập → không cần xử lý
+  if (!token) return false;
 
-  if (!isTokenExpired(type)) return false; // còn hạn → không làm gì
+  if (!isTokenExpired(type)) return false;
 
-  // Token hết hạn → đăng xuất và thông báo
   if (!_isRedirecting) {
     _isRedirecting = true;
     clearSession(type);
@@ -58,6 +55,10 @@ export function checkAndHandleExpiry(type = "user") {
 
 // ── Lưu session sau đăng nhập ────────────────────────────────
 export function saveSession(type, profile, token) {
+  // [FIX] Reset redirect flag khi user đăng nhập thành công
+  // Trước đây reset trong mỗi authFetch thành công → race condition
+  _isRedirecting = false;
+
   if (type === "user") {
     localStorage.setItem(USER_KEY,       JSON.stringify(profile));
     localStorage.setItem(TOKEN_KEY_USER, token || "");
@@ -120,20 +121,13 @@ export function getAuthHeadersFormData(type = "user") {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// ── Sentinel object — dùng để báo hiệu đã redirect, KHÔNG throw ──
-// Caller kiểm tra: if (res === AUTH_REDIRECTED) return;
+// ── Sentinel object — dùng để báo hiệu đã redirect ──────────
 export const AUTH_REDIRECTED = Object.freeze({ __authRedirected: true });
 
 // ── Wrapper fetch tự động gắn token + xử lý 401 ──────────────
-//
-// FIX so với bản cũ:
-//   1. Không throw Error("Phiên đăng nhập đã hết hạn") → gây uncaught error
-//      và React re-render loop.
-//   2. Trả về sentinel AUTH_REDIRECTED thay vì throw.
-//   3. _isRedirecting guard ngăn redirect chạy nhiều lần song song
-//      khi nhiều authFetch cùng nhận 401 một lúc.
-//   4. Caller nên kiểm tra: if (!res || res === AUTH_REDIRECTED) return;
-//
+// [FIX] Bỏ _isRedirecting = false sau mỗi request thành công
+//       (gây race condition khi 401 và 200 đến cùng lúc).
+//       Flag chỉ được reset trong saveSession() khi user đăng nhập lại.
 export async function authFetch(url, options = {}, type = "user") {
   const isFormData = options.body instanceof FormData;
   const headers = isFormData
@@ -143,7 +137,6 @@ export async function authFetch(url, options = {}, type = "user") {
   const res = await fetch(url, { ...options, headers });
 
   if (res.status === 401) {
-    // Chỉ redirect một lần dù nhiều request cùng thất bại
     if (!_isRedirecting) {
       _isRedirecting = true;
       clearSession(type);
@@ -152,13 +145,11 @@ export async function authFetch(url, options = {}, type = "user") {
         "logout_toast",
         "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
       );
-      // Dùng replace để không lưu trang admin vào history
       window.location.replace(type === "admin" ? "/admin/login" : "/login");
     }
-    // Trả về sentinel — KHÔNG throw, tránh uncaught runtime error
     return AUTH_REDIRECTED;
   }
 
-  _isRedirecting = false; // reset nếu request thành công
+  // [FIX] KHÔNG reset _isRedirecting ở đây — chỉ reset trong saveSession()
   return res;
 }

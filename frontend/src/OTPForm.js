@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 
 import { API } from "./config";
+
 const MAX_ATTEMPTS = 5;
 const RESEND_WAIT  = 60;  // giây
 
@@ -19,7 +20,7 @@ export default function OTPForm() {
   const navigate  = useNavigate();
   const { toast, toasts, removeToast } = useToast();
 
-  // ── [FIX #9] Guard: nếu không có reset_email → redirect về forgot-password ──
+  // ── Guard: nếu không có reset_email → redirect về forgot-password ──
   useEffect(() => {
     const email = sessionStorage.getItem("reset_email");
     if (!email || !email.trim()) {
@@ -82,7 +83,6 @@ export default function OTPForm() {
       const data = await res.json();
 
       if (res.ok) {
-        // [FIX #10] Đánh dấu OTP đã verify để Resetpassword kiểm tra
         sessionStorage.setItem("otp_verified", "true");
         navigate("/login/forgot_password/otp/reset_password");
       } else {
@@ -111,7 +111,6 @@ export default function OTPForm() {
     setOtp(["", "", "", "", "", ""]);
     setAttempts(0);
     setIsLocked(false);
-    // Xóa flag verify cũ khi gửi lại OTP mới
     sessionStorage.removeItem("otp_verified");
 
     try {
@@ -120,7 +119,8 @@ export default function OTPForm() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ email }),
       });
-      if (res.ok || res.status === 500) {
+      // [FIX] Chỉ reset countdown khi res.ok — bỏ || res.status === 500
+      if (res.ok) {
         setCountdown(RESEND_WAIT);
         setCanResend(false);
         inputRefs.current[0]?.focus();
@@ -128,7 +128,7 @@ export default function OTPForm() {
         return;
       }
       const data = await res.json();
-      toast.error(data.message);
+      toast.error(data.message || "Có lỗi xảy ra khi gửi OTP");
     } catch { toast.error("Không thể kết nối server"); }
   };
 

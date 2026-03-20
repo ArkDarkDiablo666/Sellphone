@@ -8,8 +8,7 @@ import {
 } from "lucide-react";
 import { useCart } from "./Cart";
 import { getUser, authFetch, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
-
-const API           = "http://localhost:8000";
+import { API } from "./config";
 const PROVINCES_API = "https://provinces.open-api.vn/api";
 
 // ── Thông tin ngân hàng (chỉnh theo shop) ──
@@ -326,6 +325,25 @@ function BankInfoCard({ total, orderId }) {
         </div>
       </div>
 
+      {/* QR Code VietQR */}
+      {orderId && (
+        <div className="px-4 py-3 border-t border-white/5 flex flex-col items-center gap-2">
+          <p className="text-[10px] text-white/30">Quét mã để chuyển khoản nhanh</p>
+          <img
+            src={
+              `https://img.vietqr.io/image/970436-${BANK_INFO.accountNo}-compact2.png` +
+              `?amount=${total}` +
+              `&addInfo=${encodeURIComponent("PHONEZONE " + orderId)}` +
+              `&accountName=${encodeURIComponent(BANK_INFO.accountName)}`
+            }
+            alt="QR chuyển khoản"
+            className="w-40 h-40 rounded-xl bg-white p-1.5 object-contain"
+            onError={e => { e.target.style.display = "none"; }}
+          />
+          <p className="text-[9px] text-white/20">Powered by VietQR</p>
+        </div>
+      )}
+
       {/* Note */}
       <div className="px-4 py-2.5 border-t border-white/5 flex items-start gap-2" style={{ background: "rgba(255,149,0,0.04)" }}>
         <span className="text-orange-400 text-xs mt-0.5">⚠️</span>
@@ -385,6 +403,38 @@ const PAYMENT_METHODS = [
   },
 ];
 
+
+// ── QR Image dùng api.qrserver.com ──────────────────────────
+function MomoQRImage({ url, size = 180 }) {
+  const [status, setStatus] = useState("loading");
+  const encoded = encodeURIComponent(url);
+  const src = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encoded}&margin=10&format=png`;
+  return (
+    <div className="relative flex items-center justify-center rounded-2xl overflow-hidden"
+      style={{ width: size, height: size, background: "rgba(255,255,255,0.03)", border: "2px solid rgba(255,255,255,0.08)" }}>
+      {status === "loading" && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <svg className="animate-spin w-6 h-6 text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10"/>
+          </svg>
+        </div>
+      )}
+      {status === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <p className="text-[10px] text-white/30">Không tải được QR</p>
+        </div>
+      )}
+      <img
+        src={src} alt="MoMo QR"
+        style={{ width: size, height: size, display: status === "error" ? "none" : "block", opacity: status === "loading" ? 0 : 1, transition: "opacity 0.3s", borderRadius: 12 }}
+        onLoad={() => setStatus("ok")}
+        onError={() => setStatus("error")}
+      />
+    </div>
+  );
+}
+
 export default function Payment() {
   const navigate = useNavigate();
   const { selectedItems, subtotal, discount, total, voucher, clearCart } = useCart();
@@ -405,6 +455,13 @@ export default function Payment() {
   const [success,      setSuccess]      = useState(false);
   const [orderId,      setOrderId]      = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [momoFailed,   setMomoFailed]   = useState(false);
+  const [momoRetrying, setMomoRetrying] = useState(false);
+  // MoMo QR inline
+  const [momoPayUrl,   setMomoPayUrl]   = useState("");   // URL để tạo QR
+  const [momoExpired,  setMomoExpired]  = useState(false);
+  const [momoCopied,   setMomoCopied]   = useState(false);
+  const momoTimerRef   = useRef(null);
 
   useEffect(() => {
     if (checkAndHandleExpiry("user")) return;
@@ -463,8 +520,17 @@ export default function Payment() {
         setOrderId(data.order_id);
         setSuccess(true);
 
-        if (payMethod === "momo" && data.momo_url) {
-          window.location.href = data.momo_url;
+        if (payMethod === "momo") {
+          if (data.momo_url) {
+            // [FIX] Hiện QR inline thay vì redirect sang trang MoMo
+            setMomoPayUrl(data.momo_url);
+            setMomoExpired(false);
+            // QR MoMo hết hạn sau 15 phút
+            clearTimeout(momoTimerRef.current);
+            momoTimerRef.current = setTimeout(() => setMomoExpired(true), 15 * 60 * 1000);
+          } else {
+            setMomoFailed(true);
+          }
           return;
         }
         if (payMethod === "vnpay") {
@@ -531,22 +597,151 @@ export default function Payment() {
     });
   };
 
+  // ── Thử lại MoMo (khi URL cũ lỗi hoặc hết hạn) ─────────────
+  const retryMomo = async () => {
+    setMomoRetrying(true);
+    try {
+      const res = await authFetch(`${API}/api/payment/momo/create/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, amount: total }),
+      });
+      if (!res || res === AUTH_REDIRECTED) return;
+      const data = await res.json();
+      if (res.ok && data.pay_url) {
+        // Hiện QR inline
+        setMomoPayUrl(data.pay_url);
+        setMomoExpired(false);
+        setMomoFailed(false);
+        clearTimeout(momoTimerRef.current);
+        momoTimerRef.current = setTimeout(() => setMomoExpired(true), 15 * 60 * 1000);
+      } else {
+        toast.error(data.message || "Không thể tạo lại link MoMo. Vui lòng thử lại sau.");
+      }
+    } catch {
+      toast.error("Không thể kết nối server");
+    } finally {
+      setMomoRetrying(false);
+    }
+  };
+
   // ── SUCCESS ──────────────────────────────────────────────────
   if (success) return (
     <div className="min-h-screen text-white flex flex-col items-center justify-center gap-6 px-4" style={{ background: "#1C1C1E" }}>
-      <div className="w-24 h-24 rounded-full flex items-center justify-center" style={{ background: "rgba(52,199,89,0.15)" }}>
-        <CheckCircle2 size={44} className="text-green-400" />
+
+      {/* Icon thành công */}
+      <div className="w-20 h-20 rounded-full flex items-center justify-center"
+        style={{ background: "rgba(52,199,89,0.15)" }}>
+        <CheckCircle2 size={40} className="text-green-400" />
       </div>
+
       <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2">Đặt hàng thành công!</h2>
-        {orderId && <p className="text-white/40 text-sm">Mã đơn hàng: <span className="text-orange-400 font-mono font-bold">#{orderId}</span></p>}
-        <p className="text-white/40 text-sm mt-1">
-          {payMethod === "momo"  && "Đang chuyển đến trang thanh toán MoMo..."}
-          {payMethod === "vnpay" && "Đang chuyển đến trang thanh toán VNPay..."}
-          {payMethod === "cod"   && "Đơn hàng đang được xử lý. Chúng tôi sẽ liên hệ sớm nhất."}
-          {payMethod === "bank"  && "Vui lòng chuyển khoản theo thông tin bên dưới để hoàn tất đơn hàng."}
-        </p>
+        <h2 className="text-2xl font-bold mb-1">Đặt hàng thành công!</h2>
+        {orderId && (
+          <p className="text-white/40 text-sm">
+            Mã đơn hàng: <span className="text-orange-400 font-mono font-bold">#{orderId}</span>
+          </p>
+        )}
+        {payMethod === "cod" && (
+          <p className="text-white/40 text-sm mt-1">Đơn hàng đang được xử lý. Chúng tôi sẽ liên hệ sớm nhất.</p>
+        )}
+        {payMethod === "bank" && (
+          <p className="text-white/40 text-sm mt-1">Vui lòng chuyển khoản theo thông tin bên dưới.</p>
+        )}
       </div>
+
+      {/* ── MoMo QR inline ── */}
+      {payMethod === "momo" && (
+        <div className="w-full max-w-md rounded-2xl p-5 flex flex-col gap-4"
+          style={{ background: "rgba(216,45,139,0.07)", border: "1.5px solid rgba(216,45,139,0.28)" }}>
+
+          {/* Header */}
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#d82d8b" }} />
+            <p className="text-xs font-semibold" style={{ color: "#d82d8b" }}>
+              {momoPayUrl && !momoExpired ? "Quét mã QR bằng App MoMo" : "Thanh toán qua MoMo"}
+            </p>
+            <span className="ml-auto text-sm font-bold text-orange-400">
+              {total?.toLocaleString("vi-VN")}đ
+            </span>
+          </div>
+
+          {/* QR + hướng dẫn */}
+          {momoPayUrl && !momoExpired && (
+            <div className="flex gap-4 items-start">
+              {/* QR */}
+              <div className="flex flex-col items-center gap-2 shrink-0">
+                <MomoQRImage url={momoPayUrl} />
+                <p className="text-[9px] text-white/25">Hiệu lực 15 phút</p>
+              </div>
+              {/* Hướng dẫn */}
+              <div className="flex-1 flex flex-col gap-2.5 min-w-0">
+                {["Mở App MoMo trên điện thoại","Chọn biểu tượng quét QR","Quét mã và xác nhận thanh toán","Nhập OTP: 000000"].map((s, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <div className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold mt-0.5"
+                      style={{ background: "rgba(216,45,139,0.2)", color: "#d82d8b" }}>{i + 1}</div>
+                    <p className="text-xs text-white/55 leading-relaxed">{s}</p>
+                  </div>
+                ))}
+                {/* Link fallback */}
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-white/8">
+                  <p className="text-[10px] text-white/25">Không quét được? Copy link để mở trên điện thoại:</p>
+                  <button
+                    onClick={async () => { try { await navigator.clipboard.writeText(momoPayUrl); setMomoCopied(true); setTimeout(() => setMomoCopied(false), 2000); } catch {} }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition"
+                    style={{ background: "rgba(255,255,255,0.05)", color: momoCopied ? "#30d158" : "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                    {momoCopied ? "✓ Đã copy link" : "Copy link thanh toán"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* QR hết hạn */}
+          {momoExpired && (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="w-14 h-14 rounded-2xl border border-white/10 flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,0.03)" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              </div>
+              <p className="text-xs text-white/40">Mã QR đã hết hạn</p>
+              <button onClick={retryMomo} disabled={momoRetrying}
+                className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg,#ae2070,#d82d8b)" }}>
+                {momoRetrying ? "Đang tạo lại..." : "Tạo lại mã QR"}
+              </button>
+            </div>
+          )}
+
+          {/* Chưa có URL (lỗi ban đầu) */}
+          {!momoPayUrl && !momoRetrying && (
+            <div className="flex flex-col items-center gap-3 py-2">
+              <p className="text-xs text-white/40 text-center">Không thể tạo mã QR tự động.</p>
+              <button onClick={retryMomo}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition"
+                style={{ background: "linear-gradient(135deg,#ae2070,#d82d8b)" }}>
+                Tạo mã QR MoMo
+              </button>
+            </div>
+          )}
+          {momoRetrying && (
+            <div className="flex items-center justify-center gap-2 py-4">
+              <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#d82d8b" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+              <p className="text-sm text-white/40">Đang tạo mã QR...</p>
+            </div>
+          )}
+
+          {/* Xác nhận đã thanh toán */}
+          <div className="flex items-center gap-3 pt-2 border-t border-white/8">
+            <p className="text-xs text-white/30 flex-1">Đã thanh toán xong?</p>
+            <button onClick={() => navigate("/orders")}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition"
+              style={{ background: "rgba(48,209,88,0.12)", border: "1px solid rgba(48,209,88,0.28)", color: "#30d158" }}>
+              ✓ Xác nhận & Xem đơn hàng
+            </button>
+          </div>
+        </div>
+      )}
 
       {payMethod === "bank" && (
         <div className="w-full max-w-sm">

@@ -1,5 +1,6 @@
 import json
 import datetime
+from django.conf import settings
 import os
 from django.contrib.auth.hashers import make_password, check_password
 import cloudinary
@@ -276,7 +277,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 from .permissions import IsAdminOrStaff, IsAdminOnly, IsAuthenticatedCustomer
-from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia, Banner, BannerItem, ActivityLog
+from .models import Customer, Staff, Product, ProductVariant, ProductImage, Category, generate_customer_id, Order, OrderDetail, Post, ProductContent, ReturnRequest, ReturnMedia, Banner, BannerItem, ActivityLog, CustomerActivityLog
 import logging
 from django.db.models import Avg, Count, Sum, F, FloatField, ExpressionWrapper, Min, Max, Q, DecimalField
 from django.db.models.functions import TruncDay, TruncMonth, TruncYear, Coalesce
@@ -289,8 +290,6 @@ import os as _os
 import django.conf as _dj_conf
 
 logger = logging.getLogger(__name__)
-otp_storage     = {}          # fallback in-memory; replaced by cache below
-OTP_ATTEMPTS    = {}          # [FIX #2] track brute-force attempts per email
 MAX_OTP_ATTEMPTS = 5
 OTP_EXPIRY_SECONDS = 300
 
@@ -500,6 +499,7 @@ def register_normal(request):
         customer = create_customer(FullName=full_name, Email=email, Password=hash_password(password), LoginType='normal')
     except ValueError as e:
         return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    _write_customer_log(request, customer, "register", f"Email: {email}")
     return Response({"message": "Đăng ký thành công", "token": get_tokens_for_customer(customer), "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
 
 
@@ -515,6 +515,7 @@ def login_normal(request):
     if not check_password(password, existing.Password): return Response({"message": "Mật khẩu không đúng", "field": "password"}, status=status.HTTP_401_UNAUTHORIZED)
     avatar = existing.Avatar or ""
     if avatar.startswith("data:"): avatar = ""
+    _write_customer_log(request, existing, "login", f"Email: {existing.Email}")
     return Response({"message": "Đăng nhập thành công", "token": get_tokens_for_customer(existing), "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": avatar, "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
 
 
@@ -531,6 +532,7 @@ def register_google(request):
         customer = create_customer(FullName=full_name, Email=email, Password=None, GoogleID=google_id, Avatar=avatar, LoginType='google')
     except ValueError as e:
         return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    _write_customer_log(request, customer, "register", f"Google: {email}")
     return Response({"message": "Đăng ký Google thành công", "token": get_tokens_for_customer(customer), "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
 
 
@@ -542,6 +544,7 @@ def login_google(request):
     existing = Customer.objects.filter(Email=email).first()
     if not existing:                   return Response({"message": "Tài khoản Google chưa được đăng ký"}, status=status.HTTP_404_NOT_FOUND)
     if existing.LoginType != 'google': return Response({"message": email_exists_message(existing.LoginType)}, status=status.HTTP_400_BAD_REQUEST)
+    _write_customer_log(request, existing, "login_google", f"Email: {existing.Email}")
     return Response({"message": "Đăng nhập Google thành công", "token": get_tokens_for_customer(existing), "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": existing.Avatar or "", "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
 
 
@@ -559,6 +562,7 @@ def register_facebook(request):
         customer = create_customer(FullName=full_name, Email=email if email else f"fb_{facebook_id}@noemail.com", Password=None, FacebookID=facebook_id, Avatar=avatar, LoginType='facebook')
     except ValueError as e:
         return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    _write_customer_log(request, customer, "register", f"Facebook: {email}")
     return Response({"message": "Đăng ký Facebook thành công", "token": get_tokens_for_customer(customer), "customer": customer_data(customer)}, status=status.HTTP_201_CREATED)
 
 
@@ -570,6 +574,7 @@ def login_facebook(request):
     existing = Customer.objects.filter(Email=email).first()
     if not existing:                      return Response({"message": "Tài khoản Facebook chưa được đăng ký"}, status=status.HTTP_404_NOT_FOUND)
     if existing.LoginType != 'facebook':  return Response({"message": email_exists_message(existing.LoginType)}, status=status.HTTP_400_BAD_REQUEST)
+    _write_customer_log(request, existing, "login_facebook", f"Email: {existing.Email}")
     return Response({"message": "Đăng nhập Facebook thành công", "token": get_tokens_for_customer(existing), "customer": {"id": existing.CustomerID, "full_name": existing.FullName, "email": existing.Email, "avatar": existing.Avatar or "", "login_type": existing.LoginType}}, status=status.HTTP_200_OK)
 
 
@@ -634,6 +639,7 @@ def reset_password(request):
     from django.core.cache import cache
     cache.delete(f"otp_value:{email}")
     cache.delete(f"otp_attempts:{email}")
+    _write_customer_log(request, email, "reset_password", f"Email: {email}")
     return Response({"message": "Đặt lại mật khẩu thành công"}, status=status.HTTP_200_OK)
 
 
@@ -666,6 +672,7 @@ def update_customer(request):
         except Exception as e:
             return Response({"message": f"Lỗi upload ảnh: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     customer.save()
+    _write_customer_log(request, customer_id, "update_profile", f"CustomerID: {customer_id}")
     return Response({"message": "Cập nhật thành công"}, status=status.HTTP_200_OK)
 
 
@@ -683,6 +690,7 @@ def change_password(request):
     if not check_password(current_password, customer.Password): return Response({"message": "Mật khẩu hiện tại không đúng"}, status=status.HTTP_401_UNAUTHORIZED)
     customer.Password = hash_password(new_password)
     customer.save()
+    _write_customer_log(request, customer, "change_password", "")
     return Response({"message": "Đổi mật khẩu thành công"}, status=status.HTTP_200_OK)
 
 
@@ -706,6 +714,7 @@ def upload_avatar(request):
         upload_result = _upload_to_cloudinary(avatar_file, enhance="avatar", folder="sellphone/avatars", public_id=f"avatar_{customer_id}", overwrite=True, resource_type="image")
         customer.Avatar = upload_result["secure_url"]
         customer.save()
+        _write_customer_log(request, customer_id, "upload_avatar", "")
         return Response({"message": "Upload avatar thành công", "avatar_url": upload_result["secure_url"]}, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({"message": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -735,6 +744,7 @@ def create_customer_address(request):
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
     a = CustomerAddress.objects.create(CustomerID=customer, Name=name, Phone=phone, Address=address)
+    _write_customer_log(request, customer_id, "create_address", f"Address: {address}")
     return Response({"message": "Đã lưu địa chỉ", "id": a.AddressID}, status=status.HTTP_201_CREATED)
 
 
@@ -749,6 +759,7 @@ def update_customer_address(request):
     a.Phone   = request.data.get('phone',   a.Phone).strip()
     a.Address = request.data.get('address', a.Address).strip()
     a.save()
+    _write_customer_log(request, request.data.get("customer_id"), "update_address", f"AddressID: {addr_id}")
     return Response({"message": "Đã cập nhật địa chỉ"}, status=status.HTTP_200_OK)
 
 
@@ -760,6 +771,7 @@ def delete_customer_address(request):
     a = CustomerAddress.objects.filter(AddressID=addr_id).first()
     if not a: return Response({"message": "Không tìm thấy địa chỉ"}, status=status.HTTP_404_NOT_FOUND)
     a.delete()
+    _write_customer_log(request, request.data.get("customer_id"), "delete_address", f"AddressID: {addr_id}")
     return Response({"message": "Đã xóa địa chỉ"}, status=status.HTTP_200_OK)
 
 
@@ -1009,7 +1021,7 @@ def create_product(request):
     category = Category.objects.filter(CategoryID=category_id).first()
     if not category: return Response({"message": "Danh mục không tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
     try:    variants = json.loads(variants_raw)
-    except: return Response({"message": "Dữ liệu biến thể không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, TypeError, json.JSONDecodeError): return Response({"message": "Dữ liệu biến thể không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     if not variants: return Response({"message": "Cần ít nhất 1 biến thể"}, status=status.HTTP_400_BAD_REQUEST)
     variant_errors = _validate_variants(variants)
     all_errors = [e for e in variant_errors if e]
@@ -1087,7 +1099,7 @@ def add_variants(request):
     product = Product.objects.filter(ProductID=product_id).first()
     if not product: return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
     try:    variants = json.loads(variants_json) if variants_json else []
-    except: return Response({"message": "Dữ liệu biến thể không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, TypeError, json.JSONDecodeError): return Response({"message": "Dữ liệu biến thể không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     if not variants: return Response({"message": "Vui lòng thêm ít nhất 1 biến thể"}, status=status.HTTP_400_BAD_REQUEST)
     variant_errors = _validate_variants(variants)
     all_errors = [e for e in variant_errors if e]
@@ -1225,10 +1237,10 @@ def update_variant(request):
     stock = request.data.get('stock')
     if price is not None:
         try:    variant.Price = float(price)
-        except: return Response({"message": "Giá không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, TypeError): return Response({"message": "Giá không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     if stock is not None:
         try:    variant.StockQuantity = int(stock)
-        except: return Response({"message": "Số lượng không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, TypeError): return Response({"message": "Số lượng không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     img_file = request.FILES.get('image')
     if img_file:
         try:
@@ -1471,6 +1483,7 @@ def apply_voucher(request):
     if v.StartDate and v.StartDate > today: return Response({"message": "Voucher chưa đến thời gian sử dụng"}, status=status.HTTP_400_BAD_REQUEST)
     if v.EndDate   and v.EndDate   < today: return Response({"message": "Voucher đã hết hạn"}, status=status.HTTP_400_BAD_REQUEST)
     if v.UsageLimit and v.UsedCount >= v.UsageLimit: return Response({"message": "Voucher đã hết lượt sử dụng"}, status=status.HTTP_400_BAD_REQUEST)
+    _write_customer_log(request, request.data.get("customer_id"), "apply_voucher", f"Code: {code}")
     return Response({"message": "Áp dụng voucher thành công", "voucher": _fmt_voucher(v)}, status=status.HTTP_200_OK)
 
 
@@ -1561,7 +1574,7 @@ def create_order(request):
             for item in items:
                 raw_vid = item.get('variant_id')
                 try:    vid = int(raw_vid)
-                except: return Response({"message": "Sản phẩm không hợp lệ. Vui lòng xóa giỏ hàng và thêm lại."}, status=status.HTTP_400_BAD_REQUEST)
+                except (ValueError, TypeError): return Response({"message": "Sản phẩm không hợp lệ. Vui lòng xóa giỏ hàng và thêm lại."}, status=status.HTTP_400_BAD_REQUEST)
 
                 # [FIX RACE CONDITION] select_for_update(nowait=False) lock row độc quyền
                 # Nếu transaction khác đang giữ lock → đợi giải phóng rồi mới đọc
@@ -1656,8 +1669,13 @@ def create_order(request):
         return Response({"message": f"Đặt hàng thất bại, vui lòng thử lại. ({str(e)})"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     resp = {"message": "Đặt hàng thành công", "order_id": order.OrderID}
-    if payment_method == "momo":  resp["momo_url"]  = None
-    if payment_method == "vnpay": resp["vnpay_url"] = None
+    _write_customer_log(request, customer_id, "create_order",
+        f"OrderID: {order.OrderID}, total: {total}, method: {payment_method}")
+
+    # [FIX] Gọi MoMo API inline — dùng helper _call_momo_api
+    if payment_method == "momo":
+        resp["momo_url"] = _call_momo_api(order.OrderID, total)
+
     return Response(resp, status=status.HTTP_201_CREATED)
 
 
@@ -1703,6 +1721,7 @@ def cancel_order(request):
             o.save()
     except Exception as e:
         return Response({"message": f"Hủy đơn thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    _write_customer_log(request, customer_id, "cancel_order", f"OrderID: {order_id}")
     return Response({"message": "Đã hủy đơn hàng thành công"}, status=status.HTTP_200_OK)
 
 
@@ -1797,6 +1816,7 @@ def create_return_request(request):
             o.save()
     except Exception as e:
         return Response({"message": f"Tạo yêu cầu thất bại: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    _write_customer_log(request, customer_id, "create_return", f"OrderID: {order_id}, reason: {reason[:80]}")
     return Response({"message": "Đã gửi yêu cầu trả hàng thành công", "return_id": rr.ReturnID}, status=status.HTTP_201_CREATED)
 
 
@@ -1954,6 +1974,7 @@ def delete_post(request):
 
 def _serialize_review(review, customer_id=None):
     from .models import AdminReply, Like, ReviewMedia
+    import json as _json
     media       = [{"url": m.url, "type": m.media_type} for m in ReviewMedia.objects.filter(review=review)]
     admin_reply = AdminReply.objects.filter(target_type="review", target_id=review.id).first()
     liked = False
@@ -1965,18 +1986,82 @@ def _serialize_review(review, customer_id=None):
         v = review.variant
         parts = [v.Color, v.Ram, v.Storage]
         variant_label = " · ".join(p for p in parts if p)
-    return {"id": review.id, "type": "review", "customer_id": str(review.customer_id), "customer_name": review.customer.FullName, "customer_avatar": review.customer.Avatar or "", "product_id": review.product_id, "product_name": review.product.ProductName, "variant": variant_label, "rating": review.rating, "content": review.content, "media": media, "admin_reply": {"content": admin_reply.content} if admin_reply else None, "liked": liked, "likes": likes, "created_at": review.created_at.isoformat(), "updated_at": review.updated_at.isoformat()}
+    # Kiểm tra đã mua hàng
+    has_purchased = False
+    purchased_info = ""
+    if customer_id:
+        od = OrderDetail.objects.filter(
+            OrderID__CustomerID=customer_id,
+            OrderID__Status="Delivered",
+            VariantID__ProductID=review.product_id,
+        ).select_related("VariantID").first()
+        if od:
+            has_purchased = True
+            v = od.VariantID
+            parts = [p for p in [v.Color, v.Ram, v.Storage] if p]
+            purchased_info = review.product.ProductName + (" · " + " / ".join(parts) if parts else "")
+    # Admin reply media
+    ar_media = []
+    if admin_reply:
+        try: ar_media = _json.loads(admin_reply.Media or "[]")
+        except (ValueError, TypeError, json.JSONDecodeError): ar_media = []
+    return {
+        "id": review.id, "type": "review",
+        "customer_id": str(review.customer_id), "customer_name": review.customer.FullName,
+        "customer_avatar": review.customer.Avatar or "",
+        "product_id": review.product_id, "product_name": review.product.ProductName,
+        "variant": variant_label, "rating": review.rating, "content": review.content,
+        "media": media,
+        "has_purchased": has_purchased, "purchased_info": purchased_info,
+        "admin_reply": {"content": admin_reply.content, "media": ar_media, "created_at": admin_reply.created_at.isoformat()} if admin_reply else None,
+        "liked": liked, "likes": likes,
+        "created_at": review.created_at.isoformat(), "updated_at": review.updated_at.isoformat(),
+    }
 
 
 def _serialize_comment(comment, customer_id=None):
     from .models import AdminReply, Like, Comment
+    import json as _json
     admin_reply = AdminReply.objects.filter(target_type="comment", target_id=comment.id).first()
     liked = False
     likes = Like.objects.filter(target_type="comment", target_id=comment.id).count()
     if customer_id:
         liked = Like.objects.filter(customer_id=customer_id, target_type="comment", target_id=comment.id).exists()
     replies = [_serialize_comment(r, customer_id) for r in Comment.objects.filter(parent=comment).order_by("created_at")]
-    return {"id": comment.id, "type": "comment", "customer_id": str(comment.customer_id), "customer_name": comment.customer.FullName, "customer_avatar": comment.customer.Avatar or "", "product_id": comment.product_id, "product_name": comment.product.ProductName, "parent_id": comment.parent_id, "content": comment.content, "admin_reply": {"content": admin_reply.content} if admin_reply else None, "liked": liked, "likes": likes, "replies": replies, "created_at": comment.created_at.isoformat(), "updated_at": comment.updated_at.isoformat()}
+    # Comment media
+    try: c_media = _json.loads(comment.Media or "[]")
+    except (ValueError, TypeError, json.JSONDecodeError): c_media = []
+    # has_purchased
+    has_purchased = False
+    purchased_info = ""
+    if customer_id:
+        od = OrderDetail.objects.filter(
+            OrderID__CustomerID=customer_id,
+            OrderID__Status="Delivered",
+            VariantID__ProductID=comment.product_id,
+        ).select_related("VariantID", "VariantID__ProductID").first()
+        if od:
+            has_purchased = True
+            v = od.VariantID
+            parts = [p for p in [v.Color, v.Ram, v.Storage] if p]
+            purchased_info = v.ProductID.ProductName + (" · " + " / ".join(parts) if parts else "")
+    # Admin reply media
+    ar_media = []
+    if admin_reply:
+        try: ar_media = _json.loads(admin_reply.Media or "[]")
+        except (ValueError, TypeError, json.JSONDecodeError): ar_media = []
+    return {
+        "id": comment.id, "type": "comment",
+        "customer_id": str(comment.customer_id), "customer_name": comment.customer.FullName,
+        "customer_avatar": comment.customer.Avatar or "",
+        "product_id": comment.product_id, "product_name": comment.product.ProductName,
+        "parent_id": comment.parent_id, "content": comment.content,
+        "media": c_media,
+        "has_purchased": has_purchased, "purchased_info": purchased_info,
+        "admin_reply": {"content": admin_reply.content, "media": ar_media, "created_at": admin_reply.created_at.isoformat()} if admin_reply else None,
+        "liked": liked, "likes": likes, "replies": replies,
+        "created_at": comment.created_at.isoformat(), "updated_at": comment.updated_at.isoformat(),
+    }
 
 
 @api_view(['GET'])
@@ -2005,7 +2090,7 @@ def create_review(request):
     try:
         rating = int(rating)
         if not (1 <= rating <= 5): raise ValueError
-    except: return Response({"ok": False, "error": "Rating phải từ 1–5"}, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, TypeError): return Response({"ok": False, "error": "Rating phải từ 1–5"}, status=status.HTTP_400_BAD_REQUEST)
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer: return Response({"ok": False, "error": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
     product = Product.objects.filter(ProductID=product_id).first()
@@ -2024,6 +2109,7 @@ def create_review(request):
     for m in media_list:
         url = m.get("url", ""); mtype = m.get("type", "image")
         if url: ReviewMedia.objects.create(review=review, url=url, media_type=mtype)
+    _write_customer_log(request, customer_id, "create_review", f"ProductID: {product_id}, rating: {rating}")
     return Response({"ok": True, "review": _serialize_review(review, customer_id)}, status=status.HTTP_201_CREATED)
 
 
@@ -2039,12 +2125,13 @@ def update_review(request):
     try:
         rating = int(rating)
         if not (1 <= rating <= 5): raise ValueError
-    except: return Response({"ok": False, "error": "Rating phải từ 1–5"}, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, TypeError): return Response({"ok": False, "error": "Rating phải từ 1–5"}, status=status.HTTP_400_BAD_REQUEST)
     review.rating = rating; review.content = content; review.save()
     ReviewMedia.objects.filter(review=review).delete()
     for m in media_list:
         url = m.get("url", ""); mtype = m.get("type", "image")
         if url: ReviewMedia.objects.create(review=review, url=url, media_type=mtype)
+    _write_customer_log(request, customer_id, "update_review", f"ReviewID: {review.id}")
     return Response({"ok": True, "review": _serialize_review(review, customer_id)}, status=status.HTTP_200_OK)
 
 
@@ -2056,33 +2143,70 @@ def delete_review(request):
     review = Review.objects.filter(id=review_id, customer_id=customer_id).first()
     if not review: return Response({"ok": False, "error": "Không tìm thấy đánh giá"}, status=status.HTTP_404_NOT_FOUND)
     review.delete()
+    _write_customer_log(request, request.data.get("customer_id"), "delete_review", f"ReviewID: {request.data.get('review_id')}")
     return Response({"ok": True, "message": "Đã xóa đánh giá"}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticatedCustomer])
 def upload_review_media(request):
-    customer_id = request.data.get("customer_id"); media_file = request.FILES.get("file")
-    if not customer_id or not media_file: return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
-    # [FIX #9] Server-side validation
-    ALLOWED_IMAGE_MIMES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-    ALLOWED_VIDEO_MIMES = {'video/mp4', 'video/webm', 'video/quicktime'}
-    MAX_IMG_SIZE  = 5  * 1024 * 1024   # 5MB
-    MAX_VID_SIZE  = 50 * 1024 * 1024   # 50MB
-    ct = media_file.content_type or ''
-    is_video = ct.startswith('video/')
-    if is_video:
-        if media_file.size > MAX_VID_SIZE: return Response({"ok": False, "error": "Video không được vượt quá 50MB"}, status=status.HTTP_400_BAD_REQUEST)
-        if ct not in ALLOWED_VIDEO_MIMES:  return Response({"ok": False, "error": f"Định dạng video không được phép: {ct}"}, status=status.HTTP_400_BAD_REQUEST)
-    else:
-        if media_file.size > MAX_IMG_SIZE: return Response({"ok": False, "error": "Ảnh không được vượt quá 5MB"}, status=status.HTTP_400_BAD_REQUEST)
-        if ct not in ALLOWED_IMAGE_MIMES:  return Response({"ok": False, "error": f"Định dạng ảnh không được phép: {ct}"}, status=status.HTTP_400_BAD_REQUEST)
-    if media_file.size > 200 * 1024 * 1024: return Response({"ok": False, "error": "File quá lớn (tối đa 200MB)"}, status=status.HTTP_400_BAD_REQUEST)
+    """
+    Upload 1 file media (ảnh / video / gif) cho review hoặc comment.
+    Mỗi lần chỉ upload 1 file — frontend gọi nhiều lần nếu cần nhiều file.
+    Giới hạn: ảnh ≤100MB, video ≤100MB, gif ≤100MB.
+    """
+    customer_id = request.data.get("customer_id")
+    media_file  = request.FILES.get("file")
+    if not customer_id or not media_file:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+
+    MAX_SIZE = 100 * 1024 * 1024   # 100MB cho tất cả loại
+    ALLOWED_IMAGE_MIMES = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp'}
+    ALLOWED_GIF_MIMES   = {'image/gif'}
+    ALLOWED_VIDEO_MIMES = {'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'}
+
+    ct = (media_file.content_type or "").lower()
+    is_video = ct in ALLOWED_VIDEO_MIMES
+    is_gif   = ct in ALLOWED_GIF_MIMES
+    is_image = ct in ALLOWED_IMAGE_MIMES
+
+    if not (is_video or is_gif or is_image):
+        return Response({
+            "ok": False,
+            "error": f"Định dạng không được hỗ trợ: {ct}. Chỉ chấp nhận ảnh (jpg/png/webp), gif, video (mp4/webm/mov)."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if media_file.size > MAX_SIZE:
+        return Response({
+            "ok": False,
+            "error": f"File quá lớn. Mỗi {'ảnh' if is_image else 'GIF' if is_gif else 'video'} tối đa 100MB."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     try:
-        resource_type = "video" if media_file.content_type.startswith("video") else "image"
-        # enhance chỉ áp dụng với ảnh; _upload_to_cloudinary tự bỏ qua nếu resource_type="video"
-        result = _upload_to_cloudinary(media_file, enhance="product", folder=f"sellphone/reviews/{customer_id}", resource_type=resource_type)
-        return Response({"ok": True, "url": result["secure_url"], "media_type": resource_type}, status=status.HTTP_200_OK)
+        if is_video:
+            resource_type = "video"
+            media_type_label = "video"
+            enhance = None
+        elif is_gif:
+            resource_type = "image"
+            media_type_label = "gif"
+            enhance = None   # GIF không enhance để giữ animation
+        else:
+            resource_type = "image"
+            media_type_label = "image"
+            enhance = "product"
+
+        result = _upload_to_cloudinary(
+            media_file,
+            enhance=enhance,
+            folder=f"sellphone/reviews/{customer_id}",
+            resource_type=resource_type,
+        )
+        return Response({
+            "ok": True,
+            "url": result["secure_url"],
+            "media_type": media_type_label,
+        }, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({"ok": False, "error": f"Lỗi upload: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -2101,8 +2225,11 @@ def list_comments(request):
 @permission_classes([IsAuthenticatedCustomer])
 def create_comment(request):
     from .models import Comment
+    import json as _json
     customer_id = request.data.get("customer_id"); product_id = request.data.get("product_id")
-    content = request.data.get("content", "").strip(); parent_id = request.data.get("parent_id")
+    content    = request.data.get("content", "").strip()
+    parent_id  = request.data.get("parent_id")
+    media_list = request.data.get("media", [])   # [{url, type}] đã upload sẵn
     if not customer_id or not product_id: return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
     if not content: return Response({"ok": False, "error": "Nội dung bình luận không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
     customer = Customer.objects.filter(CustomerID=customer_id).first()
@@ -2110,8 +2237,38 @@ def create_comment(request):
     product = Product.objects.filter(ProductID=product_id).first()
     if not product: return Response({"ok": False, "error": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
     parent = Comment.objects.filter(id=parent_id).first() if parent_id else None
-    comment = Comment.objects.create(customer=customer, product=product, parent=parent, content=content)
+    media_json = _json.dumps(media_list, ensure_ascii=False) if media_list else "[]"
+    comment = Comment.objects.create(customer=customer, product=product, parent=parent, content=content, Media=media_json)
+    _write_customer_log(request, customer_id, "create_comment", f"ProductID: {request.data.get('product_id')}")
     return Response({"ok": True, "comment": _serialize_comment(comment, customer_id)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticatedCustomer])
+def update_comment(request):
+    """Sửa nội dung + media của bình luận (chỉ chủ sở hữu)."""
+    from .models import Comment
+    import json as _json
+    comment_id  = request.data.get("comment_id")
+    customer_id = request.data.get("customer_id")
+    content     = request.data.get("content", "").strip()
+    media_list  = request.data.get("media", [])  # [{url, type}] sau khi đã upload
+
+    if not comment_id or not customer_id:
+        return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
+    if not content:
+        return Response({"ok": False, "error": "Nội dung không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
+
+    comment = Comment.objects.filter(id=comment_id, customer_id=customer_id).first()
+    if not comment:
+        return Response({"ok": False, "error": "Không tìm thấy bình luận hoặc bạn không có quyền"}, status=status.HTTP_404_NOT_FOUND)
+
+    comment.content = content
+    comment.Media   = _json.dumps(media_list, ensure_ascii=False)
+    comment.save(update_fields=["content", "Media", "updated_at"])
+
+    _write_customer_log(request, customer_id, "create_comment", f"Edit CommentID: {comment_id}")
+    return Response({"ok": True, "comment": _serialize_comment(comment, customer_id)}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -2122,6 +2279,7 @@ def delete_comment(request):
     comment = Comment.objects.filter(id=comment_id, customer_id=customer_id).first()
     if not comment: return Response({"ok": False, "error": "Không tìm thấy bình luận"}, status=status.HTTP_404_NOT_FOUND)
     comment.delete()
+    _write_customer_log(request, request.data.get("customer_id"), "delete_comment", f"CommentID: {request.data.get('comment_id')}")
     return Response({"ok": True, "message": "Đã xóa bình luận"}, status=status.HTTP_200_OK)
 
 
@@ -2138,6 +2296,8 @@ def toggle_like(request):
     if like_obj: like_obj.delete(); liked = False
     else: Like.objects.create(customer=customer, target_type=target_type, target_id=target_id); liked = True
     count = Like.objects.filter(target_type=target_type, target_id=target_id).count()
+    action_name = "like" if liked else "unlike"
+    _write_customer_log(request, customer_id, action_name, f"{target_type}:{target_id}")
     return Response({"ok": True, "liked": liked, "count": count}, status=status.HTTP_200_OK)
 
 
@@ -2177,11 +2337,10 @@ def admin_reply(request):
     if not target_type or not target_id: return Response({"ok": False, "error": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
     if target_type not in ("review", "comment"): return Response({"ok": False, "error": "type không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     if not content: return Response({"ok": False, "error": "Nội dung phản hồi không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
-    obj, created = AdminReply.objects.update_or_create(target_type=target_type, target_id=int(target_id), defaults={"content": content})
-    action = "reply_comment" if target_type == "comment" else "reply_review"
-    label  = "bình luận" if target_type == "comment" else "đánh giá"
-    verb   = "Trả lời" if created else "Sửa phản hồi"
-    _write_log(request, None, action, f"{verb} {label} #{target_id}: {content[:100]}")
+    import json as _json
+    media_list = request.data.get("media", [])
+    media_json = _json.dumps(media_list, ensure_ascii=False) if media_list else "[]"
+    obj, _ = AdminReply.objects.update_or_create(target_type=target_type, target_id=int(target_id), defaults={"content": content, "Media": media_json})
     return Response({"ok": True, "message": "Đã phản hồi thành công", "reply": {"id": obj.id, "content": obj.content}}, status=status.HTTP_200_OK)
 
 
@@ -2193,8 +2352,6 @@ def admin_delete_reply(request):
     reply = AdminReply.objects.filter(target_type=target_type, target_id=target_id).first()
     if not reply: return Response({"ok": False, "error": "Không tìm thấy phản hồi"}, status=status.HTTP_404_NOT_FOUND)
     reply.delete()
-    label = "bình luận" if target_type == "comment" else "đánh giá"
-    _write_log(request, None, "delete_reply", f"Xóa phản hồi {label} #{target_id}")
     return Response({"ok": True, "message": "Đã xóa phản hồi"}, status=status.HTTP_200_OK)
 
 
@@ -2273,44 +2430,167 @@ MOMO_CONFIG  = _payment_settings.MOMO_CONFIG
 VNPAY_CONFIG = _payment_settings.VNPAY_CONFIG
 
 
+def _call_momo_api(order_id, amount) -> str | None:
+    """
+    Gọi MoMo captureWallet API, trả về payUrl hoặc None nếu lỗi.
+
+    Các fix so với phiên bản cũ:
+    1. orderId dùng uuid4 thay time.time() → tránh trùng khi gọi nhanh
+    2. amount là str (MoMo v2 yêu cầu string trong JSON nhưng integer trong raw)
+    3. storeId thêm vào để MoMo nhận diện đúng merchant
+    4. Log đầy đủ resultCode + message + orderId để debug dễ hơn
+    """
+    import hmac as _hmac, hashlib as _hashlib, uuid as _uuid, urllib.request as _urllib_req
+    try:
+        partner_code = MOMO_CONFIG["partner_code"]
+        access_key   = MOMO_CONFIG["access_key"]
+        secret_key   = MOMO_CONFIG["secret_key"]
+        endpoint     = MOMO_CONFIG["endpoint"]
+        redirect_url = MOMO_CONFIG["redirect_url"]
+        ipn_url      = MOMO_CONFIG["ipn_url"]
+
+        request_id   = str(_uuid.uuid4())
+        # [FIX #1] orderId dùng uuid thay time.time() — tránh trùng khi retry
+        momo_order_id = f"{order_id}-{str(_uuid.uuid4())[:8]}"
+        order_info   = f"Thanh toan don hang #{order_id}"
+        extra_data   = ""
+        # [FIX #2] amount phải là integer khi ký, string khi gửi JSON
+        amt_int      = int(float(str(amount)))
+
+        # Raw string — đúng thứ tự alphabet, không có space
+        raw = (
+            f"accessKey={access_key}"
+            f"&amount={amt_int}"
+            f"&extraData={extra_data}"
+            f"&ipnUrl={ipn_url}"
+            f"&orderId={momo_order_id}"
+            f"&orderInfo={order_info}"
+            f"&partnerCode={partner_code}"
+            f"&redirectUrl={redirect_url}"
+            f"&requestId={request_id}"
+            f"&requestType=captureWallet"
+        )
+        sig = _hmac.new(
+            secret_key.encode("utf-8"),
+            raw.encode("utf-8"),
+            _hashlib.sha256,
+        ).hexdigest()
+
+        payload = json.dumps({
+            "partnerCode": partner_code,
+            "accessKey":   access_key,
+            "requestId":   request_id,
+            "amount":      str(amt_int),   # [FIX #2] string theo MoMo v2 JSON spec
+            "orderId":     momo_order_id,
+            "orderInfo":   order_info,
+            "redirectUrl": redirect_url,
+            "ipnUrl":      ipn_url,
+            "extraData":   extra_data,
+            "requestType": "captureWallet",
+            "signature":   sig,
+            "lang":        "vi",
+        }, ensure_ascii=False).encode("utf-8")
+
+        req = _urllib_req.Request(
+            endpoint, data=payload,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+        with _urllib_req.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode("utf-8"))
+
+        rc = data.get("resultCode", -1)
+        if rc == 0:
+            logger.info(f"[MoMo] OK orderId={momo_order_id} payUrl={data.get('payUrl','')[:60]}")
+            return data.get("payUrl")
+        else:
+            # Log chi tiết để debug
+            logger.error(
+                f"[MoMo] FAILED orderId={momo_order_id} "
+                f"resultCode={rc} message={data.get('message')} "
+                f"localMessage={data.get('localMessage')}"
+            )
+            return None
+
+    except Exception as e:
+        logger.error(f"[MoMo] Exception order={order_id}: {e}")
+        return None
+
+
 @api_view(['POST'])
 def momo_create(request):
-    import hmac, hashlib, uuid, urllib.request
-    order_id = request.data.get("order_id"); amount = request.data.get("amount")
-    if not order_id or not amount: return Response({"message": "Thiếu order_id hoặc amount"}, status=status.HTTP_400_BAD_REQUEST)
-    request_id = str(uuid.uuid4())
-    order_info = f"Thanh toan don hang #{order_id}"
-    extra_data = ""
-    momo_order_id = f"{order_id}-{int(time.time())}"
-    raw = f"accessKey={MOMO_CONFIG['access_key']}&amount={int(amount)}&extraData={extra_data}&ipnUrl={MOMO_CONFIG['ipn_url']}&orderId={momo_order_id}&orderInfo={order_info}&partnerCode={MOMO_CONFIG['partner_code']}&redirectUrl={MOMO_CONFIG['redirect_url']}&requestId={request_id}&requestType=payWithATM"
-    sig = hmac.new(MOMO_CONFIG["secret_key"].encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
-    payload = json.dumps({"partnerCode": MOMO_CONFIG["partner_code"], "accessKey": MOMO_CONFIG["access_key"], "requestId": request_id, "amount": str(int(amount)), "orderId": momo_order_id, "orderInfo": order_info, "redirectUrl": MOMO_CONFIG["redirect_url"], "ipnUrl": MOMO_CONFIG["ipn_url"], "extraData": extra_data, "requestType": "payWithATM", "signature": sig, "lang": "vi"}).encode("utf-8")
-    try:
-        req = urllib.request.Request(MOMO_CONFIG["endpoint"], data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if data.get("resultCode") != 0: return Response({"message": data.get("message", "MoMo error")}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"pay_url": data["payUrl"]}, status=status.HTTP_200_OK)
-    except Exception as e:
-        return Response({"message": f"Lỗi MoMo: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    """Endpoint riêng để tạo lại MoMo URL (dùng khi URL cũ hết hạn)."""
+    order_id = request.data.get("order_id")
+    amount   = request.data.get("amount")
+    if not order_id or not amount:
+        return Response({"message": "Thiếu order_id hoặc amount"}, status=status.HTTP_400_BAD_REQUEST)
+    pay_url = _call_momo_api(order_id, amount)
+    if pay_url:
+        return Response({"pay_url": pay_url}, status=status.HTTP_200_OK)
+    return Response({"message": "Không thể kết nối MoMo. Vui lòng thử lại."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
 def momo_ipn(request):
-    result_code = request.data.get('resultCode'); order_id = request.data.get('orderId')
-    if result_code == 0:
-        o = Order.objects.filter(OrderID=order_id).first()
-        if o:
-            try: o.PaymentStatus = "Paid"; o.save()
-            except: pass
+    """
+    MoMo gọi IPN này sau khi người dùng thanh toán xong.
+    orderId từ MoMo = "{OrderID}-{uuid8}" → tách lấy phần trước dấu '-' đầu tiên.
+    resultCode là integer trong IPN payload.
+    """
+    result_code = request.data.get("resultCode")
+    momo_order_id = request.data.get("orderId", "")
+    # Tách real OrderID: "42-a1b2c3d4" → "42"
+    real_order_id = momo_order_id.split("-")[0] if momo_order_id else ""
+
+    logger.info(f"[MoMo IPN] resultCode={result_code} orderId={momo_order_id} realOrderId={real_order_id}")
+
+    # [FIX] resultCode là int trong IPN
+    if str(result_code) == "0" and real_order_id:
+        try:
+            o = Order.objects.filter(OrderID=real_order_id).first()
+            if o:
+                try:
+                    o.PaymentMethod = "momo"
+                    o.save(update_fields=["PaymentMethod"])
+                except Exception:
+                    pass
+                logger.info(f"[MoMo IPN] Order #{real_order_id} đã thanh toán thành công")
+        except Exception as e:
+            logger.error(f"[MoMo IPN] Lỗi cập nhật order: {e}")
+
+    # MoMo yêu cầu trả về 200 luôn để tắt retry
     return Response({"message": "IPN received"}, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
 def momo_return(request):
-    result_code = request.query_params.get("resultCode", "-1"); order_id = request.query_params.get("orderId")
-    if result_code == "0": return Response({"success": True, "order_id": order_id, "message": "Thanh toán thành công"})
-    return Response({"success": False, "order_id": order_id, "message": "Thanh toán thất bại hoặc bị hủy"})
+    """
+    MoMo redirect người dùng về đây sau khi thanh toán.
+    Thay vì trả JSON (người dùng thấy màn hình trắng),
+    redirect ngay về frontend với các query params để React xử lý.
+
+    URL frontend nhận: /payment/momo-return?success=true&order_id=42
+    """
+    from django.http import HttpResponseRedirect
+    result_code   = request.query_params.get("resultCode", "-1")
+    momo_order_id = request.query_params.get("orderId", "")
+    message       = request.query_params.get("message", "")
+
+    # Tách real OrderID: "42-a1b2c3d4" → "42"
+    real_order_id = momo_order_id.split("-")[0] if momo_order_id else ""
+
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+    if result_code == "0":
+        # Thanh toán thành công → về trang đơn hàng
+        redirect_url = f"{frontend_url}/payment/momo-return?success=true&order_id={real_order_id}"
+    else:
+        # Thất bại/hủy → về trang payment với thông báo lỗi
+        import urllib.parse
+        err_msg = urllib.parse.quote(message or "Thanh toán thất bại hoặc bị hủy")
+        redirect_url = f"{frontend_url}/payment/momo-return?success=false&order_id={real_order_id}&message={err_msg}"
+
+    logger.info(f"[MoMo Return] resultCode={result_code} orderId={momo_order_id} → redirect {redirect_url}")
+    return HttpResponseRedirect(redirect_url)
 
 
 @api_view(['POST'])
@@ -2484,6 +2764,58 @@ def dashboard_revenue_compare(request):
     return Response({"mode": mode, "data": result})
 
 
+@api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
+def dashboard_revenue_by_category(request):
+    year  = request.query_params.get("year")
+    month = request.query_params.get("month")
+    qs    = OrderDetail.objects.filter(OrderID__Status="Delivered")
+    if year:  qs = qs.filter(OrderID__OrderDate__year=int(year))
+    if month: qs = qs.filter(OrderID__OrderDate__month=int(month))
+    rows  = qs.values(
+        category_id=F("VariantID__ProductID__CategoryID__CategoryID"),
+        category_name=F("VariantID__ProductID__CategoryID__CategoryName"),
+    ).annotate(
+        revenue=Sum(ExpressionWrapper(F("UnitPrice") * F("Quantity"), output_field=FloatField())),
+        qty_sold=Sum("Quantity"),
+        order_count=Count("OrderID", distinct=True),
+        product_count=Count("VariantID__ProductID", distinct=True),
+    ).order_by("-revenue")
+    total_rev = sum(float(r["revenue"] or 0) for r in rows)
+    result = [{
+        "category_id":   r["category_id"],
+        "category_name": r["category_name"] or "Không rõ",
+        "revenue":       float(r["revenue"] or 0),
+        "qty_sold":      r["qty_sold"] or 0,
+        "order_count":   r["order_count"] or 0,
+        "product_count": r["product_count"] or 0,
+        "share_pct":     round(float(r["revenue"] or 0) / total_rev * 100, 1) if total_rev else 0,
+    } for r in rows]
+    return Response({"data": result})
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
+def dashboard_order_stats(request):
+    year  = request.query_params.get("year")
+    month = request.query_params.get("month")
+    day   = request.query_params.get("day")
+    qs = Order.objects.all()
+    if year:  qs = qs.filter(OrderDate__year=int(year))
+    if month: qs = qs.filter(OrderDate__month=int(month))
+    if day:   qs = qs.filter(OrderDate__day=int(day))
+    rows  = qs.values("Status").annotate(count=Count("OrderID"))
+    stats = {r["Status"]: r["count"] for r in rows}
+    return Response({
+        "Pending":    stats.get("Pending", 0),
+        "Processing": stats.get("Processing", 0),
+        "Shipping":   stats.get("Shipping", 0),
+        "Delivered":  stats.get("Delivered", 0),
+        "Cancelled":  stats.get("Cancelled", 0),
+        "total":      sum(stats.values()),
+    })
+
+
 # ══════════════════════════════════════════════════════════════
 # HOME
 # ══════════════════════════════════════════════════════════════
@@ -2626,9 +2958,190 @@ def _write_log(request, staff_obj, action: str, detail: str = ""):
         logger.warning(f"[ActivityLog] write failed: {e}")
 
 
+def _write_customer_log(request, customer_id, action: str, detail: str = ""):
+    """
+    Ghi 1 dòng CustomerActivityLog.
+    - customer_id: CustomerID string hoặc Customer instance.
+    - action: một trong ACTION_CHOICES của CustomerActivityLog.
+    - detail: mô tả chi tiết (tối đa 500 ký tự), nên dùng JSON string.
+    """
+    try:
+        if isinstance(customer_id, Customer):
+            customer_obj = customer_id
+        elif customer_id:
+            customer_obj = Customer.objects.filter(CustomerID=customer_id).first()
+        else:
+            customer_obj = None
+
+        ip = (
+            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+            or request.META.get("REMOTE_ADDR", "")
+        )
+        ua = request.META.get("HTTP_USER_AGENT", "")[:300]
+
+        CustomerActivityLog.objects.create(
+            CustomerID=customer_obj,
+            Action=action,
+            Detail=str(detail)[:500],
+            IPAddress=ip[:45],
+            UserAgent=ua,
+        )
+    except Exception as e:
+        logger.warning(f"[CustomerActivityLog] write failed: {e}")
+
+
 # ══════════════════════════════════════════════════════════════
 # ACTIVITY LOG VIEWS
 # ══════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════
+# CUSTOMER ACTIVITY LOG VIEWS
+# ══════════════════════════════════════════════════════════════
+
+@api_view(["GET"])
+@permission_classes([IsAdminOrStaff])
+def list_customer_activity_logs(request):
+    """
+    GET /api/customer-log/list/
+    Query params:
+      - customer_id  : lọc theo khách hàng (optional)
+      - action       : lọc theo hành động (optional)
+      - page         : trang (default 1)
+      - page_size    : số dòng/trang (default 50, max 200)
+    """
+    from .models import CustomerActivityLog
+    customer_id = request.query_params.get("customer_id")
+    action      = request.query_params.get("action")
+    try:
+        page      = max(1, int(request.query_params.get("page", 1)))
+        page_size = min(200, max(1, int(request.query_params.get("page_size", 50))))
+    except (ValueError, TypeError):
+        page, page_size = 1, 50
+
+    qs = CustomerActivityLog.objects.select_related("CustomerID").order_by("-CreatedAt")
+    if customer_id:
+        qs = qs.filter(CustomerID=customer_id)
+    if action:
+        qs = qs.filter(Action=action)
+
+    total  = qs.count()
+    offset = (page - 1) * page_size
+    logs   = qs[offset: offset + page_size]
+
+    result = []
+    for log in logs:
+        cust = log.CustomerID
+        result.append({
+            "id":          log.LogID,
+            "customer_id": cust.CustomerID if cust else None,
+            "full_name":   cust.FullName   if cust else "Đã xóa",
+            "email":       cust.Email      if cust else "",
+            "action":      log.Action,
+            "action_label": dict(CustomerActivityLog.ACTION_CHOICES).get(log.Action, log.Action),
+            "detail":      log.Detail,
+            "ip":          log.IPAddress,
+            "user_agent":  log.UserAgent,
+            "created_at":  log.CreatedAt.isoformat() if log.CreatedAt else "",
+        })
+
+    return Response({
+        "logs":      result,
+        "total":     total,
+        "page":      page,
+        "page_size": page_size,
+        "pages":     (total + page_size - 1) // page_size,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedCustomer])
+def get_my_activity_log(request):
+    """
+    GET /api/customer-log/me/
+    Query params:
+      - customer_id : bắt buộc
+      - page        : trang (default 1)
+      - page_size   : số dòng/trang (default 20, max 100)
+    Khách hàng chỉ xem được log của chính mình.
+    """
+    from .models import CustomerActivityLog
+    customer_id = request.query_params.get("customer_id")
+    if not customer_id:
+        return Response({"message": "Thiếu customer_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        page      = max(1, int(request.query_params.get("page", 1)))
+        page_size = min(100, max(1, int(request.query_params.get("page_size", 20))))
+    except (ValueError, TypeError):
+        page, page_size = 1, 20
+
+    qs     = CustomerActivityLog.objects.filter(CustomerID=customer_id).order_by("-CreatedAt")
+    total  = qs.count()
+    offset = (page - 1) * page_size
+    logs   = qs[offset: offset + page_size]
+
+    result = [{
+        "id":          log.LogID,
+        "action":      log.Action,
+        "action_label": dict(CustomerActivityLog.ACTION_CHOICES).get(log.Action, log.Action),
+        "detail":      log.Detail,
+        "created_at":  log.CreatedAt.isoformat() if log.CreatedAt else "",
+    } for log in logs]
+
+    return Response({
+        "logs":      result,
+        "total":     total,
+        "page":      page,
+        "page_size": page_size,
+        "pages":     (total + page_size - 1) // page_size,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(["DELETE", "POST"])
+@permission_classes([IsAdminOnly])
+def clear_customer_activity_logs(request):
+    """
+    POST /api/customer-log/clear/
+    Body: { "customer_id": "KH001" }  → xóa log của 1 khách
+    Body: {}                           → xóa toàn bộ (cẩn thận!)
+    """
+    from .models import CustomerActivityLog
+    customer_id = request.data.get("customer_id")
+    if customer_id:
+        deleted, _ = CustomerActivityLog.objects.filter(CustomerID=customer_id).delete()
+        return Response({"message": f"Đã xóa {deleted} bản ghi của khách {customer_id}"},
+                        status=status.HTTP_200_OK)
+    deleted, _ = CustomerActivityLog.objects.all().delete()
+    return Response({"message": f"Đã xóa toàn bộ {deleted} bản ghi log khách hàng"},
+                    status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminOrStaff])
+def customer_activity_stats(request):
+    """
+    GET /api/customer-log/stats/
+    Thống kê số lượt theo từng action trong 30 ngày gần nhất.
+    """
+    from .models import CustomerActivityLog
+    from django.utils import timezone as _tz
+    import datetime as _dt
+
+    since = _tz.now() - _dt.timedelta(days=30)
+    qs = (
+        CustomerActivityLog.objects
+        .filter(CreatedAt__gte=since)
+        .values("Action")
+        .annotate(count=Count("LogID"))
+        .order_by("-count")
+    )
+    labels = dict(CustomerActivityLog.ACTION_CHOICES)
+    result = [
+        {"action": row["Action"], "label": labels.get(row["Action"], row["Action"]), "count": row["count"]}
+        for row in qs
+    ]
+    return Response({"stats": result, "period_days": 30}, status=status.HTTP_200_OK)
+
 
 @api_view(["GET"])
 @permission_classes([IsAdminOnly])
@@ -3561,4 +4074,285 @@ def _chatbot_rule_based(msg: str, msg_lower: str, candidate_products: list, budg
     return Response({
         "reply": reply, "products": candidate_products,
         "show_products": bool(candidate_products), "intent": "product", "query": msg
+    })
+
+# ══════════════════════════════════════════════════════════════
+# STATS — Review / Product / Voucher / Order
+# Thêm vào cuối views.py
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
+def stats_reviews(request):
+    """
+    Thống kê đánh giá & bình luận.
+    Query params: year (optional), month (optional)
+    """
+    from .models import Review, Comment, AdminReply
+    from django.db.models.functions import TruncMonth, TruncDay
+
+    year  = request.query_params.get("year")
+    month = request.query_params.get("month")
+
+    # --- Base querysets ---
+    rv_qs = Review.objects.all()
+    cm_qs = Comment.objects.filter(parent__isnull=True)
+
+    if year:
+        rv_qs = rv_qs.filter(created_at__year=int(year))
+        cm_qs = cm_qs.filter(created_at__year=int(year))
+    if month:
+        rv_qs = rv_qs.filter(created_at__month=int(month))
+        cm_qs = cm_qs.filter(created_at__month=int(month))
+
+    total_reviews  = rv_qs.count()
+    total_comments = cm_qs.count()
+
+    # Tỉ lệ trả lời
+    replied_rv  = AdminReply.objects.filter(target_type="review").values_list("target_id", flat=True)
+    replied_cm  = AdminReply.objects.filter(target_type="comment").values_list("target_id", flat=True)
+    answered_rv = rv_qs.filter(id__in=replied_rv).count()
+    answered_cm = cm_qs.filter(id__in=replied_cm).count()
+
+    # Phân phối sao (chỉ review)
+    from django.db.models import Count as DCount
+    star_dist = list(
+        rv_qs.values("rating")
+             .annotate(count=DCount("id"))
+             .order_by("rating")
+    )
+    star_map = {r["rating"]: r["count"] for r in star_dist}
+    stars = [{"star": i, "count": star_map.get(i, 0)} for i in range(1, 6)]
+
+    avg_rating = rv_qs.aggregate(avg=Avg("rating"))["avg"]
+
+    # Top 5 sản phẩm được đánh giá nhiều nhất
+    top_products = list(
+        rv_qs.values(pid=F("product__ProductID"), pname=F("product__ProductName"))
+             .annotate(count=DCount("id"), avg_r=Avg("rating"))
+             .order_by("-count")[:5]
+    )
+
+    # Xu hướng theo tháng (12 tháng gần nhất hoặc theo year)
+    trend_qs = Review.objects.all()
+    if year:
+        trend_qs = trend_qs.filter(created_at__year=int(year))
+    trend = list(
+        trend_qs.annotate(mo=TruncMonth("created_at"))
+                .values("mo")
+                .annotate(reviews=DCount("id"), avg_r=Avg("rating"))
+                .order_by("mo")
+    )
+    trend_data = [
+        {"month": t["mo"].month, "label": f"T{t['mo'].month}", "reviews": t["reviews"],
+         "avg_rating": round(float(t["avg_r"] or 0), 2)}
+        for t in trend
+    ]
+
+    # Xu hướng comment
+    trend_cm_qs = Comment.objects.filter(parent__isnull=True)
+    if year:
+        trend_cm_qs = trend_cm_qs.filter(created_at__year=int(year))
+    trend_cm = list(
+        trend_cm_qs.annotate(mo=TruncMonth("created_at"))
+                   .values("mo")
+                   .annotate(comments=DCount("id"))
+                   .order_by("mo")
+    )
+    cm_map = {t["mo"].month: t["comments"] for t in trend_cm}
+    # Merge với trend_data
+    for row in trend_data:
+        row["comments"] = cm_map.get(row["month"], 0)
+
+    return Response({
+        "total_reviews":    total_reviews,
+        "total_comments":   total_comments,
+        "answered_reviews": answered_rv,
+        "answered_comments":answered_cm,
+        "unanswered":       (total_reviews - answered_rv) + (total_comments - answered_cm),
+        "avg_rating":       round(float(avg_rating or 0), 2),
+        "stars":            stars,
+        "top_products":     top_products,
+        "trend":            trend_data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
+def stats_products(request):
+    """
+    Thống kê kho hàng & sản phẩm.
+    """
+    from .models import Review
+    from django.db.models import Count as DCount, Min, Max
+
+    # Tổng sản phẩm / biến thể
+    total_products = Product.objects.count()
+    total_variants = ProductVariant.objects.count()
+
+    # Tổng tồn kho
+    stock_agg = ProductVariant.objects.aggregate(
+        total_stock=Sum("StockQuantity"),
+        min_stock=Min("StockQuantity"),
+        max_stock=Max("StockQuantity"),
+    )
+    total_stock   = stock_agg["total_stock"] or 0
+    out_of_stock  = ProductVariant.objects.filter(StockQuantity=0).count()
+    low_stock     = ProductVariant.objects.filter(StockQuantity__gt=0, StockQuantity__lte=5).count()
+
+    # Phân phối theo danh mục
+    by_cat = list(
+        Product.objects.values(
+            cat_id=F("CategoryID__CategoryID"),
+            cat_name=F("CategoryID__CategoryName"),
+        ).annotate(
+            product_count=DCount("ProductID"),
+            total_stock=Sum("productvariant__StockQuantity"),
+        ).order_by("-product_count")
+    )
+
+    # Phân phối theo hãng
+    by_brand = list(
+        Product.objects.values("Brand")
+                       .annotate(count=DCount("ProductID"))
+                       .order_by("-count")[:10]
+    )
+
+    # Top 10 biến thể tồn kho cao nhất
+    top_stock = list(
+        ProductVariant.objects.select_related("ProductID")
+                              .order_by("-StockQuantity")[:10]
+                              .values(
+                                  pid=F("ProductID__ProductID"),
+                                  pname=F("ProductID__ProductName"),
+                                  color=F("Color"),
+                                  storage=F("Storage"),
+                                  ram=F("Ram"),
+                                  stock=F("StockQuantity"),
+                                  price=F("Price"),
+                              )
+    )
+
+    # Top 10 sắp hết hàng (stock > 0 và <= 5)
+    low_stock_items = list(
+        ProductVariant.objects.filter(StockQuantity__gt=0, StockQuantity__lte=5)
+                              .select_related("ProductID")
+                              .order_by("StockQuantity")[:10]
+                              .values(
+                                  pid=F("ProductID__ProductID"),
+                                  pname=F("ProductID__ProductName"),
+                                  vid=F("VariantID"),
+                                  color=F("Color"),
+                                  storage=F("Storage"),
+                                  stock=F("StockQuantity"),
+                              )
+    )
+
+    # Sản phẩm được đánh giá cao nhất (avg rating >= 4)
+    top_rated = list(
+        Review.objects.values(
+            pid=F("product__ProductID"),
+            pname=F("product__ProductName"),
+        ).annotate(
+            avg_r=Avg("rating"),
+            count=DCount("id"),
+        ).filter(count__gte=1)
+         .order_by("-avg_r", "-count")[:5]
+    )
+
+    return Response({
+        "total_products":  total_products,
+        "total_variants":  total_variants,
+        "total_stock":     total_stock,
+        "out_of_stock":    out_of_stock,
+        "low_stock":       low_stock,
+        "by_category":     by_cat,
+        "by_brand":        [{"brand": b["Brand"] or "Không rõ", "count": b["count"]} for b in by_brand],
+        "top_stock":       [
+            {**item, "price": float(item["price"] or 0)} for item in top_stock
+        ],
+        "low_stock_items": low_stock_items,
+        "top_rated":       [
+            {**item, "avg_r": round(float(item["avg_r"] or 0), 2)} for item in top_rated
+        ],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminOrStaff])
+def stats_vouchers(request):
+    """
+    Thống kê voucher & hiệu quả sử dụng.
+    """
+    from .models import Voucher
+    from django.db.models import Count as DCount
+    import datetime
+
+    today = datetime.date.today()
+
+    qs = Voucher.objects.all()
+    total         = qs.count()
+    active        = qs.filter(IsActive=True).count()
+    inactive      = qs.filter(IsActive=False).count()
+    expired       = qs.filter(EndDate__lt=today, IsActive=True).count()
+    no_limit      = qs.filter(UsageLimit__isnull=True).count()
+    exhausted     = qs.filter(UsageLimit__isnull=False, UsedCount__gte=F("UsageLimit")).count()
+
+    # Phân loại theo scope
+    by_scope = list(
+        qs.values("Scope").annotate(count=DCount("VoucherID")).order_by("-count")
+    )
+
+    # Phân loại theo type
+    by_type = list(
+        qs.values("Type").annotate(count=DCount("VoucherID")).order_by("-count")
+    )
+
+    # Top 10 voucher dùng nhiều nhất
+    top_used = list(
+        qs.filter(UsedCount__gt=0)
+          .order_by("-UsedCount")[:10]
+          .values("VoucherID", "Code", "Type", "Value", "Scope", "UsedCount", "UsageLimit", "IsActive", "EndDate")
+    )
+
+    # Sắp hết hạn (trong 7 ngày tới)
+    near_expiry = list(
+        qs.filter(
+            IsActive=True,
+            EndDate__gte=today,
+            EndDate__lte=today + datetime.timedelta(days=7),
+        ).values("VoucherID", "Code", "Type", "Value", "EndDate", "UsedCount", "UsageLimit")
+         .order_by("EndDate")
+    )
+
+    # Tỉ lệ sử dụng tổng
+    total_used = sum(v.UsedCount for v in qs)
+    total_limit = sum(v.UsageLimit for v in qs if v.UsageLimit)
+
+    return Response({
+        "total":        total,
+        "active":       active,
+        "inactive":     inactive,
+        "expired":      expired,
+        "exhausted":    exhausted,
+        "no_limit":     no_limit,
+        "total_used":   total_used,
+        "total_limit":  total_limit,
+        "by_scope":     by_scope,
+        "by_type":      by_type,
+        "top_used":     [
+            {
+                **item,
+                "Value": float(item["Value"]),
+                "EndDate": item["EndDate"].isoformat() if item["EndDate"] else None,
+                "usage_pct": round(item["UsedCount"] / item["UsageLimit"] * 100, 1)
+                             if item["UsageLimit"] else None,
+            }
+            for item in top_used
+        ],
+        "near_expiry":  [
+            {**item, "Value": float(item["Value"]),
+             "EndDate": item["EndDate"].isoformat() if item["EndDate"] else None}
+            for item in near_expiry
+        ],
     })

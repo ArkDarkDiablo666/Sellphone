@@ -27,7 +27,10 @@ export default function Forgotpassword() {
         body:    JSON.stringify({ email }),
       });
 
-      if (res.ok || res.status === 500) {
+      // [FIX] Chỉ navigate khi res.ok — bỏ || res.status === 500
+      // Trước đây navigate kể cả khi server lỗi 500, khiến người dùng
+      // vào trang OTP dù email chưa được gửi
+      if (res.ok) {
         sessionStorage.setItem("reset_email", email);
         navigate("/login/forgot_password/otp");
         return;
@@ -77,7 +80,7 @@ export default function Forgotpassword() {
                   bg-[rgba(255,149,0,0.7)] border border-[#ff9500]
                   backdrop-blur-[2px]
                   shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
-                  hover:bg-[rgba(255,149,0,0.9)] transition">
+                  hover:bg-[rgba(255,149,0,0.9)] transition disabled:opacity-60">
             {loading ? "Đang gửi..." : "Gửi OTP"}
           </button>
         </div>

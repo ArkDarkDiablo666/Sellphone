@@ -13,18 +13,31 @@
 // ============================================================
 
 // ── Giới hạn upload ────────────────────────────────────────
-export const MAX_PRODUCT_IMAGES = 100;    // tối đa 10 ảnh / sản phẩm
-export const MAX_IMAGE_SIZE_MB  = 50;     // tối đa 5MB / ảnh
-export const MAX_VIDEO_SIZE_MB  = 5000;    // tối đa 50MB / video review
+// [FIX] Sửa giá trị và comment cho khớp nhau
+export const MAX_PRODUCT_IMAGES = 10;     // tối đa 10 ảnh / sản phẩm
+export const MAX_IMAGE_SIZE_MB  = 100;    // tối đa 100MB / ảnh
+export const MAX_VIDEO_SIZE_MB  = 100;    // tối đa 100MB / video review
+export const MAX_GIF_SIZE_MB    = 100;    // tối đa 100MB / GIF
 
 // ── Validate file ảnh ─────────────────────────────────────
 export function validateImageFile(file) {
   if (!file) return null;
-  if (!file.type.startsWith("image/"))
-    return "Vui lòng chọn file ảnh (jpg, png, webp...)";
+  const ALLOWED = ['image/jpeg','image/jpg','image/png','image/webp'];
+  if (!ALLOWED.includes(file.type))
+    return "Vui lòng chọn file ảnh (jpg, png, webp)";
   if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024)
     return `Ảnh không được vượt quá ${MAX_IMAGE_SIZE_MB}MB`;
-  return null;  // null = hợp lệ
+  return null;
+}
+
+// ── Validate file GIF ──────────────────────────────────
+export function validateGifFile(file) {
+  if (!file) return null;
+  if (file.type !== 'image/gif')
+    return "Vui lòng chọn file GIF";
+  if (file.size > MAX_GIF_SIZE_MB * 1024 * 1024)
+    return `GIF không được vượt quá ${MAX_GIF_SIZE_MB}MB`;
+  return null;
 }
 
 // ── Validate file video (cho review/return) ───────────────
@@ -33,7 +46,7 @@ export function validateVideoFile(file) {
   if (!file.type.startsWith("video/"))
     return "Vui lòng chọn file video";
   if (file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024)
-    return `Video không được vượt quá ${MAX_VIDEO_SIZE_MB}MB`;
+    return `Video không được vượt quá ${MAX_VIDEO_SIZE_MB}MB (tối đa 100MB)`;
   return null;
 }
 
@@ -62,13 +75,13 @@ export function validateVoucherForm(voucher) {
   if (!voucher.value || isNaN(val) || val <= 0)
     errors.push("Giá trị voucher phải lớn hơn 0");
 
-  // [FIX] Phần trăm tối đa 100
+  // Phần trăm tối đa 100
   if (voucher.type === "percent") {
     if (val > 100)
       errors.push("Voucher phần trăm không được vượt quá 100%");
   }
 
-  // [FIX] Kiểm tra ngày kết thúc sau ngày bắt đầu
+  // Kiểm tra ngày kết thúc sau ngày bắt đầu
   if (voucher.start_date && voucher.end_date) {
     const start = new Date(voucher.start_date);
     const end   = new Date(voucher.end_date);

@@ -7,16 +7,21 @@ from django.db.models import F
 
 # ===== HÀM TẠO CUSTOMER ID TỰ ĐỘNG =====
 # KH001, KH002, ... (tự mở rộng khi vượt KH999)
+# [FIX] Dùng Django ORM thay SELECT TOP (không portable), thêm select_for_update chống race condition
 def generate_customer_id():
-    from django.db import connection
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT TOP 1 CustomerID FROM Customer ORDER BY CustomerID DESC")
-        row = cursor.fetchone()
-    if not row:
-        return 'KH001'
-    last_id = row[0]  # VD: 'KH001'
+    from django.db import transaction
+    with transaction.atomic():
+        last = (
+            Customer.objects
+            .select_for_update()
+            .order_by("-CustomerID")
+            .values_list("CustomerID", flat=True)
+            .first()
+        )
+    if not last:
+        return "KH001"
     try:
-        last_num = int(last_id[2:])
+        last_num = int(last[2:])
     except (ValueError, IndexError):
         last_num = 0
     # Tự mở rộng độ dài khi vượt 999: KH1000, KH1001, ...
@@ -74,7 +79,7 @@ class Staff(models.Model):
 class Category(models.Model):
     CategoryID   = models.AutoField(primary_key=True)
     CategoryName = models.CharField(max_length=100)
-    Image        = models.CharField(max_length=500, blank=True, null=True) 
+    Image        = models.CharField(max_length=500, blank=True, null=True)
 
     class Meta:
         db_table = 'Category'
@@ -101,7 +106,7 @@ class Product(models.Model):
 class ProductVariant(models.Model):
     VariantID        = models.AutoField(primary_key=True)
     ProductID        = models.ForeignKey(Product, on_delete=models.CASCADE, db_column='ProductID')
-    Image = models.CharField(max_length=500, blank=True, null=True)
+    Image            = models.CharField(max_length=500, blank=True, null=True)
     Cpu              = models.CharField(max_length=100, blank=True, null=True)
     OperatingSystem  = models.CharField(max_length=50, blank=True, null=True)
     ScreenSize       = models.CharField(max_length=50, blank=True, null=True)
@@ -159,16 +164,16 @@ class Order(models.Model):
         ('Cancelled',  'Cancelled'),
     ]
 
-    OrderID         = models.AutoField(primary_key=True)
-    CustomerID      = models.ForeignKey(Customer, on_delete=models.CASCADE, db_column='CustomerID')
-    OrderDate       = models.DateTimeField(auto_now_add=True)
-    TotalAmount     = models.DecimalField(max_digits=18, decimal_places=2)
-    Status          = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Pending')
-    ShippingAddress = models.CharField(max_length=255)
-    PaymentMethod   = models.CharField(max_length=20, default='cod')
-    StatusNote      = models.CharField(max_length=500, null=True, blank=True)
-    Subtotal        = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
-    Discount        = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    OrderID           = models.AutoField(primary_key=True)
+    CustomerID        = models.ForeignKey(Customer, on_delete=models.CASCADE, db_column='CustomerID')
+    OrderDate         = models.DateTimeField(auto_now_add=True)
+    TotalAmount       = models.DecimalField(max_digits=18, decimal_places=2)
+    Status            = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Pending')
+    ShippingAddress   = models.CharField(max_length=255)
+    PaymentMethod     = models.CharField(max_length=20, default='cod')
+    StatusNote        = models.CharField(max_length=500, null=True, blank=True)
+    Subtotal          = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    Discount          = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     EstimatedDelivery = models.DateField(null=True, blank=True)
     ActualDelivery    = models.DateTimeField(null=True, blank=True)
 
@@ -190,10 +195,10 @@ class OrderDetail(models.Model):
         unique_together = ('OrderID', 'VariantID')
 
     def save(self, *args, **kwargs):
+        # [FIX] Bỏ logic trừ stock ở đây — đã được xử lý an toàn hơn
+        # trong create_order view bằng select_for_update + filter(StockQuantity__gte=qty)
+        # Chỉ giữ lại xóa cart
         if not self.pk:
-            variant = self.VariantID
-            variant.StockQuantity = F('StockQuantity') - self.Quantity
-            variant.save(update_fields=['StockQuantity'])
             Cart.objects.filter(
                 CustomerID=self.OrderID.CustomerID,
                 VariantID=self.VariantID
@@ -245,15 +250,16 @@ class Shipping(models.Model):
     class Meta:
         db_table = 'Shipping'
 
-class Voucher(models.Model):
-    VoucherID   = models.AutoField(primary_key=True)
-    Code        = models.CharField(max_length=50, unique=True)
-    Type        = models.CharField(max_length=10)       # 'percent' | 'fixed'
-    Value       = models.DecimalField(max_digits=12, decimal_places=2)
-    Scope       = models.CharField(max_length=20, default='all')  # 'all'|'category'|'product'|'variant'
 
-    CategoryID  = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, db_column='CategoryID')
-    ProductID   = models.ForeignKey('Product',  on_delete=models.SET_NULL, null=True, blank=True, db_column='ProductID')
+class Voucher(models.Model):
+    VoucherID  = models.AutoField(primary_key=True)
+    Code       = models.CharField(max_length=50, unique=True)
+    Type       = models.CharField(max_length=10)       # 'percent' | 'fixed'
+    Value      = models.DecimalField(max_digits=12, decimal_places=2)
+    Scope      = models.CharField(max_length=20, default='all')  # 'all'|'category'|'product'|'variant'
+
+    CategoryID = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, db_column='CategoryID')
+    ProductID  = models.ForeignKey('Product',  on_delete=models.SET_NULL, null=True, blank=True, db_column='ProductID')
 
     VariantID = models.ForeignKey(
         'ProductVariant',
@@ -286,6 +292,7 @@ class CustomerAddress(models.Model):
     class Meta:
         db_table = 'CustomerAddress'
 
+
 class ReturnRequest(models.Model):
     RETURN_STATUS = [
         ('Pending',   'Chờ xét duyệt'),
@@ -294,12 +301,12 @@ class ReturnRequest(models.Model):
         ('Returning', 'Đang nhận hàng hoàn về'),
         ('Completed', 'Hoàn tất'),
     ]
-    ReturnID   = models.AutoField(primary_key=True)
-    OrderID    = models.OneToOneField('Order', on_delete=models.CASCADE, db_column='OrderID')
-    Reason     = models.TextField()
-    Status     = models.CharField(max_length=20, choices=RETURN_STATUS, default='Pending')
-    AdminNote  = models.CharField(max_length=500, null=True, blank=True)
-    CreatedAt  = models.DateTimeField(auto_now_add=True)
+    ReturnID  = models.AutoField(primary_key=True)
+    OrderID   = models.OneToOneField('Order', on_delete=models.CASCADE, db_column='OrderID')
+    Reason    = models.TextField()
+    Status    = models.CharField(max_length=20, choices=RETURN_STATUS, default='Pending')
+    AdminNote = models.CharField(max_length=500, null=True, blank=True)
+    CreatedAt = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'ReturnRequest'
@@ -313,6 +320,7 @@ class ReturnMedia(models.Model):
 
     class Meta:
         db_table = 'ReturnMedia'
+
 
 class Post(models.Model):
     CATEGORIES = [
@@ -342,17 +350,18 @@ class ProductContent(models.Model):
     class Meta:
         db_table = 'ProductContent'
 
+
 class Review(models.Model):
-    customer   = models.ForeignKey(
+    customer = models.ForeignKey(
         "Customer",
         on_delete=models.CASCADE,
-        to_field="CustomerID",      # Customer PK là CharField
+        to_field="CustomerID",
         db_column="CustomerID",
         related_name="reviews",
     )
-    product    = models.ForeignKey("Product",  on_delete=models.CASCADE, related_name="reviews")
-    variant    = models.ForeignKey(
-        "ProductVariant",           # ← BUG FIX: "Variant" → "ProductVariant"
+    product  = models.ForeignKey("Product", on_delete=models.CASCADE, related_name="reviews")
+    variant  = models.ForeignKey(
+        "ProductVariant",
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name="reviews",
@@ -392,19 +401,21 @@ class ReviewMedia(models.Model):
 
 
 class Comment(models.Model):
-    customer   = models.ForeignKey(
+    customer = models.ForeignKey(
         "Customer",
         on_delete=models.CASCADE,
         to_field="CustomerID",
         db_column="CustomerID",
         related_name="comments",
     )
-    product    = models.ForeignKey("Product", on_delete=models.CASCADE, related_name="comments")
-    parent     = models.ForeignKey(
+    product  = models.ForeignKey("Product", on_delete=models.CASCADE, related_name="comments")
+    parent   = models.ForeignKey(
         "self", on_delete=models.CASCADE,
         null=True, blank=True, related_name="replies"
     )
     content    = models.TextField()
+    # Media: JSON list of {url, type} — ảnh/video/gif
+    Media      = models.TextField(blank=True, default='[]')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -421,6 +432,8 @@ class AdminReply(models.Model):
     target_type  = models.CharField(max_length=10, choices=TARGET_TYPES)
     target_id    = models.PositiveIntegerField()
     content      = models.TextField()
+    # Media: JSON list of {url, type} — admin có thể đính kèm ảnh/video/gif
+    Media        = models.TextField(blank=True, default='[]')
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 
@@ -452,6 +465,7 @@ class Like(models.Model):
 
     def __str__(self):
         return f"Like – {self.customer_id} → {self.target_type} #{self.target_id}"
+
 
 # ============================================
 # BANNER GROUP
@@ -517,45 +531,35 @@ class ActivityLog(models.Model):
     StaffID: null nếu chưa xác định được (trường hợp hiếm).
     """
     ACTION_CHOICES = [
-        # Auth
         ('login',              'Đăng nhập'),
         ('logout',             'Đăng xuất'),
-        # Sản phẩm
         ('create_product',     'Tạo sản phẩm'),
         ('update_product',     'Sửa sản phẩm'),
         ('delete_product',     'Xóa sản phẩm'),
         ('import_stock',       'Nhập hàng'),
         ('add_variants',       'Thêm biến thể'),
         ('update_variant',     'Sửa biến thể'),
-        # Danh mục
         ('create_category',    'Tạo danh mục'),
         ('update_category',    'Sửa danh mục'),
         ('delete_category',    'Xóa danh mục'),
-        # Nhân viên
         ('create_staff',       'Tạo nhân viên'),
         ('update_staff_role',  'Đổi quyền nhân viên'),
         ('delete_staff',       'Xóa nhân viên'),
-        # Voucher
         ('create_voucher',     'Tạo voucher'),
         ('update_voucher',     'Sửa voucher'),
         ('delete_voucher',     'Xóa voucher'),
         ('deactivate_voucher', 'Tắt voucher'),
-        # Đơn hàng
         ('update_order',       'Cập nhật đơn hàng'),
         ('cancel_order',       'Hủy đơn hàng'),
-        # Trả hàng
         ('process_return',     'Xử lý trả hàng'),
-        # Bài viết
         ('create_post',        'Tạo bài viết'),
         ('update_post',        'Sửa bài viết'),
         ('delete_post',        'Xóa bài viết'),
-        # Banner
         ('create_banner',      'Tạo banner'),
         ('update_banner',      'Sửa banner'),
         ('delete_banner',      'Xóa banner'),
         ('add_banner_item',    'Thêm item banner'),
         ('delete_banner_item', 'Xóa item banner'),
-        # Bình luận & Đánh giá
         ('reply_comment',      'Trả lời bình luận'),
         ('reply_review',       'Trả lời đánh giá'),
         ('delete_reply',       'Xóa phản hồi'),
@@ -568,7 +572,7 @@ class ActivityLog(models.Model):
         db_column='StaffID', related_name='activity_logs'
     )
     Action    = models.CharField(max_length=50, choices=ACTION_CHOICES)
-    Detail    = models.TextField(blank=True, default='')   # mô tả chi tiết
+    Detail    = models.TextField(blank=True, default='')
     IPAddress = models.CharField(max_length=45, blank=True, default='')
     CreatedAt = models.DateTimeField(auto_now_add=True)
 
@@ -578,7 +582,88 @@ class ActivityLog(models.Model):
 
     def __str__(self):
         who = self.StaffID.FullName if self.StaffID else 'Unknown'
-        # [FIX #TIMESTAMP] Tránh crash khi CreatedAt=None hoặc aware datetime lỗi
+        try:
+            ts = self.CreatedAt.strftime("%Y-%m-%d %H:%M") if self.CreatedAt else "N/A"
+        except Exception:
+            ts = str(self.CreatedAt)
+        return f"[{ts}] {who} – {self.Action}"
+
+
+# ============================================
+# CUSTOMER ACTIVITY LOG GROUP
+# ============================================
+
+class CustomerActivityLog(models.Model):
+    """
+    Ghi lại toàn bộ thao tác của khách hàng (Customer).
+    Bao gồm: đăng ký, đăng nhập, đặt hàng, hủy đơn,
+    đánh giá, bình luận, yêu cầu hoàn trả, v.v.
+    """
+    ACTION_CHOICES = [
+        # Auth
+        ('register',            'Đăng ký tài khoản'),
+        ('login',               'Đăng nhập'),
+        ('login_google',        'Đăng nhập Google'),
+        ('login_facebook',      'Đăng nhập Facebook'),
+        ('logout',              'Đăng xuất'),
+        ('forgot_password',     'Yêu cầu đặt lại mật khẩu'),
+        ('reset_password',      'Đặt lại mật khẩu'),
+        ('change_password',     'Đổi mật khẩu'),
+        # Hồ sơ
+        ('update_profile',      'Cập nhật thông tin cá nhân'),
+        ('upload_avatar',       'Đổi ảnh đại diện'),
+        # Địa chỉ
+        ('create_address',      'Thêm địa chỉ'),
+        ('update_address',      'Sửa địa chỉ'),
+        ('delete_address',      'Xóa địa chỉ'),
+        # Đơn hàng
+        ('create_order',        'Đặt hàng'),
+        ('cancel_order',        'Hủy đơn hàng'),
+        # Hoàn trả
+        ('create_return',       'Yêu cầu hoàn trả'),
+        # Voucher
+        ('apply_voucher',       'Áp dụng voucher'),
+        # Đánh giá
+        ('create_review',       'Viết đánh giá'),
+        ('update_review',       'Sửa đánh giá'),
+        ('delete_review',       'Xóa đánh giá'),
+        # Bình luận
+        ('create_comment',      'Viết bình luận'),
+        ('delete_comment',      'Xóa bình luận'),
+        # Thích
+        ('like',                'Thích'),
+        ('unlike',              'Bỏ thích'),
+        # Tìm kiếm
+        ('search_text',         'Tìm kiếm văn bản'),
+        ('search_image',        'Tìm kiếm bằng ảnh'),
+        # Xem sản phẩm
+        ('view_product',        'Xem sản phẩm'),
+    ]
+
+    LogID      = models.AutoField(primary_key=True)
+    CustomerID = models.ForeignKey(
+        'Customer',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        db_column='CustomerID',
+        related_name='activity_logs',
+    )
+    Action     = models.CharField(max_length=30, choices=ACTION_CHOICES)
+    Detail     = models.TextField(blank=True, default='')   # JSON string hoặc mô tả chi tiết
+    IPAddress  = models.CharField(max_length=45, blank=True, default='')
+    UserAgent  = models.CharField(max_length=300, blank=True, default='')
+    CreatedAt  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'CustomerActivityLog'
+        ordering = ['-CreatedAt']
+        indexes  = [
+            models.Index(fields=['CustomerID', '-CreatedAt'], name='idx_clog_customer_time'),
+            models.Index(fields=['Action'],                   name='idx_clog_action'),
+        ]
+
+    def __str__(self):
+        who = self.CustomerID.FullName if self.CustomerID else 'Unknown'
         try:
             ts = self.CreatedAt.strftime("%Y-%m-%d %H:%M") if self.CreatedAt else "N/A"
         except Exception:

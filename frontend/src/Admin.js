@@ -4,13 +4,13 @@ import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 import { validateVoucherForm, validateProductImageCount, MAX_PRODUCT_IMAGES } from "./admin_validation_patches";
 import {
-  User, LogOut, Camera, Settings, Package, PackagePlus, Users, ChevronRight, Eye, EyeOff,
+  User, LogOut, Camera, Settings, Package, PackagePlus, Users, ChevronRight, Eye, EyeOff, UserCheck,
   Pencil, Check, X, Plus, Shield, AlertTriangle, LayoutGrid, Ticket, Scissors,
   AlignLeft, AlignCenter, AlignRight, Image as ImageIcon, ShoppingBag, RefreshCw,
   RotateCcw, FileVideo, AlertCircle, FileText, Newspaper, Trash2,
   Table as TableIcon, Highlighter, Type, List, ListOrdered, Palette,
   MessageCircle, Star, Search as SearchIcon, CornerDownRight, Loader2,
-  BarChart2, GalleryHorizontal, Play, Activity, Filter, ChevronLeft
+  BarChart2, GalleryHorizontal, Play, Activity, Filter, ChevronLeft, Gift
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -18,8 +18,9 @@ import {
 } from "recharts";
 import { TrendingUp, Calendar, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown } from "lucide-react";
 import { authFetch, getAuthHeaders, getAuthHeadersFormData, AUTH_REDIRECTED } from "./authUtils";
+import { ReviewStatsPanel, ProductStatsPanel, VoucherStatsPanel } from "./StatsPanel";
+import { API } from "./config";
 
-const API="http://localhost:8000";
 const ORANGE="#ff9500",PURPLE="#bf5af2",CYAN="#32d7d2",GREEN="#34c759",RED="#ff3b30",PINK="#ff2d78",BLUE="#0a84ff";
 const BRAND_COLORS=[ORANGE,PURPLE,CYAN,GREEN,PINK,BLUE,"#ffd60a","#30d158","#64d2ff","#ff9f0a"];
 
@@ -37,7 +38,173 @@ function DashTabs({tabs,value,onChange}){return(<div className="flex gap-1 p-1 r
 const DashTooltip=({active,payload,label})=>{if(!active||!payload?.length)return null;return(<div className="rounded-xl border border-white/10 px-4 py-3 text-xs shadow-2xl" style={{background:"#1a1a1a",minWidth:160}}><p className="text-white/50 mb-2">{label}</p>{payload.map((p,i)=>(<div key={i} className="flex items-center gap-2 mb-1"><div className="w-2 h-2 rounded-full" style={{background:p.color}}/><span className="text-white/70">{p.name}:</span><span className="text-white font-semibold ml-auto pl-3">{fmtFull(p.value)}</span></div>))}</div>);};
 function DashOverview(){const{data,loading,refresh}=useDashFetch("/api/admin/dashboard/overview/");if(loading)return(<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[...Array(4)].map((_,i)=><div key={i} className="rounded-2xl border border-white/5 p-5 h-28 animate-pulse" style={{background:"#111"}}/>)}</div>);const d=data||{};return(<div><div className="flex items-center justify-between mb-4"><h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">Tổng quan</h2><button onClick={refresh} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition"><RefreshCw size={11}/> Làm mới</button></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-4"><DashKpiCard label="Hôm nay" value={fmt(d.today?.revenue||0)+"đ"} sub={`${d.today?.orders||0} đơn`} pct={d.today?.vs_yesterday} icon={TrendingUp} color={ORANGE}/><DashKpiCard label="Tháng này" value={fmt(d.this_month?.revenue||0)+"đ"} sub={`${d.this_month?.orders||0} đơn`} pct={d.this_month?.vs_last_month} icon={Calendar} color={PURPLE}/><DashKpiCard label="Năm nay" value={fmt(d.this_year?.revenue||0)+"đ"} sub="doanh thu năm" pct={d.this_year?.vs_last_year} icon={BarChart2} color={CYAN}/><DashKpiCard label="Tất cả" value={fmt(d.all_time?.revenue||0)+"đ"} sub={`${d.all_time?.orders||0} đơn tổng`} pct={null} icon={ShoppingBag} color={GREEN}/></div></div>);}
 function DashRevenueChart(){const today=new Date();const[mode,setMode]=useState("month");const[year,setYear]=useState(today.getFullYear());const[month,setMonth]=useState(today.getMonth()+1);const url=mode==="day"?`/api/admin/dashboard/revenue/day/?year=${year}&month=${month}`:mode==="month"?`/api/admin/dashboard/revenue/month/?year=${year}`:`/api/admin/dashboard/revenue/year/`;const{data,loading}=useDashFetch(url);const rows=data?.data||[];const chartData=rows.map(r=>({name:mode==="day"?`${r.day}`:mode==="month"?`T${r.month}`:`${r.year}`,"Kỳ này":r.revenue,"Kỳ trước":r.prev_revenue??undefined}));const years=Array.from({length:5},(_,i)=>({value:today.getFullYear()-i,label:`${today.getFullYear()-i}`}));const months=Array.from({length:12},(_,i)=>({value:i+1,label:`Tháng ${i+1}`}));return(<div><div className="flex items-center justify-between mb-4 flex-wrap gap-2"><h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">Biểu đồ doanh thu</h2><div className="flex items-center gap-2 flex-wrap"><DashTabs tabs={[{label:"Ngày",value:"day"},{label:"Tháng",value:"month"},{label:"Năm",value:"year"}]} value={mode} onChange={setMode}/>{mode!=="year"&&<DashSelect value={year} onChange={v=>setYear(+v)} options={years.map(y=>({value:y.value,label:y.label}))}/>}{mode==="day"&&<DashSelect value={month} onChange={v=>setMonth(+v)} options={months}/>}</div></div><div className="rounded-2xl border border-white/5 p-5" style={{background:"#111"}}>{loading?<div className="h-64 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>:chartData.length===0?<div className="h-64 flex items-center justify-center text-white/30 text-sm">Không có dữ liệu</div>:(<ResponsiveContainer width="100%" height={260}><AreaChart data={chartData} margin={{top:5,right:10,left:0,bottom:0}}><defs><linearGradient id="gO2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={ORANGE} stopOpacity={0.3}/><stop offset="95%" stopColor={ORANGE} stopOpacity={0}/></linearGradient><linearGradient id="gP2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={PURPLE} stopOpacity={0.2}/><stop offset="95%" stopColor={PURPLE} stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/><XAxis dataKey="name" tick={{fontSize:11,fill:"rgba(255,255,255,0.35)"}} axisLine={false} tickLine={false}/><YAxis tickFormatter={v=>fmt(v)} tick={{fontSize:10,fill:"rgba(255,255,255,0.3)"}} axisLine={false} tickLine={false} width={55}/><Tooltip content={<DashTooltip/>}/><Legend wrapperStyle={{fontSize:11,color:"rgba(255,255,255,0.5)",paddingTop:8}}/><Area type="monotone" dataKey="Kỳ này" stroke={ORANGE} strokeWidth={2} fill="url(#gO2)" dot={false} activeDot={{r:4,fill:ORANGE}}/>{chartData[0]?.["Kỳ trước"]!==undefined&&<Area type="monotone" dataKey="Kỳ trước" stroke={PURPLE} strokeWidth={1.5} fill="url(#gP2)" dot={false} strokeDasharray="4 3"/>}</AreaChart></ResponsiveContainer>)}</div></div>);}
-function RevenueDashboard(){return(<div className="flex flex-col gap-8"><div className="flex items-center gap-3"><div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/5 text-xs text-white/40" style={{background:"#111"}}><Award size={13} className="text-orange-400"/>Chỉ tính đơn hàng <span className="text-green-400 font-medium mx-1">Delivered</span></div></div><DashOverview/><DashRevenueChart/></div>);}
+
+// ── Top Products Chart ──
+function DashTopProducts(){
+  const today=new Date();
+  const[year,setYear]=useState(today.getFullYear());
+  const[month,setMonth]=useState("");
+  const url=`/api/admin/dashboard/revenue/product/?limit=10${year?`&year=${year}`:""}${month?`&month=${month}`:""}`;
+  const{data,loading}=useDashFetch(url);
+  const rows=data?.data||[];
+  const years=Array.from({length:5},(_,i)=>({value:today.getFullYear()-i,label:`${today.getFullYear()-i}`}));
+  const months=[{value:"",label:"Cả năm"},...Array.from({length:12},(_,i)=>({value:i+1,label:`T${i+1}`}))];
+  const maxRev=rows[0]?.revenue||1;
+  return(<div>
+    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">🏆 Top sản phẩm bán chạy</h2>
+      <div className="flex items-center gap-2">
+        <DashSelect value={year} onChange={v=>setYear(+v)} options={years}/>
+        <DashSelect value={month} onChange={v=>setMonth(v)} options={months}/>
+      </div>
+    </div>
+    <div className="rounded-2xl border border-white/5 overflow-hidden" style={{background:"#111"}}>
+      {loading?<div className="h-48 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>
+      :rows.length===0?<div className="h-48 flex items-center justify-center text-white/30 text-sm">Không có dữ liệu</div>
+      :<div className="divide-y divide-white/5">
+        {rows.map((r,i)=>{
+          const color=BRAND_COLORS[i%BRAND_COLORS.length];
+          const pct=Math.round((r.revenue/maxRev)*100);
+          return(<div key={r.product_id} className="flex items-center gap-4 px-5 py-3 hover:bg-white/[0.02] transition">
+            <span className="text-xs font-bold w-5 shrink-0" style={{color}}>{i+1}</span>
+            {r.image?<img src={r.image} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0 border border-white/10"/>
+            :<div className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 shrink-0 flex items-center justify-center"><Package size={14} className="text-white/20"/></div>}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-white/80 truncate">{r.product_name}</p>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <div className="h-full rounded-full transition-all" style={{width:`${pct}%`,background:color}}/>
+                </div>
+                <span className="text-[10px] text-white/30 shrink-0">{r.qty_sold} sp</span>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-xs font-semibold" style={{color}}>{fmt(r.revenue)}đ</p>
+              <p className="text-[10px] text-white/30 mt-0.5">{r.order_count} đơn</p>
+            </div>
+          </div>);
+        })}
+      </div>}
+    </div>
+  </div>);
+}
+
+// ── Top Brands Chart ──
+function DashTopBrands(){
+  const today=new Date();
+  const[year,setYear]=useState(today.getFullYear());
+  const[month,setMonth]=useState("");
+  const url=`/api/admin/dashboard/revenue/brand/?${year?`year=${year}`:""}${month?`&month=${month}`:""}`;
+  const{data,loading}=useDashFetch(url);
+  const rows=(data?.data||[]).slice(0,8);
+  const years=Array.from({length:5},(_,i)=>({value:today.getFullYear()-i,label:`${today.getFullYear()-i}`}));
+  const months=[{value:"",label:"Cả năm"},...Array.from({length:12},(_,i)=>({value:i+1,label:`T${i+1}`}))];
+  const chartData=rows.map((r,i)=>({name:r.brand,revenue:r.revenue,fill:BRAND_COLORS[i%BRAND_COLORS.length]}));
+  return(<div>
+    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">📱 Doanh thu theo thương hiệu</h2>
+      <div className="flex items-center gap-2">
+        <DashSelect value={year} onChange={v=>setYear(+v)} options={years}/>
+        <DashSelect value={month} onChange={v=>setMonth(v)} options={months}/>
+      </div>
+    </div>
+    <div className="rounded-2xl border border-white/5 p-5" style={{background:"#111"}}>
+      {loading?<div className="h-64 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>
+      :rows.length===0?<div className="h-64 flex items-center justify-center text-white/30 text-sm">Không có dữ liệu</div>
+      :<div className="flex flex-col lg:flex-row gap-6 items-center">
+        <ResponsiveContainer width={220} height={220}>
+          <PieChart>
+            <Pie data={chartData} dataKey="revenue" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2}>
+              {chartData.map((entry,i)=><Cell key={i} fill={entry.fill}/>)}
+            </Pie>
+            <Tooltip formatter={v=>[fmtFull(v),"Doanh thu"]} contentStyle={{background:"#1a1a1a",border:"1px solid rgba(255,255,255,0.1)",borderRadius:12,fontSize:11}}/>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="flex-1 flex flex-col gap-2 w-full">
+          {rows.map((r,i)=>{
+            const color=BRAND_COLORS[i%BRAND_COLORS.length];
+            return(<div key={r.brand} className="flex items-center gap-3">
+              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:color}}/>
+              <span className="text-xs text-white/60 w-24 truncate shrink-0">{r.brand}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                <div className="h-full rounded-full" style={{width:`${r.share_pct}%`,background:color}}/>
+              </div>
+              <span className="text-xs font-semibold shrink-0" style={{color}}>{r.share_pct}%</span>
+              <span className="text-[10px] text-white/30 shrink-0 w-20 text-right">{fmt(r.revenue)}đ</span>
+            </div>);
+          })}
+        </div>
+      </div>}
+    </div>
+  </div>);
+}
+
+// ── Order Stats ──
+function DashOrderStats(){
+  const today=new Date();
+  const[mode,setMode]=useState("month");
+  const[year,setYear]=useState(today.getFullYear());
+  const[month,setMonth]=useState(today.getMonth()+1);
+  const[day,setDay]=useState(today.getDate());
+  const params=new URLSearchParams();
+  if(mode==="year"||mode==="month"||mode==="day") params.set("year",year);
+  if(mode==="month"||mode==="day") params.set("month",month);
+  if(mode==="day") params.set("day",day);
+  const{data,loading,refresh}=useDashFetch(`/api/admin/dashboard/order-stats/?${params}`);
+  const d=data||{};
+  const statuses=[
+    {key:"Pending",    label:"Chờ xử lý",  color:"#ffd60a"},
+    {key:"Processing", label:"Đang xử lý",  color:BLUE},
+    {key:"Shipping",   label:"Đang giao",   color:CYAN},
+    {key:"Delivered",  label:"Đã giao",     color:GREEN},
+    {key:"Cancelled",  label:"Đã hủy",      color:RED},
+  ];
+  const total=statuses.reduce((s,st)=>s+(d[st.key]||0),0)||1;
+  const years=Array.from({length:5},(_,i)=>({value:today.getFullYear()-i,label:`${today.getFullYear()-i}`}));
+  const months=Array.from({length:12},(_,i)=>({value:i+1,label:`Tháng ${i+1}`}));
+  const daysInMonth=new Date(year,month,0).getDate();
+  const days=Array.from({length:daysInMonth},(_,i)=>({value:i+1,label:`Ngày ${i+1}`}));
+  return(<div>
+    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <h2 className="text-xs font-bold text-white/60 uppercase tracking-widest">📦 Thống kê trạng thái đơn hàng</h2>
+      <div className="flex items-center gap-2 flex-wrap">
+        <DashTabs tabs={[{label:"Ngày",value:"day"},{label:"Tháng",value:"month"},{label:"Năm",value:"year"},{label:"Tất cả",value:"all"}]} value={mode} onChange={setMode}/>
+        {mode!=="all"&&<DashSelect value={year} onChange={v=>setYear(+v)} options={years}/>}
+        {(mode==="month"||mode==="day")&&<DashSelect value={month} onChange={v=>setMonth(+v)} options={months}/>}
+        {mode==="day"&&<DashSelect value={day} onChange={v=>setDay(+v)} options={days}/>}
+        <button onClick={refresh} className="flex items-center gap-1 text-xs text-white/30 hover:text-white/60 transition"><RefreshCw size={11}/></button>
+      </div>
+    </div>
+    <div className="rounded-2xl border border-white/5 p-5" style={{background:"#111"}}>
+      {loading?<div className="h-32 flex items-center justify-center text-white/30 text-sm">Đang tải...</div>
+      :<div>
+        <div className="flex h-3 rounded-full overflow-hidden gap-px mb-5">
+          {statuses.map(st=>{const pct=(d[st.key]||0)/total*100;return pct>0?<div key={st.key} style={{width:`${pct}%`,background:st.color}} title={`${st.label}: ${d[st.key]||0}`}/>:null;})}
+          {d.total===0&&<div className="flex-1 bg-white/5 rounded-full"/>}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {statuses.map(st=>(
+            <div key={st.key} className="flex flex-col gap-1.5 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full shrink-0" style={{background:st.color}}/><span className="text-[10px] text-white/40">{st.label}</span></div>
+              <p className="text-xl font-bold" style={{color:st.color}}>{(d[st.key]||0).toLocaleString("vi-VN")}</p>
+              <p className="text-[10px] text-white/25">{d.total>0?Math.round((d[st.key]||0)/total*100):0}%</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-white/20 mt-3 text-right">Tổng: {(d.total||0).toLocaleString("vi-VN")} đơn</p>
+      </div>}
+    </div>
+  </div>);
+}
+
+function RevenueDashboard(){return(<div className="flex flex-col gap-8">
+  <div className="flex items-center gap-3"><div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/5 text-xs text-white/40" style={{background:"#111"}}><Award size={13} className="text-orange-400"/>Chỉ tính đơn hàng <span className="text-green-400 font-medium mx-1">Delivered</span></div></div>
+  <DashOverview/>
+  <DashRevenueChart/>
+  <DashOrderStats/>
+  <DashTopBrands/>
+  <DashTopProducts/>
+</div>);}
 
 // ── RichEditor ──
 function ToolBtn({title,onClick,children,extra=""}){return <button type="button" title={title} onMouseDown={e=>{e.preventDefault();onClick?.();}} className={`w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition ${extra}`}>{children}</button>;}
@@ -150,8 +317,11 @@ export default function Admin() {
   const[reviewList,setReviewList]=useState([]);const[reviewLoading,setReviewLoading]=useState(false);
   const[reviewFilter,setReviewFilter]=useState("all");const[reviewSearch,setReviewSearch]=useState("");
   const[reviewType,setReviewType]=useState("reviews");const[replyTarget,setReplyTarget]=useState(null);
-  const[replyText,setReplyText]=useState("");const[replySaving,setReplySaving]=useState(false);
+  const[replyText,setReplyText]=useState("");const[replyMedia,setReplyMedia]=useState([]);const[replyUpload,setReplyUpload]=useState(false);const[replySaving,setReplySaving]=useState(false);
   const[unansweredCount,setUnansweredCount]=useState(0);
+  const[reviewSubTab,setReviewSubTab]=useState("list");
+  const[productSubTab,setProductSubTab]=useState("list");
+  const[voucherSubTab,setVoucherSubTab]=useState("list");
   const[returnList,setReturnList]=useState([]);const[returnLoading,setReturnLoading]=useState(false);
   const[returnDetail,setReturnDetail]=useState(null);const[returnNote,setReturnNote]=useState("");const[processingReturn,setProcessingReturn]=useState(false);
   const[importProductId,setImportProductId]=useState("");const[importVariants,setImportVariants]=useState([]);
@@ -196,6 +366,7 @@ export default function Admin() {
   useEffect(()=>{if(activeTab==="posts")loadPosts();},[activeTab]);// eslint-disable-line
   useEffect(()=>{if(activeTab==="product_content")loadProducts();},[activeTab]);// eslint-disable-line
   useEffect(()=>{if(activeTab==="reviews")loadReviews();},[activeTab]);// eslint-disable-line
+  useEffect(()=>{},[activeTab]);// customerlog loads inside component
   useEffect(()=>{if(activeTab==="voucher"){loadVouchers();if(categories.length===0||productList.length===0)loadProducts();}},[activeTab]);// eslint-disable-line
   useEffect(()=>{const fetchCount=()=>authFetch(`${API}/api/admin/reviews/?count_only=1`,{},"admin").then(r=>{if(!r||r===AUTH_REDIRECTED)return;return r.json();}).then(d=>{if(d)setUnansweredCount(d.unanswered_count||0);}).catch(()=>{});fetchCount();const interval=setInterval(fetchCount,30000);return()=>clearInterval(interval);},[]);
 
@@ -209,7 +380,7 @@ export default function Admin() {
   const loadPosts=async()=>{setPostLoading(true);try{const r=await fetch(`${API}/api/post/list/?category=all`);const d=await r.json();setPostList(d.posts||[]);}catch{}finally{setPostLoading(false);}};
   const loadReturns=async()=>{setReturnLoading(true);try{const r=await authFetch(`${API}/api/order/return/list/`,{},"admin");if(!r||r===AUTH_REDIRECTED)return;const d=await r.json();setReturnList(d.returns||[]);}catch{}finally{setReturnLoading(false);}};
   const loadReviews=async()=>{setReviewLoading(true);try{const r=await authFetch(`${API}/api/admin/reviews/`,{},"admin");if(!r||r===AUTH_REDIRECTED)return;const d=await r.json();setReviewList(d.items||[]);setUnansweredCount(d.unanswered_count||0);}catch{}finally{setReviewLoading(false);}};
-  const submitAdminReply=async()=>{if(!replyText.trim()||!replyTarget)return;setReplySaving(true);try{const res=await authFetch(`${API}/api/admin/reply/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:replyTarget.type,target_id:replyTarget.id,content:replyText})},"admin");const d=await res.json();if(d.ok){setReplyTarget(null);setReplyText("");loadReviews();toast.success("Đã gửi phản hồi!");}else{toast.error(d.error||"Gửi phản hồi thất bại");}}finally{setReplySaving(false);}};
+  const submitAdminReply=async()=>{if(!replyText.trim()||!replyTarget)return;setReplySaving(true);try{const res=await authFetch(`${API}/api/admin/reply/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:replyTarget.type,target_id:replyTarget.id,content:replyText,media:replyMedia})},"admin");const d=await res.json();if(d.ok){setReplyTarget(null);setReplyText("");setReplyMedia([]);loadReviews();toast.success("Đã gửi phản hồi!");}else{toast.error(d.error||"Gửi phản hồi thất bại");}}finally{setReplySaving(false);}};
 
   // ── Variant helpers ──
   const addVariant=()=>setVariants(v=>[...v,{...EMPTY_VARIANT}]);
@@ -271,7 +442,8 @@ export default function Admin() {
     {key:"product_content",label:"Mô tả sản phẩm",icon:FileText},
     {key:"reviews",label:"Đánh giá & Bình luận",icon:MessageCircle,badge:unansweredCount},
     {key:"banner",label:"Quản lý Banner",icon:GalleryHorizontal},
-    {key:"activitylog",label:"Nhật ký hoạt động",icon:Activity},
+    {key:"activitylog",label:"Nhật ký hệ thống",icon:Activity},
+    {key:"customerlog",label:"Nhật ký người dùng",icon:UserCheck},
     {key:"settings",label:"Cài đặt",icon:Settings},
   ];
 
@@ -307,7 +479,7 @@ export default function Admin() {
           <span className={`mt-1 text-xs px-2 py-0.5 rounded-full border ${ROLE_COLOR[admin?.role]||ROLE_COLOR.Staff}`}>{admin?.role}</span>
         </div>
         <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
-          {menuItems.filter(m=>m.key!=="activitylog"||admin?.role==="Admin").map(({key,label,icon:Icon,badge})=>(
+          {menuItems.filter(m=>(m.key!=="activitylog"&&m.key!=="customerlog")||admin?.role==="Admin").map(({key,label,icon:Icon,badge})=>(
             <button key={key} onClick={()=>setActiveTab(key)} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm transition group ${activeTab===key?"bg-orange-500/15 text-orange-300 border border-orange-500/20":"text-white/40 hover:bg-white/5 hover:text-white"}`}>
               <span className="flex items-center gap-3"><span className="relative"><Icon size={16}/>{badge>0&&<span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] px-0.5 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">{badge>99?"99+":badge}</span>}</span>{label}</span>
               <ChevronRight size={14} className={`opacity-0 group-hover:opacity-100 transition ${activeTab===key?"opacity-100":""}`}/>
@@ -364,6 +536,14 @@ export default function Admin() {
           {/* PRODUCT — with search + filter + sort */}
           {activeTab==="product"&&(
             <div className="flex flex-col gap-6">
+              {/* Sub-tab */}
+              <div className="flex gap-1 bg-white/5 rounded-xl p-1 w-fit">
+                {[{k:"list",l:"Danh sách"},{k:"stats",l:"📦 Thống kê kho"}].map(({k,l})=>(
+                  <button key={k} onClick={()=>setProductSubTab(k)} className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${productSubTab===k?"bg-orange-500 text-white":"text-white/40 hover:text-white"}`}>{l}</button>
+                ))}
+              </div>
+              {productSubTab==="stats"&&<ProductStatsPanel/>}
+              {productSubTab==="list"&&<>
               {/* Toolbar */}
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-sm text-white/40 mr-auto">{productList.length} sản phẩm</p>
@@ -474,6 +654,7 @@ export default function Admin() {
                     </div>
                   );
                 })()}
+              </>}
             </div>
           )}
 
@@ -674,6 +855,14 @@ export default function Admin() {
           {/* VOUCHER — with search + scope/active filter + stats */}
           {activeTab==="voucher"&&(
             <div className="flex flex-col gap-6">
+              {/* Sub-tab */}
+              <div className="flex gap-1 bg-white/5 rounded-xl p-1 w-fit">
+                {[{k:"list",l:"Danh sách"},{k:"stats",l:"🎟 Thống kê"}].map(({k,l})=>(
+                  <button key={k} onClick={()=>setVoucherSubTab(k)} className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${voucherSubTab===k?"bg-orange-500 text-white":"text-white/40 hover:text-white"}`}>{l}</button>
+                ))}
+              </div>
+              {voucherSubTab==="stats"&&<VoucherStatsPanel/>}
+              {voucherSubTab==="list"&&<>
               {/* Toolbar */}
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-sm text-white/40 mr-auto">Quản lý mã giảm giá</p>
@@ -729,6 +918,7 @@ export default function Admin() {
                     </div>
                   );
                 })()}
+              </>}
             </div>
           )}
 
@@ -877,28 +1067,101 @@ export default function Admin() {
           {activeTab==="reviews"&&(
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex gap-1 bg-white/5 rounded-xl p-1">{[{k:"reviews",l:"Đánh giá"},{k:"comments",l:"Bình luận"}].map(({k,l})=>(<button key={k} onClick={()=>setReviewType(k)} className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${reviewType===k?"bg-orange-500 text-white":"text-white/40 hover:text-white"}`}>{l}</button>))}</div>
-                <div className="flex gap-1 bg-white/5 rounded-xl p-1">{[{k:"all",l:"Tất cả"},{k:"unanswered",l:`Chưa trả lời${unansweredCount>0?` (${unansweredCount})`:""}`},{k:"answered",l:"Đã trả lời"}].map(({k,l})=>(<button key={k} onClick={()=>setReviewFilter(k)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${reviewFilter===k?"bg-orange-500/20 text-orange-400 border border-orange-500/30":"text-white/40 hover:text-white"}`}>{l}</button>))}</div>
-                <div className="flex-1 min-w-[200px] relative"><SearchIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20"/><input value={reviewSearch} onChange={e=>setReviewSearch(e.target.value)} placeholder="Tìm theo tên sản phẩm..." className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2 text-sm outline-none focus:border-orange-500/40 transition text-white placeholder-white/20"/></div>
-                <button onClick={loadReviews} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition"><RefreshCw size={14} className="text-white/40"/></button>
+                <div className="flex gap-1 bg-white/5 rounded-xl p-1">
+                  {[{k:"list",l:"Danh sách"},{k:"stats",l:"📊 Thống kê"}].map(({k,l})=>(
+                    <button key={k} onClick={()=>setReviewSubTab(k)} className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${reviewSubTab===k?"bg-orange-500 text-white":"text-white/40 hover:text-white"}`}>{l}</button>
+                  ))}
+                </div>
+                {reviewSubTab==="list"&&<>
+                  <div className="flex gap-1 bg-white/5 rounded-xl p-1">{[{k:"reviews",l:"Đánh giá"},{k:"comments",l:"Bình luận"}].map(({k,l})=>(<button key={k} onClick={()=>setReviewType(k)} className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${reviewType===k?"bg-orange-500 text-white":"text-white/40 hover:text-white"}`}>{l}</button>))}</div>
+                  <div className="flex gap-1 bg-white/5 rounded-xl p-1">{[{k:"all",l:"Tất cả"},{k:"unanswered",l:`Chưa trả lời${unansweredCount>0?` (${unansweredCount})`:""}`},{k:"answered",l:"Đã trả lời"}].map(({k,l})=>(<button key={k} onClick={()=>setReviewFilter(k)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${reviewFilter===k?"bg-orange-500/20 text-orange-400 border border-orange-500/30":"text-white/40 hover:text-white"}`}>{l}</button>))}</div>
+                  <div className="flex-1 min-w-[200px] relative"><SearchIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20"/><input value={reviewSearch} onChange={e=>setReviewSearch(e.target.value)} placeholder="Tìm theo tên sản phẩm..." className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2 text-sm outline-none focus:border-orange-500/40 transition text-white placeholder-white/20"/></div>
+                  <button onClick={loadReviews} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition"><RefreshCw size={14} className="text-white/40"/></button>
+                </>}
               </div>
+              {reviewSubTab==="stats"&&<ReviewStatsPanel/>}
+              {reviewSubTab==="list"&&<>
               {reviewLoading?(<div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin"/></div>)
               :(()=>{
                 const items=reviewList.filter(item=>{if(reviewType==="reviews"&&item.type!=="review")return false;if(reviewType==="comments"&&item.type!=="comment")return false;if(reviewFilter==="unanswered"&&item.admin_reply)return false;if(reviewFilter==="answered"&&!item.admin_reply)return false;if(reviewSearch&&!item.product_name?.toLowerCase().includes(reviewSearch.toLowerCase()))return false;return true;});
                 if(items.length===0)return(<div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20"><MessageCircle size={36} className="mx-auto mb-3 opacity-20"/><p className="text-sm">Không có {reviewType==="reviews"?"đánh giá":"bình luận"} nào</p></div>);
-                return(<div className="flex flex-col gap-3">{items.map(item=>(<div key={`${item.type}-${item.id}`} className="bg-[#161616] border border-white/5 rounded-2xl p-5 flex flex-col gap-3"><div className="flex items-start gap-3"><div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-xs font-bold shrink-0">{item.customer_name?.[0]?.toUpperCase()||"U"}</div><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap"><span className="text-sm font-medium">{item.customer_name}</span><span className="text-xs text-white/30 bg-white/5 px-2 py-0.5 rounded-full">{item.product_name}</span>{item.variant&&<span className="text-xs text-white/20 bg-white/5 px-2 py-0.5 rounded-full">{item.variant}</span>}{item.type==="review"&&<div className="flex gap-0.5 ml-auto">{[1,2,3,4,5].map(n=><Star key={n} size={12} fill={n<=item.rating?"#f59e0b":"none"} stroke={n<=item.rating?"#f59e0b":"#ffffff20"} strokeWidth={1.5}/>)}</div>}<span className="text-xs text-white/20 ml-auto">{new Date(item.created_at).toLocaleDateString("vi-VN")}</span></div><p className="mt-1.5 text-sm text-white/70 leading-relaxed">{item.content}</p>{item.media?.length>0&&<div className="flex gap-2 mt-2 flex-wrap">{item.media.map((m,i)=>(<a key={i} href={m.url} target="_blank" rel="noreferrer" className="w-14 h-14 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center hover:border-orange-500/30 transition">{m.type==="video"?<FileVideo size={18} className="text-purple-400"/>:<img src={m.url} alt="" className="w-full h-full object-cover"/>}</a>))}</div>}</div></div>
-                {item.admin_reply&&(<div className="ml-12 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex gap-3"><div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center shrink-0"><span className="text-[9px] font-bold text-white">PZ</span></div><div><span className="text-xs font-semibold text-orange-400">PHONEZONE</span><p className="text-sm text-white/70 mt-0.5">{item.admin_reply.content}</p></div></div>)}
-                {replyTarget?.id===item.id&&replyTarget?.type===item.type?(<div className="ml-12 flex gap-2"><textarea value={replyText} onChange={e=>setReplyText(e.target.value)} rows={2} placeholder="Trả lời với tư cách PHONEZONE..." className="flex-1 bg-white/5 border border-orange-500/30 rounded-xl px-3 py-2 text-sm outline-none resize-none placeholder-white/20 text-white focus:border-orange-500/60 transition"/><div className="flex flex-col gap-2"><button onClick={submitAdminReply} disabled={replySaving||!replyText.trim()} className="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-xs font-medium transition flex items-center gap-1">{replySaving?<Loader2 size={12} className="animate-spin"/>:<></>}Gửi</button><button onClick={()=>{setReplyTarget(null);setReplyText("");}} className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-white/40 transition">Hủy</button></div></div>):(<div className="ml-12"><button onClick={()=>{setReplyTarget({type:item.type,id:item.id});setReplyText(item.admin_reply?.content||"");}} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-orange-400 transition"><CornerDownRight size={12}/>{item.admin_reply?"Chỉnh sửa phản hồi":"Trả lời"}</button></div>)}
-                </div>))}</div>);
+                return(<div className="flex flex-col gap-3">{items.map(item=>(
+  <div key={`${item.type}-${item.id}`} className="bg-[#161616] border border-white/5 rounded-2xl p-5 flex flex-col gap-3">
+    {/* Header: avatar + info */}
+    <div className="flex items-start gap-3">
+      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-xs font-bold shrink-0">{item.customer_name?.[0]?.toUpperCase()||"U"}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium">{item.customer_name}</span>
+          <span className="text-xs text-white/30 bg-white/5 px-2 py-0.5 rounded-full">{item.product_name}</span>
+          {item.variant&&<span className="text-xs text-white/20 bg-white/5 px-2 py-0.5 rounded-full">{item.variant}</span>}
+          {item.type==="review"&&<div className="flex gap-0.5 ml-auto">{[1,2,3,4,5].map(n=><Star key={n} size={12} fill={n<=item.rating?"#f59e0b":"none"} stroke={n<=item.rating?"#f59e0b":"#ffffff20"} strokeWidth={1.5}/>)}</div>}
+          <span className="text-xs text-white/20 ml-auto">{new Date(item.created_at).toLocaleDateString("vi-VN")}</span>
+        </div>
+        <p className="mt-1.5 text-sm text-white/70 leading-relaxed">{item.content}</p>
+        {item.media?.length>0&&<div className="flex gap-2 mt-2 flex-wrap">{item.media.map((m,i)=>(<a key={i} href={m.url} target="_blank" rel="noreferrer" className="w-14 h-14 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center hover:border-orange-500/30 transition">{m.type==="video"?<FileVideo size={18} className="text-purple-400"/>:<img src={m.url} alt="" className="w-full h-full object-cover"/>}</a>))}</div>}
+      </div>
+    </div>
+
+    {/* Nested replies (comment children) */}
+    {item.type==="comment"&&item.replies?.length>0&&(
+      <div className="ml-12 flex flex-col gap-2 border-l-2 border-white/8 pl-4">
+        {item.replies.map(reply=>(
+          <div key={reply.id} className="flex items-start gap-2">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[10px] font-bold shrink-0">{reply.customer_name?.[0]?.toUpperCase()||"U"}</div>
+            <div className="flex-1 min-w-0 bg-white/[0.03] rounded-xl px-3 py-2 border border-white/8">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-medium text-white/70">{reply.customer_name}</span>
+                <span className="text-[10px] text-white/25">{new Date(reply.created_at).toLocaleDateString("vi-VN")}</span>
+              </div>
+              <p className="text-xs text-white/55 leading-relaxed">{reply.content}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {/* Admin reply */}
+    {item.admin_reply&&(
+      <div className="ml-12 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex gap-3">
+        <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center shrink-0"><span className="text-[9px] font-bold text-white">PZ</span></div>
+        <div><span className="text-xs font-semibold text-orange-400">PHONEZONE</span><p className="text-sm text-white/70 mt-0.5">{item.admin_reply.content}</p>{(item.admin_reply.media||[]).length>0&&<div className="flex flex-wrap gap-1.5 mt-1.5">{(item.admin_reply.media||[]).map((m,i)=><a key={i} href={m.url} target="_blank" rel="noreferrer" className="w-12 h-12 rounded-lg overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center hover:border-orange-500/30 transition">{m.type==="video"?<FileVideo size={14} className="text-white/50"/>:<img src={m.url} alt="" className="w-full h-full object-cover"/>}</a>)}</div>}</div>
+      </div>
+    )}
+
+    {/* Reply textarea or button */}
+    {replyTarget?.id===item.id&&replyTarget?.type===item.type
+      ?(<div className="ml-12 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <textarea value={replyText} onChange={e=>setReplyText(e.target.value)} rows={2} placeholder="Trả lời với tư cách PHONEZONE..." className="flex-1 bg-white/5 border border-orange-500/30 rounded-xl px-3 py-2 text-sm outline-none resize-none placeholder-white/20 text-white focus:border-orange-500/60 transition"/>
+            <div className="flex flex-col gap-2">
+              <button onClick={submitAdminReply} disabled={replySaving||!replyText.trim()||replyUpload} className="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-xs font-medium transition flex items-center gap-1">{replySaving?<Loader2 size={12} className="animate-spin"/>:<></>}Gửi</button>
+              <button onClick={()=>{setReplyTarget(null);setReplyText("");setReplyMedia([]);}} className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-white/40 transition">Hủy</button>
+            </div>
+          </div>
+          <AdminReplyMediaUpload media={replyMedia} setMedia={setReplyMedia} uploading={replyUpload} setUploading={setReplyUpload} adminUser={admin}/>
+        </div>)
+      :(<div className="ml-12">
+          <button onClick={()=>{setReplyTarget({type:item.type,id:item.id});setReplyText(item.admin_reply?.content||"");}} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-orange-400 transition">
+            <CornerDownRight size={12}/>{item.admin_reply?"Chỉnh sửa phản hồi":"Trả lời"}
+          </button>
+        </div>)
+    }
+  </div>
+))}</div>);
               })()}
+              </>}
             </div>
           )}
 
           {/* BANNER */}
           {activeTab==="banner"&&<BannerSection toast={toast}/>}
 
-          {/* ACTIVITY LOG */}
+          {/* NHẬT KÝ HỆ THỐNG */}
           {activeTab==="activitylog"&&admin?.role==="Admin"&&<ActivityLogSection/>}
+
+          {/* NHẬT KÝ NGƯỜI DÙNG */}
+          {activeTab==="customerlog"&&admin?.role==="Admin"&&<CustomerLogSection/>}
 
           {/* SETTINGS */}
           {activeTab==="settings"&&(<div className="bg-[#161616] border border-white/5 rounded-2xl p-12 text-center text-white/20"><Settings size={40} className="mx-auto mb-3 opacity-30"/><p className="text-sm">Đang phát triển</p></div>)}
@@ -955,6 +1218,77 @@ const ACTION_LABELS={login:"Đăng nhập",logout:"Đăng xuất",create_product
 const ACTION_COLORS={login:"text-green-400 bg-green-500/10 border-green-500/20",logout:"text-slate-400 bg-slate-500/10 border-slate-500/20",create_product:"text-blue-400 bg-blue-500/10 border-blue-500/20",update_product:"text-orange-400 bg-orange-500/10 border-orange-500/20",delete_product:"text-red-500 bg-red-500/10 border-red-500/20",import_stock:"text-emerald-400 bg-emerald-500/10 border-emerald-500/20",add_variants:"text-sky-400 bg-sky-500/10 border-sky-500/20",update_variant:"text-amber-400 bg-amber-500/10 border-amber-500/20",create_category:"text-violet-400 bg-violet-500/10 border-violet-500/20",update_category:"text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20",delete_category:"text-rose-500 bg-rose-500/10 border-rose-500/20",create_staff:"text-teal-400 bg-teal-500/10 border-teal-500/20",update_staff_role:"text-indigo-400 bg-indigo-500/10 border-indigo-500/20",delete_staff:"text-pink-500 bg-pink-500/10 border-pink-500/20",create_voucher:"text-lime-400 bg-lime-500/10 border-lime-500/20",update_voucher:"text-yellow-400 bg-yellow-500/10 border-yellow-500/20",delete_voucher:"text-red-400 bg-red-400/10 border-red-400/20",deactivate_voucher:"text-orange-300 bg-orange-400/10 border-orange-400/20",update_order:"text-cyan-400 bg-cyan-500/10 border-cyan-500/20",cancel_order:"text-red-300 bg-red-300/10 border-red-300/20",process_return:"text-pink-400 bg-pink-400/10 border-pink-400/20",create_post:"text-blue-300 bg-blue-300/10 border-blue-300/20",update_post:"text-orange-300 bg-orange-300/10 border-orange-300/20",delete_post:"text-rose-400 bg-rose-400/10 border-rose-400/20",create_banner:"text-purple-400 bg-purple-500/10 border-purple-500/20",update_banner:"text-fuchsia-300 bg-fuchsia-300/10 border-fuchsia-300/20",delete_banner:"text-rose-300 bg-rose-300/10 border-rose-300/20",add_banner_item:"text-sky-300 bg-sky-300/10 border-sky-300/20",delete_banner_item:"text-orange-500 bg-orange-500/10 border-orange-500/20",reply_comment:"text-cyan-300 bg-cyan-300/10 border-cyan-300/20",reply_review:"text-violet-300 bg-violet-300/10 border-violet-300/20",delete_reply:"text-red-200 bg-red-200/10 border-red-200/20"};
 function getActionColor(action){if(ACTION_COLORS[action])return ACTION_COLORS[action];if(action.startsWith("create_"))return"text-blue-400 bg-blue-500/10 border-blue-500/20";if(action.startsWith("update_")||action.startsWith("process_"))return"text-orange-400 bg-orange-500/10 border-orange-500/20";if(action.startsWith("delete_")||action.startsWith("deactivate_")||action.startsWith("cancel_"))return"text-red-400 bg-red-500/10 border-red-500/20";return"text-white/50 bg-white/5 border-white/10";}
 
+
+// ════════════════════════════════════════════════════════════
+// ADMIN REPLY MEDIA UPLOAD — dùng trong Admin & Staff
+// ════════════════════════════════════════════════════════════
+function AdminReplyMediaUpload({ media, setMedia, uploading, setUploading, adminUser }) {
+  const imgRef = useRef(); const vidRef = useRef(); const gifRef = useRef();
+  const MAX_MB = 100;
+
+  const uploadFile = async (file) => {
+    if (file.size > MAX_MB * 1024 * 1024) {
+      alert(`File quá lớn. Tối đa ${MAX_MB}MB`); return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("customer_id", adminUser?.id || "admin");
+      const res = await authFetch(`${API}/api/review/upload-media/`, { method: "POST", body: fd }, "admin");
+      if (!res || res === AUTH_REDIRECTED) return;
+      const data = await res.json();
+      if (data.ok) setMedia(p => [...p, { url: data.url, type: data.media_type }]);
+      else alert(data.error || "Lỗi upload");
+    } catch { alert("Không thể kết nối server"); }
+    finally { setUploading(false); }
+  };
+
+  const handleFiles = (files) =>
+    Array.from(files).reduce((p, f) => p.then(() => uploadFile(f)), Promise.resolve());
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {media.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {media.map((m, i) => (
+            <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/10 bg-white/5 group shrink-0">
+              {m.type === "video"
+                ? <video src={m.url} className="w-full h-full object-cover" muted/>
+                : <img src={m.url} alt="" className="w-full h-full object-cover"/>}
+              <button onClick={() => setMedia(p => p.filter((_, idx) => idx !== i))}
+                className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition focus:outline-none">
+                <X size={8} className="text-white"/>
+              </button>
+              {m.type === "gif" && <div className="absolute bottom-0 left-0 bg-purple-500/70 text-[6px] text-white px-0.5">GIF</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {media.length < 4 && (
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <button type="button" onClick={() => imgRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] text-white/40 hover:text-white transition disabled:opacity-40 focus:outline-none">
+            <ImageIcon size={10}/> Ảnh
+          </button>
+          <button type="button" onClick={() => vidRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] text-white/40 hover:text-white transition disabled:opacity-40 focus:outline-none">
+            <FileVideo size={10}/> Video
+          </button>
+          <button type="button" onClick={() => gifRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] text-white/40 hover:text-white transition disabled:opacity-40 focus:outline-none">
+            <Gift size={10}/> GIF
+          </button>
+          {uploading && <Loader2 size={10} className="animate-spin text-white/30"/>}
+        </div>
+      )}
+      <input ref={imgRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" multiple className="hidden" onChange={e=>{handleFiles(e.target.files);e.target.value="";}}/>
+      <input ref={vidRef} type="file" accept="video/mp4,video/webm,video/quicktime" multiple className="hidden" onChange={e=>{handleFiles(e.target.files);e.target.value="";}}/>
+      <input ref={gifRef} type="file" accept="image/gif" multiple className="hidden" onChange={e=>{handleFiles(e.target.files);e.target.value="";}}/>
+    </div>
+  );
+}
+
 function ActivityLogSection(){
   const{toast}=useToast();
   const[logs,setLogs]=useState([]);const[loading,setLoading]=useState(true);const[total,setTotal]=useState(0);const[totalPages,setTotalPages]=useState(1);const[page,setPage]=useState(1);const[perPage]=useState(50);const[filterAction,setFilterAction]=useState("");const[filterQ,setFilterQ]=useState("");const[actionChoices,setActionChoices]=useState([]);const[clearing,setClearing]=useState(false);
@@ -964,7 +1298,7 @@ function ActivityLogSection(){
   const[confirmLog,setConfirmLog]=useState(false);
   const handleClearConfirmed=async()=>{setConfirmLog(false);setClearing(true);try{const res=await authFetch(`${API}/api/activity-log/clear/`,{method:"POST",headers:{"Content-Type":"application/json"}},"admin");if(!res||res===AUTH_REDIRECTED)return;if(res.ok){setLogs([]);setTotal(0);setPage(1);toast.success("Đã xóa toàn bộ nhật ký!");}}finally{setClearing(false);}};
   return(<div className="flex flex-col gap-5">
-    <div className="flex items-center justify-between flex-wrap gap-3"><div><h2 className="text-lg font-semibold text-white flex items-center gap-2"><Activity size={20} className="text-orange-400"/> Nhật ký hoạt động</h2><p className="text-xs text-white/30 mt-0.5">Tổng {total.toLocaleString("vi-VN")} bản ghi · Chỉ Admin xem được</p></div><div className="flex items-center gap-2"><button onClick={()=>fetchLogs(page)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white text-xs transition focus:outline-none"><RefreshCw size={12}/> Làm mới</button><button onClick={()=>setConfirmLog(true)} disabled={clearing||total===0} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-xs transition focus:outline-none disabled:opacity-40"><Trash2 size={12}/> Xóa tất cả log</button></div></div>
+    <div className="flex items-center justify-between flex-wrap gap-3"><div><h2 className="text-lg font-semibold text-white flex items-center gap-2"><Activity size={20} className="text-orange-400"/> Nhật ký hệ thống</h2><p className="text-xs text-white/30 mt-0.5">Tổng {total.toLocaleString("vi-VN")} bản ghi · Chỉ Admin xem được</p></div><div className="flex items-center gap-2"><button onClick={()=>fetchLogs(page)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white text-xs transition focus:outline-none"><RefreshCw size={12}/> Làm mới</button><button onClick={()=>setConfirmLog(true)} disabled={clearing||total===0} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-xs transition focus:outline-none disabled:opacity-40"><Trash2 size={12}/> Xóa tất cả log</button></div></div>
     <div className="flex flex-wrap gap-3 p-4 rounded-2xl border border-white/8 bg-white/[0.02]"><select value={filterAction} onChange={e=>{setFilterAction(e.target.value);setPage(1);}} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50 transition"><option value="">Tất cả thao tác</option>{actionChoices.map(a=>(<option key={a.value} value={a.value}>{a.label}</option>))}</select><form onSubmit={handleSearch} className="flex gap-2 flex-1 min-w-[200px]"><input value={filterQ} onChange={e=>setFilterQ(e.target.value)} placeholder="Tìm kiếm trong chi tiết..." className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50 transition"/><button type="submit" className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium transition focus:outline-none">Tìm</button></form></div>
     {confirmLog&&<ConfirmModal message="Xóa toàn bộ nhật ký hoạt động?" subMessage="Hành động này không thể phục hồi." confirmLabel="Xóa tất cả" onConfirm={handleClearConfirmed} onCancel={()=>setConfirmLog(false)}/>}
     {loading?<div className="flex items-center justify-center py-20"><Loader2 size={28} className="animate-spin text-orange-400"/></div>:logs.length===0?<div className="flex flex-col items-center justify-center py-20 gap-3 border border-dashed border-white/10 rounded-2xl"><Activity size={40} className="text-white/15"/><p className="text-white/30 text-sm">Chưa có nhật ký nào</p></div>:(
@@ -977,6 +1311,187 @@ function ActivityLogSection(){
       </>
     )}
   </div>);
+}
+
+
+// ════════════════════════════════════════════════════════════
+// CUSTOMER LOG SECTION
+// ════════════════════════════════════════════════════════════
+const CUST_ACTION_LABELS={
+  register:"Đăng ký",login:"Đăng nhập",login_google:"Đăng nhập Google",login_facebook:"Đăng nhập Facebook",
+  logout:"Đăng xuất",forgot_password:"Quên mật khẩu",reset_password:"Đặt lại MK",change_password:"Đổi MK",
+  update_profile:"Cập nhật HĐ",upload_avatar:"Đổi avatar",create_address:"Thêm địa chỉ",
+  update_address:"Sửa địa chỉ",delete_address:"Xóa địa chỉ",create_order:"Đặt hàng",
+  cancel_order:"Hủy đơn",create_return:"Yêu cầu trả",apply_voucher:"Dùng voucher",
+  create_review:"Viết đánh giá",update_review:"Sửa đánh giá",delete_review:"Xóa đánh giá",
+  create_comment:"Bình luận",delete_comment:"Xóa bình luận",like:"Thích",unlike:"Bỏ thích",
+  search_text:"Tìm kiếm",search_image:"Tìm bằng ảnh",view_product:"Xem SP",
+};
+const CUST_ACTION_COLORS={
+  register:"text-green-400 bg-green-500/10 border-green-500/20",
+  login:"text-blue-400 bg-blue-500/10 border-blue-500/20",
+  login_google:"text-sky-400 bg-sky-500/10 border-sky-500/20",
+  login_facebook:"text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  logout:"text-slate-400 bg-slate-500/10 border-slate-500/20",
+  create_order:"text-orange-400 bg-orange-500/10 border-orange-500/20",
+  cancel_order:"text-red-400 bg-red-500/10 border-red-500/20",
+  create_return:"text-pink-400 bg-pink-500/10 border-pink-500/20",
+  create_review:"text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
+  apply_voucher:"text-lime-400 bg-lime-500/10 border-lime-500/20",
+  change_password:"text-amber-400 bg-amber-500/10 border-amber-500/20",
+  reset_password:"text-rose-400 bg-rose-500/10 border-rose-500/20",
+  update_profile:"text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  like:"text-pink-300 bg-pink-400/10 border-pink-400/20",
+  unlike:"text-white/40 bg-white/5 border-white/10",
+};
+function getCustActionColor(a){return CUST_ACTION_COLORS[a]||(a.startsWith("create_")?"text-blue-400 bg-blue-500/10 border-blue-500/20":a.startsWith("delete_")||a.startsWith("cancel_")?"text-red-400 bg-red-500/10 border-red-500/20":"text-white/50 bg-white/5 border-white/10");}
+
+function CustomerLogSection(){
+  const{toast}=useToast();
+  const[logs,setLogs]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[total,setTotal]=useState(0);
+  const[totalPages,setTotalPages]=useState(1);
+  const[page,setPage]=useState(1);
+  const[stats,setStats]=useState([]);
+  const[filterAction,setFilterAction]=useState("");
+  const[filterCustomer,setFilterCustomer]=useState("");
+  const[filterQ,setFilterQ]=useState("");
+  const[clearing,setClearing]=useState(false);
+  const[confirmLog,setConfirmLog]=useState(false);
+  const[showStats,setShowStats]=useState(false);
+  const perPage=50;
+
+  const fetchLogs=useCallback(async(p=page)=>{
+    setLoading(true);
+    try{
+      const params=new URLSearchParams({page:p,page_size:perPage});
+      if(filterAction)params.set("action",filterAction);
+      if(filterCustomer)params.set("customer_id",filterCustomer);
+      const res=await authFetch(`${API}/api/customer-log/list/?${params}`,{},"admin");
+      if(!res||res===AUTH_REDIRECTED)return;
+      const data=await res.json();
+      setLogs(data.logs||[]);
+      setTotal(data.total||0);
+      setTotalPages(data.pages||1);
+    }catch{}finally{setLoading(false);}
+  },[page,filterAction,filterCustomer]);// eslint-disable-line
+
+  const fetchStats=useCallback(async()=>{
+    try{
+      const res=await authFetch(`${API}/api/customer-log/stats/`,{},"admin");
+      if(!res||res===AUTH_REDIRECTED)return;
+      const data=await res.json();
+      setStats(data.stats||[]);
+    }catch{}
+  },[]);
+
+  useEffect(()=>{fetchLogs(page);},[page,filterAction,filterCustomer]);// eslint-disable-line
+  useEffect(()=>{if(showStats)fetchStats();},[showStats]);// eslint-disable-line
+
+  const handleSearch=e=>{e.preventDefault();setPage(1);fetchLogs(1);};
+  const handleClearConfirmed=async()=>{
+    setConfirmLog(false);setClearing(true);
+    try{
+      const res=await authFetch(`${API}/api/customer-log/clear/`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})},"admin");
+      if(!res||res===AUTH_REDIRECTED)return;
+      if(res.ok){setLogs([]);setTotal(0);setPage(1);toast.success("Đã xóa toàn bộ nhật ký người dùng!");}
+    }finally{setClearing(false);}
+  };
+
+  return(
+    <div className="flex flex-col gap-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <UserCheck size={20} className="text-blue-400"/> Nhật ký người dùng
+          </h2>
+          <p className="text-xs text-white/30 mt-0.5">Tổng {total.toLocaleString("vi-VN")} bản ghi · Chỉ Admin xem được</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={()=>setShowStats(s=>!s)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition focus:outline-none ${showStats?"bg-blue-500/20 border-blue-500/40 text-blue-400":"bg-white/5 border-white/10 text-white/40 hover:text-white"}`}>
+            <BarChart2 size={12}/> Thống kê
+          </button>
+          <button onClick={()=>fetchLogs(page)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white text-xs transition focus:outline-none">
+            <RefreshCw size={12}/> Làm mới
+          </button>
+          <button onClick={()=>setConfirmLog(true)} disabled={clearing||total===0} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-xs transition focus:outline-none disabled:opacity-40">
+            <Trash2 size={12}/> Xóa tất cả
+          </button>
+        </div>
+      </div>
+
+      {/* Stats panel */}
+      {showStats&&(
+        <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+          <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Thống kê 30 ngày gần nhất</p>
+          {stats.length===0
+            ?<p className="text-xs text-white/20 text-center py-4">Chưa có dữ liệu</p>
+            :<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {stats.slice(0,12).map(s=>(
+                <div key={s.action} className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/8">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${getCustActionColor(s.action)}`}>{CUST_ACTION_LABELS[s.action]||s.action}</span>
+                  <span className="text-sm font-bold text-white/70 ml-2">{s.count}</span>
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 p-4 rounded-2xl border border-white/8 bg-white/[0.02]">
+        <select value={filterAction} onChange={e=>{setFilterAction(e.target.value);setPage(1);}} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50 transition">
+          <option value="">Tất cả thao tác</option>
+          {Object.entries(CUST_ACTION_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+        </select>
+        <form onSubmit={handleSearch} className="flex gap-2 flex-1 min-w-[200px]">
+          <input value={filterQ} onChange={e=>setFilterQ(e.target.value)} placeholder="Tìm CustomerID, email..." className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50 transition"/>
+          <button type="submit" className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium transition focus:outline-none">Tìm</button>
+        </form>
+      </div>
+
+      {confirmLog&&<ConfirmModal message="Xóa toàn bộ nhật ký người dùng?" subMessage="Hành động này không thể phục hồi." confirmLabel="Xóa tất cả" onConfirm={handleClearConfirmed} onCancel={()=>setConfirmLog(false)}/>}
+
+      {loading
+        ?<div className="flex items-center justify-center py-20"><Loader2 size={28} className="animate-spin text-blue-400"/></div>
+        :logs.length===0
+          ?<div className="flex flex-col items-center justify-center py-20 gap-3 border border-dashed border-white/10 rounded-2xl"><UserCheck size={40} className="text-white/15"/><p className="text-white/30 text-sm">Chưa có nhật ký nào</p></div>
+          :(<>
+              <div className="rounded-2xl border border-white/8 overflow-hidden">
+                <div className="grid text-[11px] font-semibold uppercase tracking-wider text-white/30 px-4 py-2.5 border-b border-white/8 bg-white/[0.02]" style={{gridTemplateColumns:"150px 160px 2fr 110px 100px"}}>
+                  <span>Thời gian</span><span>Người dùng</span><span>Chi tiết</span><span>Thao tác</span><span>IP</span>
+                </div>
+                <div className="divide-y divide-white/5">
+                  {logs.map(log=>(
+                    <div key={log.id} className="grid items-center px-4 py-3 hover:bg-white/[0.02] transition text-sm" style={{gridTemplateColumns:"150px 160px 2fr 110px 100px"}}>
+                      <span className="text-[11px] text-white/35 font-mono">{log.created_at?.replace("T"," ").slice(0,16)}</span>
+                      <div className="min-w-0 pr-2">
+                        <p className="text-xs font-medium text-white/80 truncate">{log.full_name||"Đã xóa"}</p>
+                        <p className="text-[10px] text-white/30 truncate">{log.customer_id||""}</p>
+                      </div>
+                      <span className="text-xs text-white/50 truncate pr-2" title={log.detail}>{log.detail||"—"}</span>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border w-fit ${getCustActionColor(log.action)}`}>{CUST_ACTION_LABELS[log.action]||log.action}</span>
+                      <span className="text-[10px] text-white/25 font-mono truncate">{log.ip||"—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {totalPages>1&&(
+                <div className="flex items-center justify-between text-xs text-white/40">
+                  <span>Trang {page} / {totalPages} · {total.toLocaleString("vi-VN")} bản ghi</span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1} className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center disabled:opacity-30 focus:outline-none transition"><ChevronLeft size={14}/></button>
+                    {Array.from({length:Math.min(7,totalPages)},(_,i)=>{const p=totalPages<=7?i+1:page<=4?i+1:page>=totalPages-3?totalPages-6+i:page-3+i;return(<button key={p} onClick={()=>setPage(p)} className={`w-8 h-8 rounded-lg text-xs font-medium transition focus:outline-none ${p===page?"bg-orange-500 text-white":"bg-white/5 hover:bg-white/10 text-white/40"}`}>{p}</button>);})}
+                    <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages} className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center disabled:opacity-30 focus:outline-none transition"><ChevronRight size={14}/></button>
+                  </div>
+                </div>
+              )}
+            </>)
+      }
+    </div>
+  );
 }
 
 // ── HELPER COMPONENTS ──
