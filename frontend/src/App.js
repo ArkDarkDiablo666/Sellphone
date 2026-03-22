@@ -17,7 +17,7 @@ import { CartProvider } from "./Cart";
 import Cartpage from "./Cart";
 import Orders from "./Orders";
 import Blog, { BlogDetail } from "./Blog";
-import Searchage from "./Searchpage";
+import Searchpage from "./Searchpage";
 import MomoReturn from "./MomoReturn";
 import Chatbot from "./Chatbot";
 
@@ -81,7 +81,7 @@ function App() {
           <Route path="/admin/login" element={<Loginmanage />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/staff" element={<Staff />} />
-          <Route path="/search" element={<Searchage />} />
+          <Route path="/search" element={<Searchpage />} />
           <Route path="/payment/momo-return" element={<MomoReturn />} />
           {/* [FIX] 404 thay vì redirect về Login */}
           <Route path="*" element={<NotFound />} />

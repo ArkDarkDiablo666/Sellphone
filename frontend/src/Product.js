@@ -1,18 +1,15 @@
+import "./animations.css";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useCart } from "./Cart";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
-  User, LogOut, Settings, Search, ShoppingCart, ChevronDown,
-  AlertTriangle, SlidersHorizontal, X, ChevronRight, Package, Tag, Ticket
+  SlidersHorizontal, Search, X, ChevronRight, Package, Tag, Ticket
 } from "lucide-react";
-import bgImage from "./Image/image-177.png";
-import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
 import { ToastContainer, useToast } from "./Toast";
-import { isLoggedIn, clearSession } from "./authUtils";
 import BannerSlider from "./BannerSlider";
-
-const API = "http://localhost:8000";
+import Navbar from "./Navbar";
+import { API } from "./config";
 
 function calcDisc(v, price, productId, categoryId, variantId) {
   if (!v || !price) return 0;
@@ -73,11 +70,6 @@ export default function Product() {
   const navigate = useNavigate();
   const { totalCount, voucher: cartVoucher } = useCart();
   const { toast, toasts, removeToast } = useToast();
-  const [user,         setUser]         = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [confirmLogout,setConfirmLogout]= useState(false);
-  const [searchOpen,   setSearchOpen]   = useState(false);
-  const dropdownRef = useRef(null);
 
   const [products,    setProducts]    = useState([]);
   const [categories,  setCategories]  = useState([]);
@@ -95,25 +87,8 @@ export default function Product() {
 
   const toggleItem = (setter, val) => setter(prev => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
 
-  useEffect(() => {
-    const sync = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
-    window.addEventListener("storage",     sync);
-    window.addEventListener("focus",       sync);
-    window.addEventListener("userUpdated", sync);
-    return () => {
-      window.removeEventListener("storage",     sync);
-      window.removeEventListener("focus",       sync);
-      window.removeEventListener("userUpdated", sync);
-    };
-  }, []);
 
-  useEffect(() => {
-    const fn = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false); };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, []);
 
-  const handleLogout = () => { clearSession("user"); setConfirmLogout(false); navigate("/login"); };
 
   useEffect(() => {
     setLoading(true);
@@ -191,26 +166,6 @@ export default function Product() {
     <div className="min-h-screen bg-[#1C1C1E] text-white">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      {confirmLogout && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                <AlertTriangle size={18} className="text-red-400" />
-              </div>
-              <h3 className="font-semibold">Đăng xuất</h3>
-            </div>
-            <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmLogout(false)}
-                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10">Hủy</button>
-              <button onClick={handleLogout}
-                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium">Đăng xuất</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showVoucherPanel && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center">
@@ -245,64 +200,9 @@ export default function Product() {
         </div>
       )}
 
-      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* NAVBAR */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
-        <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
-        <div className="flex gap-8 items-center text-gray-300">
-          <Link to="/" className="hover:text-white transition">Trang chủ</Link>
-          <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
-          <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
-        </div>
-        <div className="flex gap-5 items-center text-gray-300">
-          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition">
-            <Search size={20} />
-          </button>
-          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative">
-            <ShoppingCart className="hover:text-white transition" size={22} />
-            {totalCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                {totalCount > 9 ? "9+" : totalCount}
-              </span>
-            )}
-          </button>
-          {user ? (
-            <div className="relative" ref={dropdownRef}>
-              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition">
-                {user.avatar
-                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={e => { e.currentTarget.style.display = "none"; }} />
-                  : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
-                <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-              {dropdownOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
-                    {user.avatar
-                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" />
-                      : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
-                    <div className="overflow-hidden">
-                      <p className="text-sm font-medium truncate">{user.fullName}</p>
-                      <p className="text-xs text-white/40 truncate">{user.email}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition">
-                    <Settings size={15} /> Tài khoản
-                  </button>
-                  <div className="h-px bg-white/5 mx-3" />
-                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition">
-                    <LogOut size={15} /> Đăng xuất
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => navigate("/login")}><User className="hover:text-white transition" size={22} /></button>
-          )}
-        </div>
-      </nav>
+      <Navbar />
 
       {/* BANNER */}
       <div className="pt-20 px-10 pb-4 max-w-7xl mx-auto">

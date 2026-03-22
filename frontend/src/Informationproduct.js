@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import "./animations.css";
 import { BlockRenderer } from "./Blockeditor";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useCart } from "./Cart";
@@ -51,9 +52,10 @@ function SuggestedProductCard({ p, onNavigate, onAddCart, onCompare, compareList
   const currentImg = variantImgs.length > 0 ? variantImgs[slideIdx % variantImgs.length] : (p.image || null);
 
   const dv       = variants.length > 0
-    ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
+    ? [...activeVars].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
     : null;
-  const rColors  = [...new Set(variants.map(v => v.color).filter(Boolean))];
+  const activeVars = variants.filter(v => v.is_active !== false);
+  const rColors  = [...new Set(activeVars.map(v => v.color).filter(Boolean))];
   const rCombo   = dv ? [dv.ram, dv.storage].filter(Boolean).join(" · ") : null;
 
   return (
@@ -105,7 +107,7 @@ function SuggestedProductCard({ p, onNavigate, onAddCart, onCompare, compareList
         {rColors.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {rColors.map(col => {
-              const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
+              const hasStock = activeVars.some(v => v.color === col && (v.stock ?? 1) > 0);
               return (
                 <span key={col}
                   className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
@@ -861,6 +863,7 @@ export default function InformationProduct() {
   const [activeImg,      setActiveImg]      = useState(0);
   const [activeTab,      setActiveTab]      = useState("info");
   const [productContent, setProductContent] = useState([]);
+  const contentSectionRef = useRef(null);
   const [qty,            setQty]            = useState(1);
   const [related,        setRelated]        = useState([]);
   const [activeVoucherList, setActiveVoucherList] = useState([]);
@@ -874,10 +877,11 @@ export default function InformationProduct() {
   const [selColor,   setSelColor]   = useState(null);
   const [selCombo,   setSelCombo]   = useState(null);
 
-  const allColors = [...new Set(variants.map(v => v.color).filter(Boolean))];
+  const activeVariants = variants.filter(v => v.is_active !== false);
+  const allColors = [...new Set(activeVariants.map(v => v.color).filter(Boolean))];
 
   const allComboMap = {};
-  for (const v of variants) {
+  for (const v of activeVariants) {
     if (!v.price) continue;
     const key = `${v.ram || ""}|${v.storage || ""}`;
     if (!allComboMap[key] || parseFloat(v.price) < parseFloat(allComboMap[key].price)) {
@@ -901,15 +905,15 @@ export default function InformationProduct() {
     if (!variants.length) return;
     let match = null;
     if (selColor && selCombo) {
-      match = variants.find(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      match = activeVariants.find(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === selCombo);
     } else if (selCombo) {
-      const candidates = variants.filter(v => `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      const candidates = activeVariants.filter(v => `${v.ram || ""}|${v.storage || ""}` === selCombo);
       match = candidates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
     } else if (selColor) {
-      const candidates = variants.filter(v => v.color === selColor);
+      const candidates = activeVariants.filter(v => v.color === selColor);
       match = candidates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
     } else {
-      match = [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0];
+      match = [...activeVariants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0];
     }
     if (match) {
       setSelectedVariant(match);
@@ -933,7 +937,7 @@ export default function InformationProduct() {
     if (selColor === col) { setSelColor(null); return; }
     setSelColor(col);
     if (selCombo) {
-      const ok = variants.some(v => v.color === col && `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      const ok = activeVariants.some(v => v.color === col && `${v.ram || ""}|${v.storage || ""}` === selCombo);
       if (!ok) setSelCombo(null);
     }
   };
@@ -942,7 +946,7 @@ export default function InformationProduct() {
     if (selCombo === comboKey) { setSelCombo(null); return; }
     setSelCombo(comboKey);
     if (selColor) {
-      const ok = variants.some(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === comboKey);
+      const ok = activeVariants.some(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === comboKey);
       if (!ok) setSelColor(null);
     }
   };
@@ -1115,8 +1119,8 @@ export default function InformationProduct() {
 
       {confirmLogout && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm pz-backdrop" onClick={() => setConfirmLogout(false)} />
+          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl pz-modal-box">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
                 <AlertTriangle size={18} className="text-red-400" />
@@ -1135,8 +1139,8 @@ export default function InformationProduct() {
       <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* ── NAV ── */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
-        <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
+      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 pz-navbar">
+        <div className="text-2xl pz-brand-logo pz-logo" onClick={() => navigate("/")}><span className="pz-white">PHONE</span><span className="pz-orange">ZONE</span></div>
         <div className="flex gap-8 items-center text-gray-300">
           <Link to="/" className="hover:text-white transition">Trang chủ</Link>
           <Link to="/product" className="text-white font-medium">Sản phẩm</Link>
@@ -1163,7 +1167,7 @@ export default function InformationProduct() {
                 <ChevronDown size={14} className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
               {dropdownOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
+                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50 pz-dropdown">
                   <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
                     {user.avatar
                       ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" onError={e => e.currentTarget.style.display="none"} />
@@ -1394,7 +1398,7 @@ export default function InformationProduct() {
               { key: "specs",  label: "Thông tin sản phẩm" },
               { key: "review", label: "Đánh giá" },
             ].map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveTab(key)}
+              <button key={key} onClick={() => { setActiveTab(key); if (key === "info") setTimeout(() => contentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
                 className={`px-5 py-3 text-sm font-medium transition border-b-2 -mb-px
                   ${activeTab === key ? "text-orange-400 border-orange-500" : "text-white/40 border-transparent hover:text-white"}`}>
                 {label}
@@ -1403,7 +1407,7 @@ export default function InformationProduct() {
           </div>
 
           {activeTab === "info" && (
-            <div className="w-full max-w-3xl mx-auto">
+            <div className="w-full max-w-3xl mx-auto" ref={contentSectionRef}>
               {productContent.length > 0
                 ? <BlockRenderer blocks={productContent} />
                 : product.description
@@ -1494,7 +1498,7 @@ export default function InformationProduct() {
       {/* ═══ MODAL: CHỌN SẢN PHẨM SO SÁNH ═══ */}
       {showAddCompare && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowAddCompare(false)} />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm pz-backdrop" onClick={() => setShowAddCompare(false)} />
           <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl w-full max-w-xl mx-4 max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
               <div className="flex items-center gap-2">

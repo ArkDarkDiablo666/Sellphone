@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import "./animations.css";
 import { Eye, EyeOff } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaFacebookF } from "react-icons/fa";
@@ -137,19 +138,26 @@ export default function Login() {
           headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
         });
         const profile = await gRes.json();
-        const endpoint = isLogin ? "/api/auth/google/login/" : "/api/auth/google/register/";
-        const res  = await fetch(`${API}${endpoint}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ google_id: profile.sub, full_name: profile.name, email: profile.email, avatar: profile.picture }),
+        // Thử login trước; nếu 404 (chưa có tài khoản) → tự động register
+        const payload = JSON.stringify({ google_id: profile.sub, full_name: profile.name, email: profile.email, avatar: profile.picture });
+        let res  = await fetch(`${API}/api/auth/google/login/`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: payload,
         });
+        // Nếu 404 (chưa đăng ký) → tự động register
+        if (res.status === 404) {
+          res = await fetch(`${API}/api/auth/google/register/`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: payload,
+          });
+        }
         const data = await res.json();
         if (res.ok) {
+          const isNewUser = res.status === 201;
           saveSession("user", {
             id: data.customer.id, fullName: profile.name, email: profile.email,
             avatar: profile.picture, loginType: "google",
           }, data.token);
           sessionStorage.setItem("login_toast",
-            isLogin ? `Chào mừng trở lại, ${profile.name}!` : `Đăng ký thành công! Chào mừng, ${profile.name}!`);
+            isNewUser ? `Đăng ký thành công! Chào mừng, ${profile.name}!` : `Chào mừng trở lại, ${profile.name}!`);
           navigate("/");
         } else { toast.error(data.message); }
       } catch { toast.error("Lỗi kết nối Google"); }
@@ -168,16 +176,21 @@ export default function Login() {
       const email       = profile.email || "";
       const avatar      = profile.picture?.data?.url || "";
       const facebook_id = profile.id;
-      const endpoint = isLogin ? "/api/auth/facebook/login/" : "/api/auth/facebook/register/";
-      const res  = await fetch(`${API}${endpoint}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facebook_id, full_name, email, avatar }),
+      // Thử login trước; nếu 404 (chưa có tài khoản) → tự động register
+      const fbPayload = JSON.stringify({ facebook_id, full_name, email, avatar });
+      let res = await fetch(`${API}/api/auth/facebook/login/`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: fbPayload,
       });
+      if (res.status === 404) {
+        res = await fetch(`${API}/api/auth/facebook/register/`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: fbPayload,
+        });
+      }
       const data = await res.json();
       if (res.ok) {
         saveSession("user", { id: data.customer.id, fullName: full_name, email, avatar, loginType: "facebook" }, data.token);
         sessionStorage.setItem("login_toast",
-          isLogin ? `Chào mừng trở lại, ${full_name}!` : `Đăng ký thành công! Chào mừng, ${full_name}!`);
+          res.status === 201 ? `Đăng ký thành công! Chào mừng, ${full_name}!` : `Chào mừng trở lại, ${full_name}!`);
         navigate("/");
       } else { toast.error(data.message); }
     } catch { toast.error("Lỗi khi xử lý đăng nhập Facebook"); }
@@ -193,7 +206,7 @@ export default function Login() {
         <div className="w-1/2">
           <img src={bg} alt="phone" className="w-full h-full object-cover" />
         </div>
-        <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col items-center justify-center px-20">
+        <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col items-center justify-center px-20 pz-slideleft">
 
           {/* TAB */}
           <div className="relative w-[260px] h-[44px] bg-gray-700/60 rounded-full">

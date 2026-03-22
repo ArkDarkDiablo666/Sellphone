@@ -302,6 +302,221 @@ export function ReviewStatsPanel() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// ALL VARIANT STOCK TABLE — bảng tồn kho đầy đủ, có tìm kiếm
+// ══════════════════════════════════════════════════════════════
+function AllVariantStockTable() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState("");
+  const [sortBy, setSortBy]     = useState("stock_desc"); // stock_desc | stock_asc | name_asc
+  const [filterStock, setFilterStock] = useState("all"); // all | low | out | ok
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await authFetch(`${API}/api/product/list/`, {}, "admin");
+      if (!r || r === AUTH_REDIRECTED) return;
+      const d = await r.json();
+      setProducts(d.products || []);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Flatten tất cả biến thể
+  const allRows = products.flatMap(p =>
+    (p.variants || []).map(v => ({
+      pid:     p.id,
+      pname:   p.name,
+      brand:   p.brand,
+      vid:     v.id,
+      color:   v.color,
+      storage: v.storage,
+      ram:     v.ram,
+      price:   v.price,
+      stock:   v.stock ?? 0,
+    }))
+  );
+
+  const maxStock = Math.max(...allRows.map(r => r.stock), 1);
+
+  // Filter
+  const filtered = allRows.filter(r => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || r.pname.toLowerCase().includes(q) ||
+      (r.color || "").toLowerCase().includes(q) ||
+      (r.storage || "").toLowerCase().includes(q) ||
+      (r.brand || "").toLowerCase().includes(q);
+    const matchStock =
+      filterStock === "all" ? true :
+      filterStock === "out" ? r.stock === 0 :
+      filterStock === "low" ? r.stock > 0 && r.stock <= 5 :
+      filterStock === "ok"  ? r.stock > 5 : true;
+    return matchSearch && matchStock;
+  });
+
+  // Sort
+  const sorted = [...filtered].sort((a, b) =>
+    sortBy === "stock_desc" ? b.stock - a.stock :
+    sortBy === "stock_asc"  ? a.stock - b.stock :
+    a.pname.localeCompare(b.pname)
+  );
+
+  const totalStock  = filtered.reduce((s, r) => s + r.stock, 0);
+  const outCount    = filtered.filter(r => r.stock === 0).length;
+  const lowCount    = filtered.filter(r => r.stock > 0 && r.stock <= 5).length;
+
+  return (
+    <div>
+      <SectionTitle>
+        🗃️ Tồn kho tất cả biến thể
+        <span className="text-[10px] font-normal text-white/30 normal-case ml-2">
+          {filtered.length} biến thể · tổng {Number(totalStock).toLocaleString("vi-VN")} sp
+        </span>
+      </SectionTitle>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[160px]">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Tìm sản phẩm, màu, bộ nhớ..."
+            className="w-full rounded-xl px-3 py-1.5 text-xs outline-none border"
+            style={{ background: "#1a1a1a", borderColor: "rgba(255,255,255,0.08)", color: "white" }}
+          />
+        </div>
+
+        {/* Filter stock */}
+        <div className="relative">
+          <select value={filterStock} onChange={e => setFilterStock(e.target.value)}
+            className="appearance-none rounded-xl px-3 pr-6 py-1.5 text-xs border outline-none cursor-pointer"
+            style={{ background: "#222", borderColor: "rgba(255,255,255,0.1)", color: "white" }}>
+            <option value="all">Tất cả</option>
+            <option value="ok">Còn hàng (&gt;5)</option>
+            <option value="low">Sắp hết (1–5)</option>
+            <option value="out">Hết hàng (0)</option>
+          </select>
+          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/40" />
+        </div>
+
+        {/* Sort */}
+        <div className="relative">
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+            className="appearance-none rounded-xl px-3 pr-6 py-1.5 text-xs border outline-none cursor-pointer"
+            style={{ background: "#222", borderColor: "rgba(255,255,255,0.1)", color: "white" }}>
+            <option value="stock_desc">Tồn kho giảm dần</option>
+            <option value="stock_asc">Tồn kho tăng dần</option>
+            <option value="name_asc">Tên A–Z</option>
+          </select>
+          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/40" />
+        </div>
+
+        <button onClick={load}
+          className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition shrink-0">
+          <RefreshCw size={13} className="text-white/40" />
+        </button>
+      </div>
+
+      {/* Summary badges */}
+      <div className="flex gap-2 mb-3 flex-wrap">
+        {[
+          { label: `${outCount} hết hàng`, color: RED,    show: outCount > 0 },
+          { label: `${lowCount} sắp hết`,  color: ORANGE, show: lowCount > 0 },
+          { label: `${filtered.length - outCount - lowCount} còn hàng`, color: CYAN, show: true },
+        ].filter(b => b.show).map((b, i) => (
+          <span key={i} className="text-[10px] px-2.5 py-1 rounded-full font-medium"
+            style={{ background: `${b.color}18`, border: `1px solid ${b.color}30`, color: b.color }}>
+            {b.label}
+          </span>
+        ))}
+      </div>
+
+      {loading ? <Spinner /> : (
+        <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: "#111" }}>
+          {/* Header */}
+          <div className="grid px-4 py-2.5 border-b border-white/5 text-[10px] text-white/30 uppercase tracking-wider"
+            style={{ gridTemplateColumns: "2fr 1fr 1fr 2fr 64px" }}>
+            <span>Sản phẩm</span>
+            <span>Màu / RAM</span>
+            <span>Bộ nhớ</span>
+            <span>Tồn kho</span>
+            <span className="text-right">SL</span>
+          </div>
+
+          {sorted.length === 0 ? (
+            <div className="py-8 text-center text-white/20 text-xs">Không có biến thể nào</div>
+          ) : (
+            <div className="max-h-[480px] overflow-y-auto">
+              {sorted.map((item, i) => {
+                const pct      = maxStock > 0 ? Math.round((item.stock / maxStock) * 100) : 0;
+                const barColor = item.stock === 0  ? RED    :
+                                 item.stock <= 5   ? ORANGE :
+                                 item.stock <= 20  ? PURPLE : CYAN;
+                const isOut = item.stock === 0;
+                const isLow = item.stock > 0 && item.stock <= 5;
+                return (
+                  <div key={`${item.vid}-${i}`}
+                    className="grid px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition items-center gap-2"
+                    style={{
+                      gridTemplateColumns: "2fr 1fr 1fr 2fr 64px",
+                      background: isOut ? "rgba(255,59,48,0.03)" : isLow ? "rgba(255,149,0,0.03)" : undefined,
+                    }}>
+                    {/* Tên SP */}
+                    <div className="min-w-0">
+                      <p className="text-xs text-white/75 truncate font-medium">{item.pname}</p>
+                      <p className="text-[10px] mt-0.5" style={{ color: "rgba(255,255,255,0.2)" }}>
+                        {item.brand || ""} · #{item.pid}
+                      </p>
+                    </div>
+                    {/* Màu / RAM */}
+                    <div className="min-w-0">
+                      {item.color && (
+                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md"
+                          style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.5)" }}>
+                          {item.color}
+                        </span>
+                      )}
+                      {item.ram && (
+                        <p className="text-[10px] mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>{item.ram}</p>
+                      )}
+                    </div>
+                    {/* Bộ nhớ */}
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                      {item.storage || "—"}
+                    </p>
+                    {/* Progress bar */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                        <div className="h-full rounded-full transition-all duration-500"
+                          style={{ width: isOut ? "100%" : `${pct}%`, background: barColor, opacity: isOut ? 0.5 : 1 }} />
+                      </div>
+                      {(isOut || isLow) && (
+                        <AlertTriangle size={9} style={{ color: barColor, flexShrink: 0 }} />
+                      )}
+                    </div>
+                    {/* Số lượng */}
+                    <p className="text-sm font-bold tabular-nums text-right" style={{ color: barColor }}>
+                      {isOut ? (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+                          style={{ background: `${RED}18`, color: RED }}>Hết</span>
+                      ) : (
+                        Number(item.stock).toLocaleString("vi-VN")
+                      )}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
 // PRODUCT STATS PANEL
 // ══════════════════════════════════════════════════════════════
 export function ProductStatsPanel() {
@@ -430,6 +645,68 @@ export function ProductStatsPanel() {
           </div>
         </div>
       )}
+
+      {/* ── Thống kê tồn kho từng sản phẩm ── */}
+      {data.top_stock && data.top_stock.length > 0 && (
+        <div>
+          <SectionTitle>📊 Tồn kho từng sản phẩm (Top 10 cao nhất)</SectionTitle>
+          <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: "#111" }}>
+            {/* Header */}
+            <div className="grid px-4 py-2.5 border-b border-white/5 text-[10px] text-white/30 uppercase tracking-wider"
+              style={{ gridTemplateColumns: "2fr 1fr 1fr 2fr 60px" }}>
+              <span>Sản phẩm</span>
+              <span>Màu / Bộ nhớ</span>
+              <span>Giá bán</span>
+              <span>Tồn kho</span>
+              <span className="text-right">Số lượng</span>
+            </div>
+
+            {(() => {
+              const maxStock = Math.max(...data.top_stock.map(i => i.stock || 0), 1);
+              return data.top_stock.map((item, i) => {
+                const pct = Math.round((item.stock / maxStock) * 100);
+                const barColor = item.stock > 50 ? CYAN : item.stock > 20 ? ORANGE : item.stock > 5 ? PURPLE : RED;
+                return (
+                  <div key={i}
+                    className="grid px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition items-center gap-2"
+                    style={{ gridTemplateColumns: "2fr 1fr 1fr 2fr 60px" }}>
+                    {/* Tên */}
+                    <div>
+                      <p className="text-xs text-white/75 truncate font-medium">{item.pname}</p>
+                      <p className="text-[10px] text-white/25 mt-0.5">#{item.pid}</p>
+                    </div>
+                    {/* Màu / Bộ nhớ */}
+                    <p className="text-xs text-white/40 truncate">
+                      {[item.color, item.storage].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                    {/* Giá */}
+                    <p className="text-xs text-white/50 tabular-nums">
+                      {item.price ? `${Number(item.price).toLocaleString("vi-VN")}đ` : "—"}
+                    </p>
+                    {/* Progress bar */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                        <div className="h-full rounded-full transition-all duration-700"
+                          style={{ width: `${pct}%`, background: barColor }} />
+                      </div>
+                      <span className="text-[10px] tabular-nums shrink-0" style={{ color: "rgba(255,255,255,0.3)", minWidth: 28, textAlign: "right" }}>
+                        {pct}%
+                      </span>
+                    </div>
+                    {/* Số lượng */}
+                    <p className="text-sm font-bold tabular-nums text-right" style={{ color: barColor }}>
+                      {Number(item.stock).toLocaleString("vi-VN")}
+                    </p>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ── Danh sách tất cả biến thể (có thể tìm kiếm) ── */}
+      <AllVariantStockTable />
 
       {/* Top rated */}
       {data.top_rated.length > 0 && (

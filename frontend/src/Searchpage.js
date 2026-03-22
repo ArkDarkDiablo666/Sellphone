@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import "./animations.css";
+import Navbar from "./Navbar";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./Cart";
 import Footer from "./Footer";
-import { isLoggedIn, clearSession } from "./authUtils";
 import {
   ShoppingCart, User, LogOut, Settings, ChevronDown,
   AlertTriangle, ShoppingBag, ArrowLeft, SlidersHorizontal,
@@ -126,39 +127,6 @@ export default function SearchPage() {
 
   const q = searchParams.get("q") || "";
 
-  // ── User ────────────────────────────────────────────────────────────────
-  const [user,         setUser]         = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [confirmLogout,setConfirmLogout]= useState(false);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    const sync = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
-    window.addEventListener("storage",     sync);
-    window.addEventListener("focus",       sync);
-    window.addEventListener("userUpdated", sync);
-    return () => {
-      window.removeEventListener("storage",     sync);
-      window.removeEventListener("focus",       sync);
-      window.removeEventListener("userUpdated", sync);
-    };
-  }, []);
-
-  useEffect(() => {
-    const h = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
-        setDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
-  const handleLogout = () => {
-    clearSession("user");
-    setConfirmLogout(false);
-    navigate("/login");
-  };
-
   // ── Search state ────────────────────────────────────────────────────────
   const [inputQ,   setInputQ]   = useState(q);
   const [results,  setResults]  = useState([]);
@@ -193,7 +161,6 @@ export default function SearchPage() {
   const [brands,      setBrands]      = useState([]);
   const [selectedRams,     setSelectedRams]     = useState([]);
   const [selectedStorages, setSelectedStorages] = useState([]);
-  const [filterOpen,  setFilterOpen]  = useState(false);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
   const doSearch = useCallback(async (query) => {
@@ -310,112 +277,8 @@ export default function SearchPage() {
   return (
     <div className="min-h-screen bg-[#1C1C1E] text-white">
 
-      {/* ── Logout dialog ── */}
-      {confirmLogout && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setConfirmLogout(false)} />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                <AlertTriangle size={18} className="text-red-400" />
-              </div>
-              <h3 className="font-semibold">Đăng xuất</h3>
-            </div>
-            <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmLogout(false)}
-                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10">
-                Hủy
-              </button>
-              <button onClick={handleLogout}
-                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium">
-                Đăng xuất
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Navbar ── */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4
-        backdrop-blur-md bg-black/70 border-b border-white/10">
-        <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>
-          PHONEZONE
-        </div>
-        <div className="flex gap-8 items-center text-gray-300">
-          <Link to="/"        className="hover:text-white transition">Trang chủ</Link>
-          <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
-          <Link to="/blog"    className="hover:text-white transition">Bài viết</Link>
-        </div>
-        <div className="flex gap-5 items-center text-gray-300">
-          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative">
-            <ShoppingCart className="hover:text-white transition" size={22} />
-            {totalCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4
-                rounded-full flex items-center justify-center font-bold">
-                {totalCount > 9 ? "9+" : totalCount}
-              </span>
-            )}
-          </button>
-          {user ? (
-            <div className="relative" ref={dropdownRef}>
-              <button onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-2 hover:text-white transition">
-                {user.avatar
-                  ? <img src={user.avatar} alt=""
-                      className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20"
-                      onError={e => e.currentTarget.style.display = "none"} />
-                  : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                      <User size={16} />
-                    </div>
-                }
-                <ChevronDown size={14}
-                  className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-              {dropdownOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10
-                  rounded-2xl shadow-xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
-                    {user.avatar
-                      ? <img src={user.avatar} alt=""
-                          className="w-9 h-9 rounded-full object-cover"
-                          onError={e => e.currentTarget.style.display = "none"} />
-                      : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
-                          <User size={16} />
-                        </div>
-                    }
-                    <div className="overflow-hidden">
-                      <p className="text-sm font-medium truncate">{user.fullName}</p>
-                      <p className="text-xs text-white/40 truncate">{user.email}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70
-                      hover:bg-white/5 hover:text-white transition">
-                    <ShoppingBag size={15} className="text-orange-400" /> Đơn hàng của tôi
-                  </button>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300
-                      hover:bg-white/5 transition">
-                    <Settings size={15} /> Tài khoản
-                  </button>
-                  <div className="h-px bg-white/5 mx-3" />
-                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400
-                      hover:bg-red-500/10 transition">
-                    <LogOut size={15} /> Đăng xuất
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => navigate("/login")}>
-              <User className="hover:text-white transition" size={22} />
-            </button>
-          )}
-        </div>
-      </nav>
+      <Navbar />
 
       {/* ── Page content ── */}
       <div className="pt-[64px]">

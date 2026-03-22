@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import "./animations.css";
+import Navbar from "./Navbar";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 import { getUser, authFetch, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
@@ -693,7 +695,7 @@ export default function Orders({ embedded = false }) {
         {confirmModal && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
-            <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl pz-modal-box">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0"><AlertTriangle size={18} className="text-red-400" /></div>
                 <h3 className="font-semibold text-white">Xác nhận hủy đơn</h3>
@@ -708,14 +710,7 @@ export default function Orders({ embedded = false }) {
         )}
 
         {!embedded && (
-          <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
-            style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>
-            <div className="text-xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
-            <button onClick={() => { setDetail(null); setReturnReq(null); setShowReturnForm(false); setPaidOpened(false); }}
-              className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition">
-              <ArrowLeft size={15} /> Danh sách đơn
-            </button>
-          </nav>
+      <Navbar />
         )}
         {embedded && (
           <button onClick={() => { setDetail(null); setReturnReq(null); setShowReturnForm(false); setPaidOpened(false); }}
@@ -880,7 +875,7 @@ export default function Orders({ embedded = false }) {
       {confirmModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl pz-modal-box">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0"><AlertTriangle size={18} className="text-red-400" /></div>
               <h3 className="font-semibold text-white">Xác nhận hủy đơn</h3>
@@ -895,13 +890,7 @@ export default function Orders({ embedded = false }) {
       )}
 
       {!embedded && (
-        <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
-          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>
-          <div className="text-xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
-          <button onClick={() => navigate("/product")} className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition">
-            <ArrowLeft size={15} /> Tiếp tục mua sắm
-          </button>
-        </nav>
+      <Navbar />
       )}
 
       <div className={embedded ? "pb-6" : "pt-20 px-8 pb-10 max-w-3xl mx-auto"}>
@@ -920,7 +909,7 @@ export default function Orders({ embedded = false }) {
             {orders.map((order) => {
               const needsPay = ["momo","vnpay"].includes(order.payment_method) && ["Pending","Processing"].includes(order.status);
               return (
-                <div key={order.id} className="rounded-2xl border overflow-hidden"
+                <div key={order.id} className="rounded-2xl border overflow-hidden pz-card pz-card-in"
                   style={{ background: "#161616", borderColor: needsPay ? (order.payment_method === "momo" ? "rgba(216,45,139,0.35)" : "rgba(0,91,170,0.35)") : "rgba(255,255,255,0.05)" }}>
                   <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
                     <div>

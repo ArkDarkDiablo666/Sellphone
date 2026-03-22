@@ -4,16 +4,16 @@ import { ChevronLeft, ChevronRight, Volume2, VolumeX, Play, Pause } from "lucide
 import { API } from "./config";
 
 // ─── Hook fetch banner active ────────────────────────────────
-export function useBanner() {
+export function useBanner(page = "all") {
   const [banner,  setBanner]  = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch(`${API}/api/banner/active/`)
+    fetch(`${API}/api/banner/active/?page=${page}`)
       .then(r => r.json())
       .then(d => setBanner(d.banner || null))
       .catch(() => setBanner(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [page]);
   return { banner, loading };
 }
 
@@ -203,8 +203,8 @@ function VideoItem({ item, isActive, onPauseSlider, onVideoEnded }) {
 }
 
 // ─── Main BannerSlider ────────────────────────────────────────
-export default function BannerSlider({ className = "", height = "h-[460px]" }) {
-  const { banner, loading } = useBanner();
+export default function BannerSlider({ className = "", height = "h-[460px]", page = "all" }) {
+  const { banner, loading } = useBanner(page);
   const [current,      setCurrent]      = useState(0);
   const [sliderPaused, setSliderPaused] = useState(false);
   const [dragStart,    setDragStart]    = useState(null);

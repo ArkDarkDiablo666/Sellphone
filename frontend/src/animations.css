@@ -1,0 +1,270 @@
+/* ============================================================
+   animations.css — PHONEZONE Global Animations
+   Import vào index.css: @import './animations.css';
+   ============================================================ */
+
+/* ── Logo glow pulse ──────────────────────────────────────── */
+@keyframes pz-logo-glow {
+  0%, 100% { text-shadow: 0 0 8px rgba(255,149,0,0.0); }
+  50%       { text-shadow: 0 0 16px rgba(255,149,0,0.45), 0 0 32px rgba(255,149,0,0.18); }
+}
+@keyframes pz-logo-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Fade + slide variants ────────────────────────────────── */
+@keyframes pz-fadeup {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes pz-fadedown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0);     }
+}
+@keyframes pz-fadein {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pz-scalein {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+@keyframes pz-slideright {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0);     }
+}
+@keyframes pz-slideleft {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+/* ── Modal / overlay ──────────────────────────────────────── */
+@keyframes pz-modal-in {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+@keyframes pz-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Toast slide ──────────────────────────────────────────── */
+@keyframes pz-toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+/* ── Sidebar item ─────────────────────────────────────────── */
+@keyframes pz-sidebar-item {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0);     }
+}
+
+/* ── Tab content swap ─────────────────────────────────────── */
+@keyframes pz-tab-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+/* ── Shimmer loading ──────────────────────────────────────── */
+@keyframes pz-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+/* ── Spin ─────────────────────────────────────────────────── */
+@keyframes pz-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Bounce attention ─────────────────────────────────────── */
+@keyframes pz-bounce-soft {
+  0%,100% { transform: translateY(0);   }
+  40%     { transform: translateY(-5px); }
+  70%     { transform: translateY(-2px); }
+}
+
+/* ── Orange glow pulse (cart badge, notifications) ────────── */
+@keyframes pz-badge-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,149,0,0); }
+  50%     { box-shadow: 0 0 0 4px rgba(255,149,0,0.25); }
+}
+
+/* ── Dropdown appear ──────────────────────────────────────── */
+@keyframes pz-dropdown {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Card hover lift ──────────────────────────────────────── */
+@keyframes pz-card-in {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+
+/* Logo */
+.pz-logo {
+  animation: pz-logo-in 0.45s cubic-bezier(.16,1,.3,1) both;
+}
+.pz-logo:hover {
+  animation: pz-logo-glow 1.8s ease-in-out infinite;
+}
+
+/* Page sections */
+.pz-fadeup        { animation: pz-fadeup     0.5s cubic-bezier(.16,1,.3,1) both; }
+.pz-fadedown      { animation: pz-fadedown   0.4s cubic-bezier(.16,1,.3,1) both; }
+.pz-fadein        { animation: pz-fadein     0.35s ease both; }
+.pz-scalein       { animation: pz-scalein    0.35s cubic-bezier(.16,1,.3,1) both; }
+.pz-slideright    { animation: pz-slideright 0.4s cubic-bezier(.16,1,.3,1) both; }
+.pz-slideleft     { animation: pz-slideleft  0.4s cubic-bezier(.16,1,.3,1) both; }
+.pz-tab-in        { animation: pz-tab-in     0.3s cubic-bezier(.16,1,.3,1) both; }
+.pz-modal-in      { animation: pz-modal-in   0.3s cubic-bezier(.16,1,.3,1) both; }
+.pz-overlay-in    { animation: pz-overlay-in 0.2s ease both; }
+.pz-dropdown      { animation: pz-dropdown   0.2s cubic-bezier(.16,1,.3,1) both; }
+.pz-card-in       { animation: pz-card-in    0.45s cubic-bezier(.16,1,.3,1) both; }
+.pz-sidebar-item  { animation: pz-sidebar-item 0.35s cubic-bezier(.16,1,.3,1) both; }
+.pz-toast-in      { animation: pz-toast-in   0.3s cubic-bezier(.16,1,.3,1) both; }
+.pz-badge-pulse   { animation: pz-badge-pulse 2s ease infinite; }
+
+/* Stagger delays */
+.pz-d0  { animation-delay: 0ms;   }
+.pz-d1  { animation-delay: 50ms;  }
+.pz-d2  { animation-delay: 100ms; }
+.pz-d3  { animation-delay: 150ms; }
+.pz-d4  { animation-delay: 200ms; }
+.pz-d5  { animation-delay: 250ms; }
+.pz-d6  { animation-delay: 300ms; }
+.pz-d7  { animation-delay: 350ms; }
+.pz-d8  { animation-delay: 400ms; }
+
+/* Shimmer skeleton */
+.pz-skeleton {
+  background: linear-gradient(90deg, #1a1a1a 25%, #242424 50%, #1a1a1a 75%);
+  background-size: 400px 100%;
+  animation: pz-shimmer 1.4s ease infinite;
+}
+
+/* ============================================================
+   TRANSITION OVERRIDES — smoother global defaults
+   ============================================================ */
+
+/* Buttons */
+button {
+  transition: background-color 0.18s ease,
+              opacity          0.18s ease,
+              transform        0.15s cubic-bezier(.16,1,.3,1),
+              box-shadow       0.18s ease,
+              border-color     0.18s ease,
+              color            0.18s ease;
+}
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Links */
+a {
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+/* Inputs / selects */
+input, textarea, select {
+  transition: border-color 0.18s ease,
+              box-shadow   0.18s ease,
+              background   0.18s ease;
+}
+
+/* Cards with group hover */
+.pz-card {
+  transition: transform  0.25s cubic-bezier(.16,1,.3,1),
+              box-shadow 0.25s ease,
+              border-color 0.2s ease;
+}
+.pz-card:hover {
+  transform: translateY(-2px);
+}
+
+/* ============================================================
+   LOGO — two-tone PHONE + ZONE
+   ============================================================ */
+.pz-brand-logo {
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  line-height: 1;
+}
+.pz-brand-logo .pz-white { color: #ffffff; }
+.pz-brand-logo .pz-orange { color: #ff9500; }
+
+/* ============================================================
+   NAVBAR GLASS
+   ============================================================ */
+.pz-navbar {
+  background: rgba(10,10,10,0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.3s ease;
+}
+
+/* ============================================================
+   MODAL BACKDROP
+   ============================================================ */
+.pz-backdrop {
+  animation: pz-overlay-in 0.2s ease both;
+}
+.pz-modal-box {
+  animation: pz-modal-in 0.28s cubic-bezier(.16,1,.3,1) both;
+}
+
+/* ============================================================
+   SIDEBAR (Admin/Staff)
+   ============================================================ */
+.pz-sidebar-logo {
+  animation: pz-fadedown 0.4s cubic-bezier(.16,1,.3,1) both;
+}
+.pz-sidebar-nav-item {
+  transition: background 0.15s ease, color 0.15s ease,
+              border-color 0.15s ease, transform 0.15s ease;
+}
+.pz-sidebar-nav-item:hover {
+  transform: translateX(2px);
+}
+
+/* ============================================================
+   TABLE ROWS
+   ============================================================ */
+tr, .pz-table-row {
+  transition: background 0.15s ease;
+}
+
+/* ============================================================
+   PAGE LOAD — content wrapper
+   ============================================================ */
+.pz-page-enter {
+  animation: pz-fadeup 0.45s cubic-bezier(.16,1,.3,1) both;
+}
+
+/* ============================================================
+   SCROLLBAR — thin orange
+   ============================================================ */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,149,0,0.25); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,149,0,0.5); }
+
+/* ============================================================
+   FOCUS OUTLINE — orange
+   ============================================================ */
+*:focus-visible {
+  outline: 2px solid rgba(255,149,0,0.5);
+  outline-offset: 2px;
+}

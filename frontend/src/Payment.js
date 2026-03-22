@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import "./animations.css";
+import Navbar from "./Navbar";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
 import {
@@ -761,14 +763,14 @@ export default function Payment() {
   );
 
   return (
-    <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
+    <div className="min-h-screen text-white pz-page-enter" style={{ background: "#1C1C1E" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* CONFIRM MODAL */}
       {confirmModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
-          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl pz-modal-box">
             <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition focus:outline-none">Hủy</button>
@@ -779,13 +781,7 @@ export default function Payment() {
       )}
 
       {/* NAV */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-10 py-4 border-b border-white/10"
-        style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)" }}>
-        <div className="text-xl font-bold cursor-pointer focus:outline-none" onClick={() => navigate("/")}>PHONEZONE</div>
-        <button onClick={() => navigate("/cart")} className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition focus:outline-none">
-          <ArrowLeft size={15} /> Quay lại giỏ hàng
-        </button>
-      </nav>
+      <Navbar />
 
       <div className="pt-20 px-8 pb-10 max-w-5xl mx-auto">
         {/* Breadcrumb */}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "./animations.css";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
 import { ToastContainer, useToast } from "./Toast";
@@ -57,7 +58,7 @@ export default function Forgotpassword() {
           <img src={bg} alt="" className="w-full h-full object-cover" />
         </div>
 
-        <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col justify-center px-20 text-white">
+        <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col justify-center px-20 text-white pz-slideleft">
           <h2 className="text-3xl font-semibold text-white mb-4">Quên mật khẩu</h2>
           <p className="text-gray-300 mb-6">Nhập email của bạn để nhận mã OTP.</p>
 

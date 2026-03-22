@@ -860,15 +860,24 @@ def update_staff_role(request):
     if role not in ['Admin', 'Staff', 'Unentitled']: return Response({"message": "Vai trò không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
     staff = Staff.objects.filter(StaffID=staff_id).first()
     if not staff: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
+    # [FIX] Bảo vệ Admin đầu tiên (StaffID nhỏ nhất) — không thể đổi quyền
+    first_admin = Staff.objects.order_by("StaffID").first()
+    if first_admin and staff.StaffID == first_admin.StaffID:
+        return Response({"message": "Không thể thay đổi quyền của tài khoản Admin gốc"}, status=status.HTTP_403_FORBIDDEN)
     staff.Role = role; staff.save()
     _write_log(request, None, 'update_staff_role', f'Đổi quyền nhân viên ID={staff_id} → {role}')
     return Response({"message": "Cập nhật quyền thành công"}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
+@permission_classes([IsAdminOnly])
 def delete_staff(request):
     staff_id = request.data.get('id')
     if not staff_id: return Response({"message": "Thiếu staff_id"}, status=status.HTTP_400_BAD_REQUEST)
+    # [FIX] Bảo vệ Admin đầu tiên — không thể xóa
+    first_admin = Staff.objects.order_by("StaffID").first()
+    if first_admin and str(staff_id) == str(first_admin.StaffID):
+        return Response({"message": "Không thể xóa tài khoản Admin gốc"}, status=status.HTTP_403_FORBIDDEN)
     Staff.objects.filter(StaffID=staff_id).delete()
     _write_log(request, None, 'delete_staff', f'Xóa nhân viên ID={staff_id}')
     return Response({"message": "Đã xóa tài khoản"}, status=status.HTTP_200_OK)
@@ -913,7 +922,7 @@ def upload_staff_avatar(request):
 @api_view(['GET'])
 def list_categories(request):
     cats = Category.objects.all().order_by('CategoryID')
-    return Response({"categories": [{"id": c.CategoryID, "name": c.CategoryName, "image": c.Image or "" if hasattr(c, 'Image') else ""} for c in cats]}, status=status.HTTP_200_OK)
+    return Response({"categories": [{"id": c.CategoryID, "name": c.CategoryName, "image": c.Image or "" if hasattr(c, 'Image') else "", "is_active": getattr(c, "IsActive", True)} for c in cats]}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -1018,6 +1027,7 @@ def create_product(request):
     images       = request.FILES.getlist('images')
     if not product_name: return Response({"message": "Vui lòng nhập tên sản phẩm"}, status=status.HTTP_400_BAD_REQUEST)
     if not category_id:  return Response({"message": "Vui lòng chọn danh mục"}, status=status.HTTP_400_BAD_REQUEST)
+    if Product.objects.filter(ProductName__iexact=product_name).exists(): return Response({"message": f"Sản phẩm '{product_name}' đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
     category = Category.objects.filter(CategoryID=category_id).first()
     if not category: return Response({"message": "Danh mục không tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
     try:    variants = json.loads(variants_raw)
@@ -1029,6 +1039,13 @@ def create_product(request):
         messages = []
         for ve in all_errors: messages.extend(ve.values())
         return Response({"message": " | ".join(messages), "variant_errors": variant_errors}, status=status.HTTP_400_BAD_REQUEST)
+    seen_combos = set()
+    for v in variants:
+        combo = (str(v.get("color","")).strip().lower(), str(v.get("storage","")).strip().lower())
+        color_val=v.get('color',''); storage_val=v.get('storage','')
+        if combo in seen_combos:
+            return Response({"message": f"Biến thể trùng lặp: màu '{color_val}' bộ nhớ '{storage_val}'"}, status=status.HTTP_400_BAD_REQUEST)
+        seen_combos.add(combo)
     product = Product.objects.create(ProductName=product_name, Brand=brand or None, Description=description or None, CategoryID=category)
     for idx, v in enumerate(variants):
         variant_obj = ProductVariant.objects.create(ProductID=product, Color=v.get('color') or None, Storage=v.get('storage') or None, Ram=v.get('ram') or None, Price=float(v.get('price', 0)), StockQuantity=int(v.get('stock', 0)), Cpu=v.get('cpu') or None, OperatingSystem=v.get('os') or None, ScreenSize=v.get('screenSize') or None, ScreenTechnology=v.get('screenTech') or None, RefreshRate=v.get('refreshRate') or None, Battery=v.get('battery') or None, ChargingSpeed=v.get('chargingSpeed') or None, FrontCamera=v.get('frontCamera') or None, RearCamera=v.get('rearCamera') or None, Weights=v.get('weights') or None, Updates=v.get('updates') or None)
@@ -1050,15 +1067,42 @@ def create_product(request):
 
 @api_view(['GET'])
 def list_products(request):
+    # [FIX] Admin/Staff nhận tất cả, customer chỉ nhận active
+    auth = request.META.get("HTTP_AUTHORIZATION", "")
+    is_staff_request = bool(auth.startswith("Bearer "))
+    try:
+        if is_staff_request:
+            import jwt as _jwt
+            from django.conf import settings as _s
+            payload = _jwt.decode(auth.split(" ", 1)[1], _s.SECRET_KEY, algorithms=["HS256"])
+            is_staff_request = payload.get("type") == "staff"
+    except Exception:
+        is_staff_request = False
+
     products = Product.objects.select_related('CategoryID').all().order_by('-CreatedAt')
+    if not is_staff_request:
+        products = products.filter(IsActive=True, CategoryID__IsActive=True)
     data = []
     for p in products:
-        variants    = ProductVariant.objects.filter(ProductID=p)
-        min_v       = variants.order_by('Price').first()
+        variants = ProductVariant.objects.filter(ProductID=p) if is_staff_request else ProductVariant.objects.filter(ProductID=p, IsActive=True)
+        active_variants = variants
+        min_v       = active_variants.order_by('Price').first()
         primary_img = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first() or ProductImage.objects.filter(ProductID=p).first()
-        rams        = list(set(v.Ram     for v in variants if v.Ram))
-        storages    = list(set(v.Storage for v in variants if v.Storage))
-        data.append({"id": p.ProductID, "name": p.ProductName, "brand": p.Brand or "", "description": p.Description or "", "category": p.CategoryID.CategoryName, "category_id": p.CategoryID.CategoryID, "variant_count": variants.count(), "min_price": str(min_v.Price) if min_v else "0", "image": primary_img.ImageUrl if primary_img else "", "rams": rams, "storages": storages, "variants": [{"id": v.VariantID, "color": v.Color or "", "storage": v.Storage or "", "ram": v.Ram or "", "price": float(v.Price), "stock": v.StockQuantity, "image": v.Image or ""} for v in variants]})
+        rams        = list(set(v.Ram     for v in active_variants if v.Ram))
+        storages    = list(set(v.Storage for v in active_variants if v.Storage))
+        data.append({
+            "id": p.ProductID, "name": p.ProductName, "brand": p.Brand or "",
+            "description": p.Description or "", "category": p.CategoryID.CategoryName,
+            "category_id": p.CategoryID.CategoryID, "is_active": getattr(p, "IsActive", True),
+            "category_is_active": getattr(p.CategoryID, "IsActive", True),
+            "variant_count": active_variants.count(),
+            "min_price": str(min_v.Price) if min_v else "0",
+            "image": primary_img.ImageUrl if primary_img else "",
+            "rams": rams, "storages": storages,
+            "variants": [{"id": v.VariantID, "color": v.Color or "", "storage": v.Storage or "",
+                          "ram": v.Ram or "", "price": float(v.Price), "stock": v.StockQuantity,
+                          "image": v.Image or "", "is_active": getattr(v, "IsActive", True)} for v in variants]
+        })
     return Response({"products": data}, status=status.HTTP_200_OK)
 
 
@@ -1066,12 +1110,25 @@ def list_products(request):
 def get_product_detail(request, product_id):
     product = Product.objects.select_related('CategoryID').filter(ProductID=product_id).first()
     if not product: return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
-    variants         = ProductVariant.objects.filter(ProductID=product)
+    # Check active for customer (no auth)
+    auth_hdr = request.META.get("HTTP_AUTHORIZATION", "")
+    _is_staff = False
+    try:
+        if auth_hdr.startswith("Bearer "):
+            import jwt as _jwt2
+            from django.conf import settings as _s2
+            _pl = _jwt2.decode(auth_hdr.split(" ", 1)[1], _s2.SECRET_KEY, algorithms=["HS256"])
+            _is_staff = _pl.get("type") == "staff"
+    except Exception:
+        pass
+    if not _is_staff and (not getattr(product, "IsActive", True) or not getattr(product.CategoryID, "IsActive", True)):
+        return Response({"message": "Sản phẩm không tồn tại"}, status=status.HTTP_404_NOT_FOUND)
+    variants         = ProductVariant.objects.filter(ProductID=product) if _is_staff else ProductVariant.objects.filter(ProductID=product, IsActive=True)
     images           = ProductImage.objects.filter(ProductID=product)
-    related_products = Product.objects.filter(CategoryID=product.CategoryID).exclude(ProductID=product_id).order_by('-CreatedAt')[:5]
+    related_products = Product.objects.filter(CategoryID=product.CategoryID, IsActive=True, CategoryID__IsActive=True).exclude(ProductID=product_id).order_by('-CreatedAt')[:5]
 
     def variant_data(v):
-        return {"id": v.VariantID, "image": v.Image or "" if hasattr(v, "Image") else "", "color": v.Color or "", "storage": v.Storage or "", "ram": v.Ram or "", "price": str(v.Price), "stock": v.StockQuantity, "cpu": v.Cpu or "", "os": v.OperatingSystem or "", "screen_size": v.ScreenSize or "", "screen_tech": v.ScreenTechnology or "", "refresh_rate": v.RefreshRate or "", "battery": v.Battery or "", "charging_speed": v.ChargingSpeed or "", "front_camera": v.FrontCamera or "", "rear_camera": v.RearCamera or "", "weights": v.Weights or "", "updates": v.Updates or ""}
+        return {"id": v.VariantID, "image": v.Image or "" if hasattr(v, "Image") else "", "color": v.Color or "", "storage": v.Storage or "", "ram": v.Ram or "", "price": str(v.Price), "stock": v.StockQuantity, "is_active": getattr(v, "IsActive", True), "cpu": v.Cpu or "", "os": v.OperatingSystem or "", "screen_size": v.ScreenSize or "", "screen_tech": v.ScreenTechnology or "", "refresh_rate": v.RefreshRate or "", "battery": v.Battery or "", "charging_speed": v.ChargingSpeed or "", "front_camera": v.FrontCamera or "", "rear_camera": v.RearCamera or "", "weights": v.Weights or "", "updates": v.Updates or ""}
 
     def related_data(p):
         primary_img = ProductImage.objects.filter(ProductID=p, IsPrimary=True).first() or ProductImage.objects.filter(ProductID=p).first()
@@ -1107,6 +1164,19 @@ def add_variants(request):
         messages = []
         for ve in all_errors: messages.extend(ve.values())
         return Response({"message": " | ".join(messages), "variant_errors": variant_errors}, status=status.HTTP_400_BAD_REQUEST)
+    existing_combos = set(
+        (str(ev.Color or "").strip().lower(), str(ev.Storage or "").strip().lower())
+        for ev in ProductVariant.objects.filter(ProductID=product)
+    )
+    seen_combos = set()
+    for v in variants:
+        combo = (str(v.get("color","")).strip().lower(), str(v.get("storage","")).strip().lower())
+        color_val=v.get('color',''); storage_val=v.get('storage','')
+        if combo in existing_combos:
+            return Response({"message": f"Biến thể màu '{color_val}' bộ nhớ '{storage_val}' đã tồn tại trong sản phẩm này"}, status=status.HTTP_400_BAD_REQUEST)
+        if combo in seen_combos:
+            return Response({"message": f"Biến thể trùng lặp trong danh sách: màu '{color_val}' bộ nhớ '{storage_val}'"}, status=status.HTTP_400_BAD_REQUEST)
+        seen_combos.add(combo)
     created = []
     for idx, v in enumerate(variants):
         variant_obj = ProductVariant.objects.create(ProductID=product, Color=v.get('color') or None, Storage=v.get('storage') or None, Ram=v.get('ram') or None, Price=float(v.get('price', 0)), StockQuantity=int(v.get('stock', 0)), Cpu=v.get('cpu') or None, OperatingSystem=v.get('os') or None, ScreenSize=v.get('screenSize') or None, ScreenTechnology=v.get('screenTech') or None, RefreshRate=v.get('refreshRate') or None, Battery=v.get('battery') or None, ChargingSpeed=v.get('chargingSpeed') or None, FrontCamera=v.get('frontCamera') or None, RearCamera=v.get('rearCamera') or None, Weights=v.get('weights') or None, Updates=v.get('updates') or None)
@@ -1469,6 +1539,27 @@ def deactivate_voucher(request):
     v.IsActive = False; v.save()
     _write_log(request, None, 'deactivate_voucher', f'Tắt voucher ID={vid}')
     return Response({"message": "Đã vô hiệu hóa voucher"}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+def activate_voucher(request):
+    """Kích hoạt lại voucher — chặn nếu đã hết hạn."""
+    import datetime as _dt
+    from .models import Voucher
+    voucher_id = request.data.get('id')
+    if not voucher_id:
+        return Response({"message": "Thiếu voucher_id"}, status=status.HTTP_400_BAD_REQUEST)
+    v = Voucher.objects.filter(VoucherID=voucher_id).first()
+    if not v:
+        return Response({"message": "Không tìm thấy voucher"}, status=status.HTTP_404_NOT_FOUND)
+    today = _dt.date.today()
+    if v.EndDate and v.EndDate < today:
+        return Response({"message": f"Không thể kích hoạt — voucher đã hết hạn từ {v.EndDate.strftime('%d/%m/%Y')}"}, status=status.HTTP_400_BAD_REQUEST)
+    v.IsActive = True
+    v.save(update_fields=["IsActive"])
+    _write_log(request, None, 'update_voucher', f'Kích hoạt lại voucher ID={voucher_id}')
+    return Response({"message": "Voucher đã được kích hoạt", "is_active": True})
 
 
 @api_view(['POST'])
@@ -1882,7 +1973,17 @@ def get_return_request(request, order_id):
 @api_view(['GET'])
 def list_posts(request):
     category = request.query_params.get('category', 'all')
-    posts    = Post.objects.all()
+    auth_hdr2 = request.META.get("HTTP_AUTHORIZATION", "")
+    _is_staff_post = False
+    try:
+        if auth_hdr2.startswith("Bearer "):
+            import jwt as _jwt3
+            from django.conf import settings as _s3
+            _pl3 = _jwt3.decode(auth_hdr2.split(" ", 1)[1], _s3.SECRET_KEY, algorithms=["HS256"])
+            _is_staff_post = _pl3.get("type") == "staff"
+    except Exception:
+        pass
+    posts = Post.objects.all() if _is_staff_post else Post.objects.filter(IsActive=True)
     if category and category != 'all': posts = posts.filter(Category=category)
     posts = posts.order_by('-CreatedAt')
     result = []
@@ -1893,7 +1994,7 @@ def list_posts(request):
             for b in blocks:
                 if b.get('type') == 'image' and b.get('url'): thumb = b['url']; break
         except: pass
-        result.append({"id": p.PostID, "title": p.Title, "category": p.Category or "Mẹo vặt", "thumbnail": thumb, "created_at": p.CreatedAt.isoformat(), "author": p.Author or "Admin"})
+        result.append({"id": p.PostID, "title": p.Title, "category": p.Category or "Mẹo vặt", "thumbnail": thumb, "created_at": p.CreatedAt.isoformat(), "author": p.Author or "Admin", "is_active": getattr(p, "IsActive", True)})
     return Response({"posts": result}, status=status.HTTP_200_OK)
 
 
@@ -1901,6 +2002,18 @@ def list_posts(request):
 def get_post(request, post_id):
     p = Post.objects.filter(PostID=post_id).first()
     if not p: return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
+    auth_hdr3 = request.META.get("HTTP_AUTHORIZATION", "")
+    _is_staff_gp = False
+    try:
+        if auth_hdr3.startswith("Bearer "):
+            import jwt as _jwt4
+            from django.conf import settings as _s4
+            _pl4 = _jwt4.decode(auth_hdr3.split(" ", 1)[1], _s4.SECRET_KEY, algorithms=["HS256"])
+            _is_staff_gp = _pl4.get("type") == "staff"
+    except Exception:
+        pass
+    if not _is_staff_gp and not getattr(p, "IsActive", True):
+        return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
     try: blocks = json.loads(p.Blocks) if isinstance(p.Blocks, str) else (p.Blocks or [])
     except: blocks = []
     return Response({"post": {"id": p.PostID, "title": p.Title, "category": p.Category or "", "blocks": blocks, "created_at": p.CreatedAt.isoformat(), "author": p.Author or "Admin"}}, status=status.HTTP_200_OK)
@@ -1914,6 +2027,7 @@ def create_post(request):
     blocks   = request.data.get('blocks', '[]')
     author   = request.data.get('author', 'Admin').strip()
     if not title: return Response({"message": "Vui lòng nhập tiêu đề bài viết"}, status=status.HTTP_400_BAD_REQUEST)
+    if Post.objects.filter(Title__iexact=title).exists(): return Response({"message": f"Bài viết '{title}' đã tồn tại"}, status=status.HTTP_400_BAD_REQUEST)
     if isinstance(blocks, str):
         try: blocks_parsed = json.loads(blocks)
         except: blocks_parsed = []
@@ -2353,6 +2467,124 @@ def admin_delete_reply(request):
     if not reply: return Response({"ok": False, "error": "Không tìm thấy phản hồi"}, status=status.HTTP_404_NOT_FOUND)
     reply.delete()
     return Response({"ok": True, "message": "Đã xóa phản hồi"}, status=status.HTTP_200_OK)
+
+
+
+# ══════════════════════════════════════════════════════════════
+# DISABLE / ENABLE — Category, Product, Variant, Post, Banner
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+def toggle_category(request):
+    """Vô hiệu hóa / kích hoạt danh mục. Kéo theo toàn bộ sản phẩm."""
+    cat_id   = request.data.get('id')
+    is_active = request.data.get('is_active')  # bool
+    if cat_id is None or is_active is None:
+        return Response({"message": "Thiếu id hoặc is_active"}, status=status.HTTP_400_BAD_REQUEST)
+    cat = Category.objects.filter(CategoryID=cat_id).first()
+    if not cat:
+        return Response({"message": "Không tìm thấy danh mục"}, status=status.HTTP_404_NOT_FOUND)
+    cat.IsActive = bool(is_active)
+    cat.save(update_fields=["IsActive"])
+    action = "Kích hoạt" if is_active else "Vô hiệu hóa"
+    _write_log(request, None, "update_category", f"{action} danh mục: {cat.CategoryName}")
+    return Response({"message": f"{action} danh mục thành công", "is_active": cat.IsActive})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+def toggle_product(request):
+    """Vô hiệu hóa / kích hoạt sản phẩm (và mô tả sản phẩm)."""
+    product_id = request.data.get('id')
+    is_active  = request.data.get('is_active')
+    if product_id is None or is_active is None:
+        return Response({"message": "Thiếu id hoặc is_active"}, status=status.HTTP_400_BAD_REQUEST)
+    product = Product.objects.filter(ProductID=product_id).first()
+    if not product:
+        return Response({"message": "Không tìm thấy sản phẩm"}, status=status.HTTP_404_NOT_FOUND)
+    product.IsActive = bool(is_active)
+    product.save(update_fields=["IsActive"])
+    action = "Kích hoạt" if is_active else "Vô hiệu hóa"
+    _write_log(request, None, "update_product", f"{action} sản phẩm: {product.ProductName}")
+    return Response({"message": f"{action} sản phẩm thành công", "is_active": product.IsActive})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+def toggle_variant(request):
+    """Vô hiệu hóa / kích hoạt một hoặc nhiều biến thể.
+    Nếu sau khi toggle mà sản phẩm không còn biến thể active nào,
+    tự động vô hiệu hóa sản phẩm (và ngược lại khi kích hoạt lại).
+    """
+    variant_ids = request.data.get('ids')   # list of int
+    is_active   = request.data.get('is_active')
+    if not variant_ids or is_active is None:
+        return Response({"message": "Thiếu ids hoặc is_active"}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(variant_ids, list):
+        variant_ids = [variant_ids]
+
+    updated = ProductVariant.objects.filter(VariantID__in=variant_ids)
+    if not updated.exists():
+        return Response({"message": "Không tìm thấy biến thể"}, status=status.HTTP_404_NOT_FOUND)
+
+    product_ids = set(updated.values_list("ProductID_id", flat=True))
+    updated.update(IsActive=bool(is_active))
+
+    # Cascade: nếu 1 biến thể active còn lại = 0 → vô hiệu sản phẩm
+    for pid in product_ids:
+        active_count = ProductVariant.objects.filter(ProductID=pid, IsActive=True).count()
+        Product.objects.filter(ProductID=pid).update(IsActive=(active_count > 0))
+
+    action = "Kích hoạt" if is_active else "Vô hiệu hóa"
+    _write_log(request, None, "update_variant", f"{action} {len(variant_ids)} biến thể")
+    return Response({"message": f"{action} biến thể thành công", "is_active": bool(is_active)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+def toggle_post(request):
+    """Vô hiệu hóa / kích hoạt bài viết."""
+    post_id   = request.data.get('id')
+    is_active = request.data.get('is_active')
+    if post_id is None or is_active is None:
+        return Response({"message": "Thiếu id hoặc is_active"}, status=status.HTTP_400_BAD_REQUEST)
+    post = Post.objects.filter(PostID=post_id).first()
+    if not post:
+        return Response({"message": "Không tìm thấy bài viết"}, status=status.HTTP_404_NOT_FOUND)
+    post.IsActive = bool(is_active)
+    post.save(update_fields=["IsActive"])
+    action = "Kích hoạt" if is_active else "Vô hiệu hóa"
+    _write_log(request, None, "update_post", f"{action} bài viết: {post.Title}")
+    return Response({
+        "message": f"Bài viết đã {'được kích hoạt' if is_active else 'bị vô hiệu hóa'}",
+        "is_active": post.IsActive
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminOrStaff])
+def toggle_banner(request):
+    """Vô hiệu hóa / kích hoạt banner. Cảnh báo nếu trùng page."""
+    banner_id = request.data.get('id')
+    is_active = request.data.get('is_active')
+    if banner_id is None or is_active is None:
+        return Response({"message": "Thiếu id hoặc is_active"}, status=status.HTTP_400_BAD_REQUEST)
+    banner = Banner.objects.filter(BannerID=banner_id).first()
+    if not banner:
+        return Response({"message": "Không tìm thấy banner"}, status=status.HTTP_404_NOT_FOUND)
+    banner.IsActive = bool(is_active)
+    banner.save(update_fields=["IsActive"])
+    # Kiểm tra conflict: cùng page đang có banner active khác
+    conflict = None
+    if is_active:
+        dup = Banner.objects.filter(IsActive=True, Page=banner.Page).exclude(BannerID=banner_id).first()
+        if dup:
+            page_label = {"all": "tất cả trang", "home": "trang chủ", "product": "trang sản phẩm", "blog": "trang blog"}.get(banner.Page, banner.Page)
+            conflict = f"Đã có banner khác (#{dup.BannerID} – {dup.Title or 'không tên'}) đang hiển thị tại {page_label}. Banner cũ sẽ bị thay thế hiển thị."
+    action = "Kích hoạt" if is_active else "Vô hiệu hóa"
+    _write_log(request, None, "update_banner", f"{action} banner #{banner_id}")
+    return Response({"message": f"{action} banner thành công", "is_active": banner.IsActive, "conflict_warning": conflict})
 
 
 # ══════════════════════════════════════════════════════════════
@@ -3247,7 +3479,11 @@ def _serialize_banner(banner):
 
 @api_view(["GET"])
 def get_active_banner(request):
-    banner = Banner.objects.filter(IsActive=True).order_by("BannerID").first()
+    page = request.query_params.get("page", "all")
+    # Ưu tiên banner cho trang cụ thể, fallback về "all"
+    banner = Banner.objects.filter(IsActive=True, Page=page).order_by("-BannerID").first()
+    if not banner and page != "all":
+        banner = Banner.objects.filter(IsActive=True, Page="all").order_by("-BannerID").first()
     if not banner:
         return Response({"banner": None})
     return Response({"banner": _serialize_banner(banner)})

@@ -1,27 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
-import {
-  ArrowLeft,
-  Clock,
-  Tag,
-  Search,
-  ChevronRight,
-  ShoppingCart,
-  User,
-  LogOut,
-  Settings,
-  ChevronDown,
-  AlertTriangle,
-  X,
-} from "lucide-react";
+import "./animations.css";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Clock, Tag, Search, ChevronRight, X } from "lucide-react";
 import { BlockRenderer } from "./Blockeditor";
 import { useCart } from "./Cart";
-import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
-import { isLoggedIn, clearSession } from "./authUtils";
 import BannerSlider from "./BannerSlider";
+import Navbar, { useNavbarToast } from "./Navbar";
+import { API } from "./config";
 
-const API = "http://localhost:8000";
 
 const CATEGORIES = [
   "Tất cả",
@@ -46,49 +33,22 @@ export function BlogDetail() {
   const { id } = useParams();
   const [post, setPost] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [related, setRelated] = useState([]);
   const navigate = useNavigate();
   const { totalCount } = useCart();
-  const [user, setUser] = useState(() =>
-    JSON.parse(localStorage.getItem("user") || "null"),
-  );
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [confirmLogout, setConfirmLogout] = useState(false);
-  const dropdownRef = useRef(null);
-  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
-    const syncUser = () =>
-      setUser(JSON.parse(localStorage.getItem("user") || "null"));
-    window.addEventListener("storage", syncUser);
-    window.addEventListener("focus", syncUser);
-    window.addEventListener("userUpdated", syncUser);
-    return () => {
-      window.removeEventListener("storage", syncUser);
-      window.removeEventListener("focus", syncUser);
-      window.removeEventListener("userUpdated", syncUser);
-    };
-  }, []);
-
-  useEffect(() => {
-    const fn = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
-        setDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, []);
-
-  const handleLogout = () => {
-    clearSession("user");
-    setConfirmLogout(false);
-    sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
-    navigate("/login");
-  };
-
-  useEffect(() => {
+    setLoading(true);
     fetch(`${API}/api/post/${id}/`)
       .then((r) => r.json())
-      .then((d) => setPost(d.post))
+      .then((d) => {
+        setPost(d.post);
+        if (d.post?.category) {
+          fetch(`${API}/api/post/list/?category=${encodeURIComponent(d.post.category)}`)
+            .then(r => r.json())
+            .then(rd => setRelated((rd.posts || []).filter(p => String(p.id) !== String(id)).slice(0, 4)));
+        }
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -119,164 +79,12 @@ export function BlogDetail() {
 
   return (
     <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
-      {/* LOGOUT DIALOG */}
-      {confirmLogout && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setConfirmLogout(false)}
-          />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                <AlertTriangle size={18} className="text-red-400" />
-              </div>
-              <h3 className="font-semibold">Đăng xuất</h3>
-            </div>
-            <p className="text-gray-400 text-sm mb-6">
-              Bạn có muốn đăng xuất không?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmLogout(false)}
-                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition"
-              >
-                Đăng xuất
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
-        <div
-          className="text-2xl font-bold cursor-pointer"
-          onClick={() => navigate("/")}
-        >
-          PHONEZONE
-        </div>
-        <div className="flex gap-8 items-center text-gray-300">
-          <Link to="/" className="hover:text-white transition">
-            Trang chủ
-          </Link>
-          <Link to="/product" className="hover:text-white transition">
-            Sản phẩm
-          </Link>
-          <Link to="/blog" className="text-white font-medium transition">
-            Bài viết
-          </Link>
-        </div>
-        <div className="flex gap-5 items-center text-gray-300">
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="text-gray-300 hover:text-white transition"
-          >
-            <Search size={20} />
-          </button>
-          <button
-            onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")}
-            className="relative"
-          >
-            <ShoppingCart className="hover:text-white transition" size={22} />
-            {totalCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                {totalCount > 9 ? "9+" : totalCount}
-              </span>
-            )}
-          </button>
-          {user ? (
-            <div className="relative" ref={dropdownRef}>
-              <button
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-2 hover:text-white transition"
-              >
-                {user.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                    <User size={16} />
-                  </div>
-                )}
-                <ChevronDown
-                  size={14}
-                  className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {dropdownOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
-                    {user.avatar ? (
-                      <img
-                        src={user.avatar}
-                        alt=""
-                        className="w-9 h-9 rounded-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
-                      />
-                    ) : (
-                      <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
-                        <User size={16} />
-                      </div>
-                    )}
-                    <div className="overflow-hidden">
-                      <p className="text-sm font-medium truncate">
-                        {user.fullName}
-                      </p>
-                      <p className="text-xs text-white/40 truncate">
-                        {user.email}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setDropdownOpen(false);
-                      navigate("/information");
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition"
-                  >
-                    <Settings size={15} /> Tài khoản
-                  </button>
-                  <div className="h-px bg-white/5 mx-3" />
-                  <button
-                    onClick={() => {
-                      setDropdownOpen(false);
-                      setConfirmLogout(true);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition"
-                  >
-                    <LogOut size={15} /> Đăng xuất
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => navigate("/login")}>
-              <User className="hover:text-white transition" size={22} />
-            </button>
-          )}
-        </div>
-      </nav>
+      <Navbar />
 
       <div className="pt-20 pb-16 px-6 max-w-3xl mx-auto">
         {/* BANNER */}
         <div className="mb-8">
-          <BannerSlider height="h-[220px]" className="w-full" />
+          <BannerSlider height="h-[220px]" className="w-full" page="blog" />
         </div>
         <div className="flex items-center gap-3 mb-4">
           <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-orange-500/15 text-orange-400">
@@ -304,6 +112,40 @@ export function BlogDetail() {
             <ArrowLeft size={14} /> Xem tất cả bài viết
           </button>
         </div>
+
+        {/* ── GỢI Ý BÀI VIẾT LIÊN QUAN ── */}
+        {related.length > 0 && (
+          <div className="mt-12">
+            <h3 className="text-base font-semibold text-white/70 mb-5 uppercase tracking-widest text-xs">
+              Bài viết liên quan
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {related.map(p => (
+                <div
+                  key={p.id}
+                  onClick={() => { navigate(`/blog/${p.id}`); window.scrollTo({ top: 0, behavior: "instant" }); }}
+                  className="cursor-pointer rounded-2xl border border-white/5 hover:border-orange-500/25 transition group overflow-hidden flex gap-3 p-3"
+                  style={{ background: "#161616" }}
+                >
+                  <div className="w-20 h-16 shrink-0 rounded-xl overflow-hidden bg-[#1e1e1e] flex items-center justify-center">
+                    {p.thumbnail
+                      ? <img src={p.thumbnail} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      : <Tag size={18} className="text-white/10" />}
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col justify-between">
+                    <p className="text-sm font-medium text-white/80 leading-snug line-clamp-2 group-hover:text-orange-400 transition">
+                      {p.title}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400/70">{p.category}</span>
+                      <span className="text-[10px] text-white/25 flex items-center gap-1"><Clock size={9}/> {timeAgo(p.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <Footer />
     </div>
@@ -318,42 +160,6 @@ export default function Blog() {
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { totalCount } = useCart();
-  const [user, setUser] = useState(() =>
-    JSON.parse(localStorage.getItem("user") || "null"),
-  );
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [confirmLogout, setConfirmLogout] = useState(false);
-  const dropdownRef = useRef(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-
-  useEffect(() => {
-    const syncUser = () =>
-      setUser(JSON.parse(localStorage.getItem("user") || "null"));
-    window.addEventListener("storage", syncUser);
-    window.addEventListener("focus", syncUser);
-    window.addEventListener("userUpdated", syncUser);
-    return () => {
-      window.removeEventListener("storage", syncUser);
-      window.removeEventListener("focus", syncUser);
-      window.removeEventListener("userUpdated", syncUser);
-    };
-  }, []);
-
-  useEffect(() => {
-    const fn = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
-        setDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, []);
-
-  const handleLogout = () => {
-    clearSession("user");
-    setConfirmLogout(false);
-    sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!");
-    navigate("/login");
-  };
 
   useEffect(() => {
     loadPosts(activeTab);
@@ -395,166 +201,14 @@ export default function Blog() {
 
   return (
     <div className="min-h-screen text-white" style={{ background: "#1C1C1E" }}>
-      {/* LOGOUT DIALOG */}
-      {confirmLogout && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setConfirmLogout(false)}
-          />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                <AlertTriangle size={18} className="text-red-400" />
-              </div>
-              <h3 className="font-semibold">Đăng xuất</h3>
-            </div>
-            <p className="text-gray-400 text-sm mb-6">
-              Bạn có muốn đăng xuất không?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmLogout(false)}
-                className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition"
-              >
-                Đăng xuất
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
-        <div
-          className="text-2xl font-bold cursor-pointer"
-          onClick={() => navigate("/")}
-        >
-          PHONEZONE
-        </div>
-        <div className="flex gap-8 items-center text-gray-300">
-          <Link to="/" className="hover:text-white transition">
-            Trang chủ
-          </Link>
-          <Link to="/product" className="hover:text-white transition">
-            Sản phẩm
-          </Link>
-          <Link to="/blog" className="text-white font-medium transition">
-            Bài viết
-          </Link>
-        </div>
-        <div className="flex gap-5 items-center text-gray-300">
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="text-gray-300 hover:text-white transition"
-          >
-            <Search size={20} />
-          </button>
-          <button
-            onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")}
-            className="relative"
-          >
-            <ShoppingCart className="hover:text-white transition" size={22} />
-            {totalCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                {totalCount > 9 ? "9+" : totalCount}
-              </span>
-            )}
-          </button>
-          {user ? (
-            <div className="relative" ref={dropdownRef}>
-              <button
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-2 hover:text-white transition"
-              >
-                {user.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                    <User size={16} />
-                  </div>
-                )}
-                <ChevronDown
-                  size={14}
-                  className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {dropdownOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
-                    {user.avatar ? (
-                      <img
-                        src={user.avatar}
-                        alt=""
-                        className="w-9 h-9 rounded-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
-                      />
-                    ) : (
-                      <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
-                        <User size={16} />
-                      </div>
-                    )}
-                    <div className="overflow-hidden">
-                      <p className="text-sm font-medium truncate">
-                        {user.fullName}
-                      </p>
-                      <p className="text-xs text-white/40 truncate">
-                        {user.email}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setDropdownOpen(false);
-                      navigate("/information");
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition"
-                  >
-                    <Settings size={15} /> Tài khoản
-                  </button>
-                  <div className="h-px bg-white/5 mx-3" />
-                  <button
-                    onClick={() => {
-                      setDropdownOpen(false);
-                      setConfirmLogout(true);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition"
-                  >
-                    <LogOut size={15} /> Đăng xuất
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => navigate("/login")}>
-              <User className="hover:text-white transition" size={22} />
-            </button>
-          )}
-        </div>
-      </nav>
+      <Navbar />
 
       {/* ── Main content ── */}
       <div className="pt-24 pb-16 px-8 max-w-5xl mx-auto">
 
         {/* BANNER */}
         <div className="mb-8">
-          <BannerSlider height="h-[300px]" className="w-full" />
+          <BannerSlider height="h-[300px]" className="w-full" page="blog" />
         </div>
 
         {/* SEARCH BAR — full width, prominent */}

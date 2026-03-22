@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
+import "./animations.css";
+import Navbar from "./Navbar";
 import { useNavigate } from "react-router-dom";
 import {
   ShoppingCart, X, Trash2, Plus, Minus, Tag,
@@ -6,10 +8,8 @@ import {
   User, LogOut, Settings, ChevronDown, AlertTriangle,
   Ticket, Info, Sparkles, ChevronUp, BadgePercent, Zap, Search
 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { SearchModal } from "./Searchbar";
 import Footer from "./Footer";
-import { isLoggedIn, clearSession, authFetch, getAuthHeadersFormData, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
+import { authFetch, getAuthHeadersFormData, AUTH_REDIRECTED, checkAndHandleExpiry } from "./authUtils";
 
 import { API } from "./config";  
 
@@ -378,7 +378,7 @@ function CartPopup() {
               <button onClick={() => {
                 setShow(false);
                 if (checkAndHandleExpiry("user")) return;
-                if (!isLoggedIn()) { navigate("/login"); return; }
+                if (!localStorage.getItem("auth_token_user")) { navigate("/login"); return; }
                 navigate("/cart");
               }} className="w-full mt-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition focus:outline-none">
                 Thanh toán ({selectedItems.length} sản phẩm)
@@ -400,7 +400,7 @@ function VoucherNotApplicablePopup({ voucher, applicableItems, allSelectedItems,
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm pz-backdrop" onClick={onClose} />
       <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-[420px] shadow-2xl max-h-[80vh] overflow-y-auto">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -586,12 +586,7 @@ export default function CartPage() {
     getDiscountedPrice, totalCount, calcDiscount, clearCart,
   } = useCart();
 
-  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "null"));
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [confirmLogout, setConfirmLogout] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const dropdownRef = useRef(null);
 
   // Voucher states
   const [vInput, setVInput] = useState(voucher?.code || "");
@@ -611,21 +606,6 @@ export default function CartPage() {
   const [bestSuggestion, setBestSuggestion] = useState(null);
 
   const allSelected = items.length > 0 && items.every((i) => i.selected);
-
-  // Sync user
-  useEffect(() => {
-    const sync = () => setUser(JSON.parse(localStorage.getItem("user") || "null"));
-    window.addEventListener("storage", sync);
-    window.addEventListener("focus", sync);
-    window.addEventListener("userUpdated", sync);
-    return () => { window.removeEventListener("storage", sync); window.removeEventListener("focus", sync); window.removeEventListener("userUpdated", sync); };
-  }, []);
-
-  useEffect(() => {
-    const fn = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false); };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, []);
 
   useEffect(() => {
     if (selectedItems.length === 0) { setVoucherList([]); setBestSuggestion(null); return; }
@@ -652,28 +632,12 @@ export default function CartPage() {
     setTimeout(() => setVToast(null), 3500);
   };
 
-  const handleLogout = () => { clearSession("user"); setConfirmLogout(false); sessionStorage.setItem("logout_toast", "Đã đăng xuất thành công!"); navigate("/login"); };
-
-  const applyVoucherObj = (v, force = false) => {
-    if (!force) {
-      const notApplicable = selectedItems.filter(i => !voucherAppliesToItem(v, i));
-      if (notApplicable.length > 0 && selectedItems.filter(i => voucherAppliesToItem(v, i)).length > 0) {
-        setNotApplicablePopup({ voucher: v });
-        return;
-      }
-      if (notApplicable.length === selectedItems.length) {
-        showToast("error", `Voucher "${v.code}" không áp dụng cho sản phẩm đã chọn`);
-        return;
-      }
-    }
+  const applyVoucherObj = (v, showToastMsg = true) => {
     const disc = calcVoucherDiscount(v, selectedItems);
-    if (disc <= 0 && !force) {
-      showToast("error", `Voucher "${v.code}" không áp dụng được`);
-      return;
-    }
-    setVoucher(v); setVInput(v.code); setVErr("");
-    setShowVList(false); setNotApplicablePopup(null); setBestSuggestion(null);
-    showToast("success", `✓ Áp dụng "${v.code}" — Giảm ${disc.toLocaleString("vi-VN")}đ`);
+    setVoucher(v);
+    setVErr("");
+    setNotApplicablePopup(null);
+    if (showToastMsg) showToast("success", `✓ "${v.code}" — Giảm ${disc.toLocaleString("vi-VN")}đ`);
   };
 
   const applyVoucher = async () => {
@@ -715,7 +679,7 @@ export default function CartPage() {
       {confirmModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)} />
-          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+          <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl pz-modal-box">
             <p className="text-sm text-white/80 mb-5 text-center">{confirmModal.message}</p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm border border-white/10 transition">Hủy</button>
@@ -758,82 +722,8 @@ export default function CartPage() {
         />
       )}
 
-      {/* LOGOUT DIALOG */}
-      {confirmLogout && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmLogout(false)} />
-          <div className="relative bg-[#161616] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center"><AlertTriangle size={18} className="text-red-400" /></div>
-              <h3 className="font-semibold">Đăng xuất</h3>
-            </div>
-            <p className="text-gray-400 text-sm mb-6">Bạn có muốn đăng xuất không?</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm transition border border-white/10 focus:outline-none">Hủy</button>
-              <button onClick={handleLogout} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-medium transition focus:outline-none">Đăng xuất</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-
       {/* NAVBAR */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-10 py-4 backdrop-blur-md bg-black/70 border-b border-white/10">
-        <div className="text-2xl font-bold cursor-pointer" onClick={() => navigate("/")}>PHONEZONE</div>
-        <div className="flex gap-8 items-center text-gray-300">
-          <Link to="/" className="hover:text-white transition">Trang chủ</Link>
-          <Link to="/product" className="hover:text-white transition">Sản phẩm</Link>
-          <Link to="/blog" className="hover:text-white transition">Bài viết</Link>
-        </div>
-        <div className="flex gap-5 items-center text-gray-300">
-          {/* SEARCH BUTTON */}
-          <button onClick={() => setSearchOpen(true)} className="text-gray-300 hover:text-white transition focus:outline-none">
-            <Search size={20} />
-          </button>
-
-          <button onClick={() => navigate(isLoggedIn() ? "/cart" : "/login")} className="relative focus:outline-none">
-            <ShoppingCart className="hover:text-white transition" size={22} />
-            {totalCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                {totalCount > 9 ? "9+" : totalCount}
-              </span>
-            )}
-          </button>
-          {user ? (
-            <div className="relative" ref={dropdownRef}>
-              <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center gap-2 hover:text-white transition focus:outline-none">
-                {user.avatar
-                  ? <img src={user.avatar} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white/20" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                  : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
-                <ChevronDown size={14} className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-              {dropdownOpen && (
-                <div className="absolute right-0 top-12 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
-                    {user.avatar
-                      ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                      : <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><User size={16} /></div>}
-                    <div className="overflow-hidden">
-                      <p className="text-sm font-medium truncate">{user.fullName}</p>
-                      <p className="text-xs text-white/40 truncate">{user.email}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => { setDropdownOpen(false); navigate("/information"); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 transition focus:outline-none">
-                    <Settings size={15} /> Tài khoản
-                  </button>
-                  <div className="h-px bg-white/5 mx-3" />
-                  <button onClick={() => { setDropdownOpen(false); setConfirmLogout(true); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition focus:outline-none">
-                    <LogOut size={15} /> Đăng xuất
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => navigate("/login")}><User className="hover:text-white transition focus:outline-none" size={22} /></button>
-          )}
-        </div>
-      </nav>
+      <Navbar />
 
       {/* PAGE CONTENT */}
       <div className="pt-20 px-8 pb-10 max-w-6xl mx-auto">
@@ -1091,7 +981,7 @@ export default function CartPage() {
                   onClick={() => {
                     if (selectedItems.length === 0) return;
                     if (checkAndHandleExpiry("user")) return;
-                    if (!isLoggedIn()) { navigate("/login"); return; }
+                    if (!localStorage.getItem("auth_token_user")) { navigate("/login"); return; }
                     navigate("/payment");
                   }}
                   disabled={selectedItems.length === 0}
@@ -1109,94 +999,8 @@ export default function CartPage() {
     </div>
   );
 }
-// ── Featured Products Section for Cart ─────────────────────────
-function FeaturedCard({ p, variants, dv, comboLabel, colors, basePrice, finalPrice, hasDisc, bestVoucher, navigate }) {
-  const { addItem } = useCart();
-  const [cartAnim, setCartAnim] = useState(false);
-  const handleAddToCart = (e) => {
-    e.stopPropagation();
-    if (!dv) return;
-    addItem(p, dv, 1);
-    setCartAnim(true);
-    setTimeout(() => setCartAnim(false), 600);
-  };
-  return (
-    <article
-      key={p.id}
-      onClick={() => navigate(`/product/${p.id}`)}
-      className="flex flex-col rounded-2xl overflow-hidden transition-all duration-300
-        hover:-translate-y-0.5 cursor-pointer
-        bg-[#00000001] backdrop-blur-[2px]
-        shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_1px_0_0_rgba(255,255,255,0.32),inset_0_-1px_1px_rgba(0,0,0,0.13),inset_-1px_0_1px_rgba(0,0,0,0.11)]
-        hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_1px_0_0_rgba(255,255,255,0.48),inset_0_-1px_1px_rgba(0,0,0,0.20),inset_-1px_0_1px_rgba(0,0,0,0.18),0_8px_32px_rgba(0,0,0,0.4)]"
-    >
-      <div className="w-full h-28 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative overflow-hidden">
-        {(dv?.image || p.image)
-          ? <img src={dv?.image || p.image} alt={p.name} className="w-full h-full object-contain p-2" />
-          : <Package size={24} className="text-white/10" />}
-        {hasDisc && bestVoucher && (
-          <div className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full leading-tight">
-            {bestVoucher.type === "percent" ? `-${bestVoucher.value}%` : `-${(basePrice - finalPrice).toLocaleString("vi-VN")}đ`}
-          </div>
-        )}
-      </div>
-      <div className="flex flex-col gap-1.5 p-2.5">
-        <h3 className="font-semibold text-white text-xs leading-snug line-clamp-2 hover:text-orange-400 transition">
-          {p.name}
-        </h3>
-        {comboLabel && (
-          <span className="inline-block px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9px] font-semibold text-white/50 w-fit">
-            {comboLabel}
-          </span>
-        )}
-        {colors.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {colors.map(col => {
-              const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
-              return (
-                <span key={col} title={!hasStock ? `${col} - Hết hàng` : col}
-                  className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
-                    ${!hasStock ? "bg-white/[0.02] border-white/5 text-white/20 line-through" : "bg-white/5 border-white/10 text-white/50"}`}>
-                  {col}
-                </span>
-              );
-            })}
-          </div>
-        )}
-        <div className="flex items-end justify-between mt-auto pt-1 gap-1">
-          <div className="min-w-0">
-            {hasDisc && (
-              <p className="text-[#ff3b30]/40 text-[9px] line-through leading-none">
-                {basePrice.toLocaleString("vi-VN")}đ
-              </p>
-            )}
-            <p className="font-bold text-sm leading-tight truncate text-[#ff3b30]">
-              {finalPrice ? finalPrice.toLocaleString("vi-VN") + "đ" : "Liên hệ"}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={handleAddToCart}
-              title="Thêm vào giỏ hàng"
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-white transition focus:outline-none
-                ${cartAnim ? "bg-blue-600 scale-110" : "bg-blue-500 hover:bg-blue-600"}`}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-              </svg>
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); navigate(`/product/${p.id}`); }}
-              className="shrink-0 h-7 px-2.5 rounded-full text-white text-[10px] font-medium bg-orange-500 hover:bg-orange-600 transition focus:outline-none">
-              Mua
-            </button>
-          </div>
-        </div>
-      </div>
-    </article>
-  );
-}
 
+// ── Featured Products Section for Cart ─────────────────────────
 function FeaturedProductsSection({ navigate }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1320,7 +1124,6 @@ function FeaturedProductsSection({ navigate }) {
                     })}
                   </div>
                 )}
-                {/* Rating — chiều cao cố định */}
                 <div className="h-5 flex items-center">
                   {p.rating_avg > 0 && (
                     <div className="flex items-center gap-0.5">

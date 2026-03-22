@@ -20,6 +20,7 @@ urlpatterns = [
     path('staff/list/',                  views.list_staff),
     path('staff/create/',                views.create_staff),
     path('staff/update-role/',           views.update_staff_role),
+    path('staff/delete/',                views.delete_staff),
     path('staff/change-password/',       views.change_staff_password),
     path('staff/upload-avatar/',         views.upload_staff_avatar),
     path('staff/<int:staff_id>/',        views.get_staff),
@@ -29,6 +30,7 @@ urlpatterns = [
     path('category/list/',               views.list_categories),
     path('product/category/create/',     views.create_category),
     path('product/category/update/',     views.update_category),
+    path('product/category/delete/',     views.delete_category),
     path('product/list/',                views.list_products),
     path('product/create/',              views.create_product),
     path('product/delete/',              views.delete_product),
@@ -37,6 +39,7 @@ urlpatterns = [
     path('product/update-variant/',      views.update_variant),
     path('product/add-variants/',        views.add_variants),
     path('product/delete-image/',        views.delete_product_image),
+    path('product/delete-variant/',      views.delete_variant),
     path('product/set-primary-image/',   views.set_primary_image),
     path('product/<int:product_id>/variants/', views.get_product_variants),
     path('product/<int:product_id>/detail/',   views.get_product_detail),
@@ -51,6 +54,9 @@ urlpatterns = [
     path('voucher/create/',              views.create_voucher),
     path('voucher/apply/',               views.apply_voucher),
     path('voucher/deactivate/',          views.deactivate_voucher),
+    path('voucher/activate/',            views.activate_voucher),
+    path('voucher/update/',              views.update_voucher),
+    path('voucher/delete/',              views.delete_voucher),
     path('voucher/best/',                views.get_best_voucher),
     path('voucher/best-for-cart/',       views.get_best_voucher_for_cart),
     path('voucher/best-for-product/',    views.get_best_voucher_for_product),
@@ -97,6 +103,15 @@ urlpatterns = [
     # Comment
     path('comment/list/',         views.list_comments),
     path('comment/create/',       views.create_comment),
+    path('comment/update/',       views.update_comment),
+
+    # Toggle active/inactive
+    path('category/toggle/',             views.toggle_category),
+    path('product/toggle/',              views.toggle_product),
+    path('variant/toggle/',              views.toggle_variant),
+    path('post/toggle/',                 views.toggle_post),
+    path('banner/toggle/',               views.toggle_banner),
+
     path('comment/delete/',       views.delete_comment),
 
     # Like

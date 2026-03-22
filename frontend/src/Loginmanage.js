@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import "./animations.css";
 import { Eye, EyeOff } from "lucide-react";
 import bg from "./Image/z7570039080822_f06fa6384704bb9b43c3e63fae7c17cf.jpg";
 import { useNavigate } from "react-router-dom";
@@ -90,9 +91,9 @@ export default function Loginmanage() {
         <div className="w-1/2">
           <img src={bg} alt="bg" className="w-full h-full object-cover" />
         </div>
-        <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col items-center justify-center px-20">
+        <div className="w-1/2 bg-black/40 backdrop-blur-xl flex flex-col items-center justify-center px-20 pz-slideleft">
           <div className="mb-8 text-center">
-            <h1 className="text-2xl font-bold text-white mb-1">Quản trị viên</h1>
+            <h1 className="text-2xl font-bold text-white mb-1 pz-fadedown pz-d1">Quản trị viên</h1>
             <p className="text-gray-400 text-sm">Đăng nhập để truy cập trang quản lý</p>
           </div>
 
