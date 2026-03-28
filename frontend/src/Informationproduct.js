@@ -52,10 +52,9 @@ function SuggestedProductCard({ p, onNavigate, onAddCart, onCompare, compareList
   const currentImg = variantImgs.length > 0 ? variantImgs[slideIdx % variantImgs.length] : (p.image || null);
 
   const dv       = variants.length > 0
-    ? [...activeVars].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
+    ? [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0]
     : null;
-  const activeVars = variants.filter(v => v.is_active !== false);
-  const rColors  = [...new Set(activeVars.map(v => v.color).filter(Boolean))];
+  const rColors  = [...new Set(variants.map(v => v.color).filter(Boolean))];
   const rCombo   = dv ? [dv.ram, dv.storage].filter(Boolean).join(" · ") : null;
 
   return (
@@ -107,7 +106,7 @@ function SuggestedProductCard({ p, onNavigate, onAddCart, onCompare, compareList
         {rColors.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {rColors.map(col => {
-              const hasStock = activeVars.some(v => v.color === col && (v.stock ?? 1) > 0);
+              const hasStock = variants.some(v => v.color === col && (v.stock ?? 1) > 0);
               return (
                 <span key={col}
                   className={`px-1.5 py-0.5 rounded text-[9px] border font-medium
@@ -863,7 +862,6 @@ export default function InformationProduct() {
   const [activeImg,      setActiveImg]      = useState(0);
   const [activeTab,      setActiveTab]      = useState("info");
   const [productContent, setProductContent] = useState([]);
-  const contentSectionRef = useRef(null);
   const [qty,            setQty]            = useState(1);
   const [related,        setRelated]        = useState([]);
   const [activeVoucherList, setActiveVoucherList] = useState([]);
@@ -877,11 +875,10 @@ export default function InformationProduct() {
   const [selColor,   setSelColor]   = useState(null);
   const [selCombo,   setSelCombo]   = useState(null);
 
-  const activeVariants = variants.filter(v => v.is_active !== false);
-  const allColors = [...new Set(activeVariants.map(v => v.color).filter(Boolean))];
+  const allColors = [...new Set(variants.map(v => v.color).filter(Boolean))];
 
   const allComboMap = {};
-  for (const v of activeVariants) {
+  for (const v of variants) {
     if (!v.price) continue;
     const key = `${v.ram || ""}|${v.storage || ""}`;
     if (!allComboMap[key] || parseFloat(v.price) < parseFloat(allComboMap[key].price)) {
@@ -905,15 +902,15 @@ export default function InformationProduct() {
     if (!variants.length) return;
     let match = null;
     if (selColor && selCombo) {
-      match = activeVariants.find(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      match = variants.find(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === selCombo);
     } else if (selCombo) {
-      const candidates = activeVariants.filter(v => `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      const candidates = variants.filter(v => `${v.ram || ""}|${v.storage || ""}` === selCombo);
       match = candidates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
     } else if (selColor) {
-      const candidates = activeVariants.filter(v => v.color === selColor);
+      const candidates = variants.filter(v => v.color === selColor);
       match = candidates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
     } else {
-      match = [...activeVariants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0];
+      match = [...variants].sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0))[0];
     }
     if (match) {
       setSelectedVariant(match);
@@ -937,7 +934,7 @@ export default function InformationProduct() {
     if (selColor === col) { setSelColor(null); return; }
     setSelColor(col);
     if (selCombo) {
-      const ok = activeVariants.some(v => v.color === col && `${v.ram || ""}|${v.storage || ""}` === selCombo);
+      const ok = variants.some(v => v.color === col && `${v.ram || ""}|${v.storage || ""}` === selCombo);
       if (!ok) setSelCombo(null);
     }
   };
@@ -946,7 +943,7 @@ export default function InformationProduct() {
     if (selCombo === comboKey) { setSelCombo(null); return; }
     setSelCombo(comboKey);
     if (selColor) {
-      const ok = activeVariants.some(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === comboKey);
+      const ok = variants.some(v => v.color === selColor && `${v.ram || ""}|${v.storage || ""}` === comboKey);
       if (!ok) setSelColor(null);
     }
   };
@@ -1398,7 +1395,7 @@ export default function InformationProduct() {
               { key: "specs",  label: "Thông tin sản phẩm" },
               { key: "review", label: "Đánh giá" },
             ].map(({ key, label }) => (
-              <button key={key} onClick={() => { setActiveTab(key); if (key === "info") setTimeout(() => contentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
+              <button key={key} onClick={() => setActiveTab(key)}
                 className={`px-5 py-3 text-sm font-medium transition border-b-2 -mb-px
                   ${activeTab === key ? "text-orange-400 border-orange-500" : "text-white/40 border-transparent hover:text-white"}`}>
                 {label}
@@ -1407,7 +1404,7 @@ export default function InformationProduct() {
           </div>
 
           {activeTab === "info" && (
-            <div className="w-full max-w-3xl mx-auto" ref={contentSectionRef}>
+            <div className="w-full max-w-3xl mx-auto">
               {productContent.length > 0
                 ? <BlockRenderer blocks={productContent} />
                 : product.description

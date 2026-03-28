@@ -206,7 +206,7 @@ export default function Product() {
 
       {/* BANNER */}
       <div className="pt-20 px-10 pb-4 max-w-7xl mx-auto">
-        <BannerSlider height="h-[340px]" className="w-full" />
+        <BannerSlider height="h-[340px]" className="w-full" page="product" />
       </div>
 
       {/* CONTENT */}

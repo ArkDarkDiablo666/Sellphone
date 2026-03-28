@@ -728,7 +728,13 @@ def upload_avatar(request):
 def get_customer_addresses(request, customer_id):
     from .models import CustomerAddress
     addrs = CustomerAddress.objects.filter(CustomerID=customer_id)
-    return Response({"addresses": [{"id": a.AddressID, "name": a.Name, "phone": a.Phone, "address": a.Address} for a in addrs]}, status=status.HTTP_200_OK)
+    def addr_dict(a):
+        return {"id": a.AddressID, "name": a.Name, "phone": a.Phone, "address": a.Address,
+                "province_code": getattr(a,"ProvinceCode",""), "province_name": getattr(a,"ProvinceName",""),
+                "district_code": getattr(a,"DistrictCode",""), "district_name": getattr(a,"DistrictName",""),
+                "ward_code": getattr(a,"WardCode",""),         "ward_name": getattr(a,"WardName",""),
+                "is_default": getattr(a,"IsDefault",False)}
+    return Response({"addresses": [addr_dict(a) for a in addrs]}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -738,12 +744,23 @@ def create_customer_address(request):
     customer_id = request.data.get('customer_id')
     name        = request.data.get('name', '').strip()
     phone       = request.data.get('phone', '').strip()
-    address     = request.data.get('address', '').strip()
+    address       = request.data.get('address', '').strip()
+    province_code = request.data.get('province_code', '').strip()
+    province_name = request.data.get('province_name', '').strip()
+    district_code = request.data.get('district_code', '').strip()
+    district_name = request.data.get('district_name', '').strip()
+    ward_code     = request.data.get('ward_code', '').strip()
+    ward_name     = request.data.get('ward_name', '').strip()
+    is_default    = request.data.get('is_default', False)
     if not all([customer_id, name, phone, address]):
         return Response({"message": "Thiếu thông tin"}, status=status.HTTP_400_BAD_REQUEST)
     customer = Customer.objects.filter(CustomerID=customer_id).first()
     if not customer: return Response({"message": "Không tìm thấy tài khoản"}, status=status.HTTP_404_NOT_FOUND)
-    a = CustomerAddress.objects.create(CustomerID=customer, Name=name, Phone=phone, Address=address)
+    if is_default: CustomerAddress.objects.filter(CustomerID=customer).update(IsDefault=False)
+    a = CustomerAddress.objects.create(CustomerID=customer, Name=name, Phone=phone, Address=address,
+        ProvinceCode=province_code, ProvinceName=province_name,
+        DistrictCode=district_code, DistrictName=district_name,
+        WardCode=ward_code, WardName=ward_name, IsDefault=bool(is_default))
     _write_customer_log(request, customer_id, "create_address", f"Address: {address}")
     return Response({"message": "Đã lưu địa chỉ", "id": a.AddressID}, status=status.HTTP_201_CREATED)
 
@@ -758,6 +775,13 @@ def update_customer_address(request):
     a.Name    = request.data.get('name',    a.Name).strip()
     a.Phone   = request.data.get('phone',   a.Phone).strip()
     a.Address = request.data.get('address', a.Address).strip()
+    if 'province_code' in request.data: a.ProvinceCode = request.data['province_code']; a.ProvinceName = request.data.get('province_name','')
+    if 'district_code' in request.data: a.DistrictCode = request.data['district_code']; a.DistrictName = request.data.get('district_name','')
+    if 'ward_code'     in request.data: a.WardCode     = request.data['ward_code'];     a.WardName     = request.data.get('ward_name','')
+    is_default = request.data.get('is_default')
+    if is_default is not None:
+        if bool(is_default): CustomerAddress.objects.filter(CustomerID=a.CustomerID).update(IsDefault=False)
+        a.IsDefault = bool(is_default)
     a.save()
     _write_customer_log(request, request.data.get("customer_id"), "update_address", f"AddressID: {addr_id}")
     return Response({"message": "Đã cập nhật địa chỉ"}, status=status.HTTP_200_OK)

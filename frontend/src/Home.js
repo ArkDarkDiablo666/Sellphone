@@ -456,7 +456,7 @@ export default function Home() {
 
         {/* BANNER */}
         <div className="max-w-5xl mx-auto px-10 pb-12">
-          <BannerSlider height="h-[420px]" className="w-full" />
+          <BannerSlider height="h-[420px]" className="w-full" page="home" />
         </div>
 
         {/* FEATURES */}

@@ -471,13 +471,39 @@ export default function Payment() {
     if (selectedItems.length === 0) { navigate("/cart"); return; }
     authFetch(`${API}/api/customer/${user.id}/addresses/`)
       .then((r) => { if (!r || r === AUTH_REDIRECTED) return; return r.json(); })
-      .then((d) => { if (d) setAddresses(d.addresses || []); }).catch(() => {});
+      .then((d) => {
+        if (d) {
+          setAddresses(d.addresses || []);
+          const def = (d.addresses || []).find(a => a.is_default);
+          if (def) {
+            setSelectedAddr(def.id);
+            setForm((p) => ({ ...p, name: def.name, phone: def.phone }));
+            setAddrObj({
+              detail:       def.address       || "",
+              provinceCode: def.province_code || "",
+              provinceName: def.province_name || "",
+              districtCode: def.district_code || "",
+              districtName: def.district_name || "",
+              wardCode:     def.ward_code     || "",
+              wardName:     def.ward_name     || "",
+            });
+          }
+        }
+      }).catch(() => {});
   }, []); // eslint-disable-line
 
   const fillAddress = (addr) => {
     setSelectedAddr(addr.id);
     setForm((p) => ({ ...p, name: addr.name, phone: addr.phone }));
-    setAddrObj({ ...emptyAddr(), detail: addr.address });
+    setAddrObj({
+      detail:       addr.address       || "",
+      provinceCode: addr.province_code || "",
+      provinceName: addr.province_name || "",
+      districtCode: addr.district_code || "",
+      districtName: addr.district_name || "",
+      wardCode:     addr.ward_code     || "",
+      wardName:     addr.ward_name     || "",
+    });
   };
 
   const validate = () => {
@@ -564,17 +590,29 @@ export default function Payment() {
     const fullAddress = buildFullAddress(ao);
     try {
       const url  = editAddr ? `${API}/api/customer/address/update/` : `${API}/api/customer/address/create/`;
+      const addrPayload = {
+        name, phone, address: fullAddress,
+        province_code: ao.provinceCode||"", province_name: ao.provinceName||"",
+        district_code: ao.districtCode||"", district_name: ao.districtName||"",
+        ward_code:     ao.wardCode||"",     ward_name:     ao.wardName||"",
+        is_default:    addrForm.isDefault||false,
+      };
       const body = editAddr
-        ? { name, phone, address: fullAddress, id: editAddr.id, customer_id: user.id }
-        : { name, phone, address: fullAddress, customer_id: user.id };
+        ? { ...addrPayload, id: editAddr.id, customer_id: user.id }
+        : { ...addrPayload, customer_id: user.id };
       const res  = await authFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res || res === AUTH_REDIRECTED) return;
       const data = await res.json();
+      const savedAddr = { name, phone, address: fullAddress,
+        province_code: ao.provinceCode||"", province_name: ao.provinceName||"",
+        district_code: ao.districtCode||"", district_name: ao.districtName||"",
+        ward_code: ao.wardCode||"", ward_name: ao.wardName||"",
+        is_default: addrForm.isDefault||false };
       if (res.ok) {
-        if (editAddr) setAddresses((p) => p.map((a) => a.id === editAddr.id ? { ...a, name, phone, address: fullAddress } : a));
-        else setAddresses((p) => [...p, { name, phone, address: fullAddress, id: data.id }]);
+        if (editAddr) setAddresses((p) => p.map((a) => a.id === editAddr.id ? { ...a, ...savedAddr } : addrForm.isDefault ? { ...a, is_default: false } : a));
+        else setAddresses((p) => [...p, { ...savedAddr, id: data.id }]);
         setShowAddAddr(false); setEditAddr(null);
-        setAddrForm({ name: "", phone: "", addrObj: emptyAddr() });
+        setAddrForm({ name: "", phone: "", addrObj: emptyAddr(), isDefault: false });
         toast.success("Đã lưu địa chỉ!");
       } else toast.error(data.message);
     } catch { toast.error("Lỗi kết nối"); }
@@ -813,13 +851,18 @@ export default function Payment() {
                         borderColor: selectedAddr === addr.id ? "#ff9500" : "rgba(255,255,255,0.1)",
                         background:  selectedAddr === addr.id ? "rgba(255,149,0,0.08)" : "transparent",
                       }}>
-                      <p className="text-sm font-medium">{addr.name} · {addr.phone}</p>
-                      <p className="text-xs text-white/40 mt-1 line-clamp-2">{addr.address}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{addr.name} · {addr.phone}</p>
+                        {addr.is_default&&<span className="text-[9px] px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/20 font-medium">Mặc định</span>}
+                      </div>
+                      <p className="text-xs text-white/30 mt-1 line-clamp-2">
+                        {[addr.address, addr.ward_name, addr.district_name, addr.province_name].filter(Boolean).join(", ")}
+                      </p>
                       <div className="flex gap-3 mt-2">
                         <button onClick={(e) => {
                           e.stopPropagation();
                           setEditAddr(addr);
-                          setAddrForm({ name: addr.name, phone: addr.phone, addrObj: { ...emptyAddr(), detail: addr.address } });
+                          setAddrForm({ name: addr.name, phone: addr.phone, isDefault: addr.is_default||false, addrObj: { detail: addr.address||"", provinceCode: addr.province_code||"", provinceName: addr.province_name||"", districtCode: addr.district_code||"", districtName: addr.district_name||"", wardCode: addr.ward_code||"", wardName: addr.ward_name||"" } });
                           setShowAddAddr(true);
                         }} className="flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300 transition focus:outline-none">
                           <Pencil size={10} /> Sửa
@@ -841,7 +884,7 @@ export default function Payment() {
                 <p className="text-sm font-semibold">Địa chỉ nhận hàng</p>
                 <button onClick={() => {
                   setShowAddAddr(!showAddAddr); setEditAddr(null);
-                  setAddrForm({ name: "", phone: "", addrObj: emptyAddr() });
+                  setAddrForm({ name: "", phone: "", addrObj: emptyAddr(), isDefault: false });
                 }} className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition focus:outline-none">
                   <Plus size={12} /> Lưu địa chỉ mới
                 </button>
@@ -859,6 +902,12 @@ export default function Payment() {
                     onChange={(e) => setAddrForm((p) => ({ ...p, phone: e.target.value }))}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-500/50 transition" />
                   <AddressForm value={addrForm.addrObj} onChange={(v) => setAddrForm((p) => ({ ...p, addrObj: v }))} />
+                  <label className="flex items-center gap-2 text-xs text-white/50 cursor-pointer select-none">
+                    <input type="checkbox" checked={addrForm.isDefault||false}
+                      onChange={e=>setAddrForm(p=>({...p,isDefault:e.target.checked}))}
+                      className="accent-orange-500 w-3.5 h-3.5 cursor-pointer"/>
+                    Đặt làm địa chỉ mặc định
+                  </label>
                   <div className="flex gap-2">
                     <button onClick={saveAddr}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-sm font-medium transition focus:outline-none">

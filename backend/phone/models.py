@@ -287,11 +287,18 @@ class Voucher(models.Model):
 
 
 class CustomerAddress(models.Model):
-    AddressID  = models.AutoField(primary_key=True)
-    CustomerID = models.ForeignKey('Customer', on_delete=models.CASCADE, db_column='CustomerID')
-    Name       = models.CharField(max_length=100)
-    Phone      = models.CharField(max_length=20)
-    Address    = models.CharField(max_length=300)
+    AddressID    = models.AutoField(primary_key=True)
+    CustomerID   = models.ForeignKey('Customer', on_delete=models.CASCADE, db_column='CustomerID')
+    Name         = models.CharField(max_length=100)
+    Phone        = models.CharField(max_length=20)
+    Address      = models.CharField(max_length=300)   # địa chỉ chi tiết (số nhà, đường)
+    ProvinceCode = models.CharField(max_length=20, blank=True, default='')
+    ProvinceName = models.CharField(max_length=100, blank=True, default='')
+    DistrictCode = models.CharField(max_length=20, blank=True, default='')
+    DistrictName = models.CharField(max_length=100, blank=True, default='')
+    WardCode     = models.CharField(max_length=20, blank=True, default='')
+    WardName     = models.CharField(max_length=100, blank=True, default='')
+    IsDefault    = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'CustomerAddress'
